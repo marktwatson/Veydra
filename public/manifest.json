@@ -1,0 +1,21 @@
+{
+  "name": "Contractor Portal",
+  "short_name": "Portal",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://vibe.filesafe.space/1785896143476160753/attachments/70e8de35-254d-4365-a8cc-fe2c6acdb517.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
