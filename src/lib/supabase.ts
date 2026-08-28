@@ -1,8 +1,25 @@
 import { createClient } from "@supabase/supabase-js";
+import { APP_CONFIG } from "@/config";
 
-export const supabaseUrl = "https://oosmhtzqdmntlzhheofw.supabase.co";
+// ───────────────────────────────────────────────────────────────────────────
+// Connection resolution — env vars win (Cloudflare), otherwise src/config.ts
+// (AI Studio / local). Edit src/config.ts to repoint at a different project.
+// ───────────────────────────────────────────────────────────────────────────
+export const supabaseUrl =
+  import.meta.env.VITE_SUPABASE_URL || APP_CONFIG.supabaseUrl;
+
 export const supabaseAnonKey =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9vc21odHpxZG1udGx6aGhlb2Z3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY4MDQ3ODQsImV4cCI6MjA5MjM4MDc4NH0.slGFmtfr_cPC8EgKmQzf9ObOa7Sm5QwebqngQO0LAKc";
+  import.meta.env.VITE_SUPABASE_ANON_KEY || APP_CONFIG.supabaseAnonKey;
+
+export const areaId = import.meta.env.VITE_AREA_ID || APP_CONFIG.areaId;
+
+export const areaSlug = import.meta.env.VITE_AREA_SLUG || APP_CONFIG.areaSlug;
+
+export const appUrl = import.meta.env.VITE_APP_URL || APP_CONFIG.appUrl;
+
+// True when we have both a URL and an anon key. When false, main.tsx renders a
+// "Missing Supabase config" screen instead of booting the app.
+export const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
 
 const READ_ONLY_ERROR =
   "Your account is read-only. You can view data but cannot make changes. Contact a Super Admin if you need edit access.";
@@ -25,21 +42,27 @@ function isReadOnlyUser(): boolean {
   return false;
 }
 
-const rawClient = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: true,
-    storageKey: "veydra-auth-v7",
-  },
-  global: {
-    headers: {
-      "Cache-Control": "no-cache, no-store, must-revalidate",
-      Pragma: "no-cache",
-      Expires: "0",
+// Use safe placeholders so createClient never throws when config is missing;
+// main.tsx guards the UI and never reaches the client in that case.
+const rawClient = createClient(
+  supabaseUrl || "https://placeholder.supabase.co",
+  supabaseAnonKey || "placeholder-anon-key",
+  {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: true,
+      storageKey: "veydra-auth-v7",
+    },
+    global: {
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        Pragma: "no-cache",
+        Expires: "0",
+      },
     },
   },
-});
+);
 
 /**
  * Wrap the supabase client so that any write operation (insert/update/upsert/

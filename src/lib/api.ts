@@ -1,4 +1,4 @@
-import { supabase, supabaseUrl, supabaseAnonKey } from "./supabase";
+import { supabase, supabaseUrl, supabaseAnonKey, areaId } from "./supabase";
 import {
   formatDisplayDate,
   DEFAULT_LOGO_URL,
@@ -6824,7 +6824,7 @@ export const api = {
     // Match by THIS instance's project_ref first (the Fleet Manager's self-row),
     // then fall back to is_primary. This is the single source of truth for
     // "which row is this instance's territory" across the royalty module.
-    const SELF_PROJECT_REF = "oosmhtzqdmntlzhheofw";
+    const SELF_PROJECT_REF = areaId;
 
     // Select BOTH payment method columns so the UI can detect a connection
     // regardless of which column the edge function actually wrote to.
@@ -7180,7 +7180,7 @@ export const api = {
     if (owned) return owned;
     // Fallback: THIS instance's own territory — match by project_ref first
     // (the Fleet Manager's self-row), then is_primary.
-    const SELF_PROJECT_REF = "oosmhtzqdmntlzhheofw";
+    const SELF_PROJECT_REF = areaId;
     const { data: selfRow } = await supabase
       .from("territories")
       .select("*")
@@ -7223,7 +7223,7 @@ export const api = {
     // Match by that exact identifier so we always reuse the row it created —
     // never create a duplicate. (Matching by is_primary alone is unreliable
     // because is_primary can be null/false on older rows.)
-    const SELF_PROJECT_REF = "oosmhtzqdmntlzhheofw";
+    const SELF_PROJECT_REF = areaId;
 
     const calculatedBalance =
       config.remaining_balance !== undefined
@@ -7298,7 +7298,7 @@ export const api = {
   // Link an owner user to the primary territory (single-territory model).
   // Only sets owner_user_id if not already set — does NOT create a new territory.
   async assignTerritoryOwner(userId: string) {
-    const SELF_PROJECT_REF = "oosmhtzqdmntlzhheofw";
+    const SELF_PROJECT_REF = areaId;
 
     // Match by project_ref first (the Fleet Manager's self-row), then is_primary.
     let territory: any = null;

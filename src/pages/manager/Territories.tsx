@@ -1,10 +1,10 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
+import { supabase, supabaseUrl, supabaseAnonKey, areaId } from "@/lib/supabase";
 import { EDGE_FUNCTION_SOURCES } from "@/lib/edge-function-sources";
 
-const THIS_PROJECT_REF = "oosmhtzqdmntlzhheofw";
-const THIS_SUPABASE_URL = "https://oosmhtzqdmntlzhheofw.supabase.co";
+const THIS_PROJECT_REF = areaId;
+const THIS_SUPABASE_URL = supabaseUrl;
 
 const FN_IMPORTS = EDGE_FUNCTION_SOURCES;
 import {
