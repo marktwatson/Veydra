@@ -31,6 +31,7 @@ import ClientFeedback from "@/pages/ClientFeedback";
 import Book from "@/pages/Book";
 import GiftWedding from "@/pages/GiftWedding";
 import ProposalReview from "@/pages/ProposalReview";
+import PaymentPlanApproval from "@/pages/PaymentPlanApproval";
 
 import ManagerDashboard from "@/pages/manager/Dashboard";
 import ManagerWeddings from "@/pages/manager/Weddings";
@@ -60,8 +61,9 @@ import EditorDashboard from "@/pages/editor/Dashboard";
 import EditorInvoices from "@/pages/editor/Invoices";
 import Training from "@/pages/Training";
 import Apply from "@/pages/Apply";
-import RoyaltyManagement from "@/pages/manager/Royalty";
-import OwnerRoyaltyDashboard from "@/pages/owner/RoyaltyDashboard";
+import RoyaltyWithSync from "@/components/RoyaltyWithSync";
+import OwnerRoyaltyWithSync from "@/components/OwnerRoyaltyWithSync";
+import StripePayoutSetup from "@/pages/manager/StripePayoutSetup";
 
 const PageLoader = () => (
   <div className="min-h-screen flex flex-col items-center justify-center bg-muted/30 p-4">
@@ -153,6 +155,15 @@ const queryClient = new QueryClient({
   },
 });
 
+const Mgr = ({ children }: { children: React.ReactNode }) => (
+  <ProtectedRoute requireRole="manager">{children}</ProtectedRoute>
+);
+const MgrOwner = ({ children }: { children: React.ReactNode }) => (
+  <ProtectedRoute requireRole="manager" restrictRoles={["manager"]}>
+    {children}
+  </ProtectedRoute>
+);
+
 const App = () => {
   return (
     <ThemeProvider defaultTheme="system" storageKey="veydra-theme">
@@ -175,6 +186,10 @@ const App = () => {
                 <Route path="/build-proposal" element={<CreateProposal />} />
                 <Route path="/edit-proposal/:id" element={<CreateProposal />} />
                 <Route path="/proposal/:id" element={<ProposalReview />} />
+                <Route
+                  path="/payment-plan/:token"
+                  element={<PaymentPlanApproval />}
+                />
 
                 {/* Contractor Routes */}
                 <Route
@@ -262,209 +277,201 @@ const App = () => {
                 <Route
                   path="/manager"
                   element={
-                    <ProtectedRoute requireRole="manager">
+                    <Mgr>
                       <ManagerDashboard />
-                    </ProtectedRoute>
+                    </Mgr>
                   }
                 />
                 <Route
                   path="/manager/weddings"
                   element={
-                    <ProtectedRoute requireRole="manager">
+                    <Mgr>
                       <ManagerWeddings />
-                    </ProtectedRoute>
+                    </Mgr>
                   }
                 />
                 <Route
                   path="/manager/proposals"
                   element={
-                    <ProtectedRoute requireRole="manager">
+                    <Mgr>
                       <ManagerProposals />
-                    </ProtectedRoute>
+                    </Mgr>
                   }
                 />
                 <Route
                   path="/manager/positions"
                   element={
-                    <ProtectedRoute requireRole="manager">
+                    <Mgr>
                       <ManagerPositions />
-                    </ProtectedRoute>
+                    </Mgr>
                   }
                 />
                 <Route
                   path="/manager/applications"
                   element={
-                    <ProtectedRoute requireRole="manager">
+                    <Mgr>
                       <ManagerApplications />
-                    </ProtectedRoute>
+                    </Mgr>
                   }
                 />
                 <Route
                   path="/manager/assignments"
                   element={
-                    <ProtectedRoute requireRole="manager">
+                    <Mgr>
                       <ManagerAssignments />
-                    </ProtectedRoute>
+                    </Mgr>
                   }
                 />
                 <Route
                   path="/manager/payouts"
                   element={
-                    <ProtectedRoute requireRole="manager">
+                    <Mgr>
                       <ManagerPayouts />
-                    </ProtectedRoute>
+                    </Mgr>
                   }
                 />
                 <Route
                   path="/manager/taxes"
                   element={
-                    <ProtectedRoute requireRole="manager">
+                    <Mgr>
                       <ManagerTaxes />
-                    </ProtectedRoute>
+                    </Mgr>
                   }
                 />
                 <Route
                   path="/manager/payments"
                   element={
-                    <ProtectedRoute requireRole="manager">
+                    <Mgr>
                       <ManagerPaymentAudit />
-                    </ProtectedRoute>
+                    </Mgr>
                   }
                 />
                 <Route
                   path="/manager/accounting"
                   element={
-                    <ProtectedRoute
-                      requireRole="manager"
-                      restrictRoles={["manager"]}
-                    >
+                    <MgrOwner>
                       <ManagerAccounting />
-                    </ProtectedRoute>
+                    </MgrOwner>
                   }
                 />
                 <Route
                   path="/manager/post-production"
                   element={
-                    <ProtectedRoute requireRole="manager">
+                    <Mgr>
                       <PostProductionBoard />
-                    </ProtectedRoute>
+                    </Mgr>
                   }
                 />
                 <Route
                   path="/manager/contractors"
                   element={
-                    <ProtectedRoute requireRole="manager">
+                    <Mgr>
                       <ManagerContractors />
-                    </ProtectedRoute>
+                    </Mgr>
                   }
                 />
                 <Route
                   path="/manager/team"
                   element={
-                    <ProtectedRoute
-                      requireRole="manager"
-                      restrictRoles={["manager"]}
-                    >
+                    <MgrOwner>
                       <ManagerTeam />
-                    </ProtectedRoute>
+                    </MgrOwner>
                   }
                 />
                 <Route
                   path="/manager/messages"
                   element={
-                    <ProtectedRoute requireRole="manager">
+                    <Mgr>
                       <ManagerMessages />
-                    </ProtectedRoute>
+                    </Mgr>
                   }
                 />
                 <Route
                   path="/manager/profile"
                   element={
-                    <ProtectedRoute requireRole="manager">
+                    <Mgr>
                       <ManagerProfile />
-                    </ProtectedRoute>
+                    </Mgr>
                   }
                 />
-
                 <Route
                   path="/manager/growth"
                   element={
-                    <ProtectedRoute requireRole="manager">
+                    <Mgr>
                       <GrowthHub />
-                    </ProtectedRoute>
+                    </Mgr>
                   }
                 />
                 <Route
                   path="/manager/settings"
                   element={
-                    <ProtectedRoute requireRole="manager">
+                    <Mgr>
                       <ManagerSettings />
-                    </ProtectedRoute>
+                    </Mgr>
                   }
                 />
                 <Route
                   path="/manager/leads"
                   element={
-                    <ProtectedRoute
-                      requireRole="manager"
-                      restrictRoles={["manager"]}
-                    >
+                    <MgrOwner>
                       <ManagerLeads />
-                    </ProtectedRoute>
+                    </MgrOwner>
                   }
                 />
                 <Route
                   path="/manager/ad-campaigns"
                   element={
-                    <ProtectedRoute
-                      requireRole="manager"
-                      restrictRoles={["manager"]}
-                    >
+                    <MgrOwner>
                       <ManagerAdCampaigns />
-                    </ProtectedRoute>
+                    </MgrOwner>
                   }
                 />
                 <Route
                   path="/manager/export"
                   element={
-                    <ProtectedRoute requireRole="manager">
+                    <Mgr>
                       <ExportProject />
-                    </ProtectedRoute>
+                    </Mgr>
                   }
                 />
                 <Route
                   path="/manager/territories"
                   element={
-                    <ProtectedRoute
-                      requireRole="manager"
-                      restrictRoles={["manager"]}
-                    >
+                    <MgrOwner>
                       <Territories />
-                    </ProtectedRoute>
+                    </MgrOwner>
                   }
                 />
                 <Route
                   path="/manager/royalty"
                   element={
                     <ProtectedRoute requireRole="manager" superAdminOnly>
-                      <RoyaltyManagement />
+                      <RoyaltyWithSync />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/manager/stripe-payout"
+                  element={
+                    <ProtectedRoute requireRole="manager" superAdminOnly>
+                      <StripePayoutSetup />
                     </ProtectedRoute>
                   }
                 />
                 <Route
                   path="/manager/activity"
                   element={
-                    <ProtectedRoute requireRole="manager">
+                    <Mgr>
                       <ManagerActivityLog />
-                    </ProtectedRoute>
+                    </Mgr>
                   }
                 />
                 <Route
                   path="/manager/changelog"
                   element={
-                    <ProtectedRoute requireRole="manager">
+                    <Mgr>
                       <ManagerChangelog />
-                    </ProtectedRoute>
+                    </Mgr>
                   }
                 />
 
@@ -473,7 +480,7 @@ const App = () => {
                   path="/owner/royalty"
                   element={
                     <ProtectedRoute requireRole="owner">
-                      <OwnerRoyaltyDashboard />
+                      <OwnerRoyaltyWithSync />
                     </ProtectedRoute>
                   }
                 />

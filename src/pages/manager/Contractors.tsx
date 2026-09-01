@@ -93,6 +93,8 @@ import {
   ExternalLink,
   ShieldCheck,
   Bell,
+  Briefcase,
+  Link2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { toast as sonnerToast } from "sonner";
@@ -102,6 +104,8 @@ import { parseRegions } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { StatusBadge } from "@/components/StatusBadge";
+import { IndeedTemplateModal } from "@/components/IndeedTemplateModal";
+import { StageStatusPanel } from "@/components/StageStatusPanel";
 
 function PipelineCard({
   contractor,
@@ -427,6 +431,7 @@ export default function ManagerContractors() {
   const [sendingPortfolioRequest, setSendingPortfolioRequest] = useState(false);
   const [reviewNotes, setReviewNotes] = useState<string>("");
   const [terminatingContractor, setTerminatingContractor] = useState<any>(null);
+  const [indeedModalOpen, setIndeedModalOpen] = useState(false);
 
   const handleSendReminder = async (contractor: any) => {
     try {
@@ -1746,6 +1751,36 @@ export default function ManagerContractors() {
               >
                 <Upload className="mr-2 h-4 w-4" /> Import CSV
               </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setIndeedModalOpen(true)}
+                className="cursor-pointer"
+              >
+                <Briefcase className="mr-2 h-4 w-4" /> Indeed Job Template
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={async () => {
+                  try {
+                    const settings = await api.getPortalSettings();
+                    const baseUrl = (
+                      settings?.app_url || window.location.origin
+                    ).replace(/\/$/, "");
+                    await navigator.clipboard.writeText(`${baseUrl}/apply`);
+                    toast({
+                      title: "Link copied!",
+                      description: `${baseUrl}/apply copied to clipboard.`,
+                    });
+                  } catch {
+                    toast({
+                      variant: "destructive",
+                      title: "Copy failed",
+                      description: "Could not copy to clipboard.",
+                    });
+                  }
+                }}
+                className="cursor-pointer"
+              >
+                <Link2 className="mr-2 h-4 w-4" /> Copy Apply Link
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={async () => {
@@ -2491,18 +2526,13 @@ export default function ManagerContractors() {
 
             {editingContractor && (
               <Tabs
-                defaultValue={
-                  ["applied", "interview", "paperwork"].includes(
-                    editingContractor.status,
-                  )
-                    ? "documents"
-                    : "profile"
-                }
+                defaultValue="stage-status"
                 className="px-6 pb-6 flex-1 overflow-y-auto"
               >
                 <TabsList
-                  className={`grid w-full shrink-0 mb-4 ${["applied", "interview", "paperwork"].includes(editingContractor.status) ? "grid-cols-3" : "grid-cols-5"}`}
+                  className={`grid w-full shrink-0 mb-4 ${["applied", "interview", "paperwork"].includes(editingContractor.status) ? "grid-cols-4" : "grid-cols-6"}`}
                 >
+                  <TabsTrigger value="stage-status">Stage Status</TabsTrigger>
                   {!["applied", "interview", "paperwork"].includes(
                     editingContractor.status,
                   ) && <TabsTrigger value="profile">Profile</TabsTrigger>}
@@ -2515,6 +2545,12 @@ export default function ManagerContractors() {
                 </TabsList>
 
                 <div className="mt-4">
+                  <TabsContent value="stage-status" className="space-y-4 m-0">
+                    <StageStatusPanel
+                      contractor={editingContractor}
+                      onAdvanceStage={handleAdvanceStage}
+                    />
+                  </TabsContent>
                   {!["applied", "interview", "paperwork"].includes(
                     editingContractor.status,
                   ) && (
@@ -3280,6 +3316,11 @@ export default function ManagerContractors() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <IndeedTemplateModal
+        open={indeedModalOpen}
+        onOpenChange={setIndeedModalOpen}
+      />
     </div>
   );
 }

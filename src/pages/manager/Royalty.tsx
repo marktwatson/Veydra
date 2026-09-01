@@ -502,14 +502,6 @@ export default function RoyaltyManagement() {
             variant="outline"
             size="sm"
             className="rounded-full"
-            onClick={() => setSeedOpen(true)}
-          >
-            <DollarSign className="h-4 w-4 mr-2" /> Seed Test Sale
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="rounded-full"
             onClick={() => setEditOpen(true)}
           >
             <Settings className="h-4 w-4 mr-2" /> Edit Settings
@@ -1995,7 +1987,7 @@ function BankSetupForm({
       // UI would keep showing "No payment method" even though Stripe confirmed.
       if (setupIntent?.payment_method) {
         try {
-          await api.connectTerritoryStripe(String(setupIntent.payment_method));
+          await api.connectTerritoryStripe(setupIntent.payment_method);
         } catch (attachErr: any) {
           setError(
             attachErr?.message ||

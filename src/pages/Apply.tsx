@@ -1,8 +1,13 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { DEFAULT_LOGO_URL } from "@/lib/utils";
-import { api, sendOvantaEmail, sendOvantaSms } from "@/lib/api";
-import { supabase } from "@/lib/supabase";
+import { api } from "@/lib/api";
+import { checkEmailConflict } from "@/lib/apply-email-check";
+import { signUpApplicant } from "@/lib/apply-auth";
+import { sendApplicantNotifications } from "@/lib/apply-notifications";
+import { sendPushNotification } from "@/lib/push-api";
+import { ApplySuccessDialog } from "@/components/ApplySuccessDialog";
+import { ApplyInlineError } from "@/components/ApplyInlineError";
 import {
   Card,
   CardContent,
@@ -22,17 +27,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, CheckCircle2, ArrowRight } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
+
+const isAccountExistsError = (msg: string) =>
+  /already (exists|registered|been registered)|doesn't match|password/i.test(
+    msg,
+  );
 
 export default function Apply() {
   const { toast } = useToast();
@@ -41,6 +43,7 @@ export default function Apply() {
   const [isSuccess, setIsSuccess] = useState(false);
   const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
   const [specialty, setSpecialty] = useState("");
+  const [inlineError, setInlineError] = useState<string | null>(null);
 
   const { data: portalSettings, isLoading: isLoadingSettings } = useQuery({
     queryKey: ["portalSettings"],
@@ -61,6 +64,7 @@ export default function Apply() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setInlineError(null);
     if (selectedRegions.length === 0) {
       toast({
         variant: "destructive",
@@ -92,44 +96,20 @@ export default function Apply() {
       const leadWeddings = parseInt(leadWeddingsStr, 10) || 0;
       const isRejected = leadWeddings < 3;
 
-      // Check if email already exists
-      const { data: existingContractor } = await supabase
-        .from("contractors")
-        .select("id")
-        .ilike("email", email)
-        .maybeSingle();
-      const { data: existingEditor } = await supabase
-        .from("editors")
-        .select("id")
-        .ilike("email", email)
-        .maybeSingle();
-      const { data: existingManager } = await supabase
-        .from("managers")
-        .select("id")
-        .ilike("email", email)
-        .maybeSingle();
-
-      if (existingContractor || existingEditor || existingManager) {
-        throw new Error(
-          "An account with this email already exists in our system.",
-        );
+      // Check if email already exists (escaped ILIKE so underscores match literally)
+      const conflict = await checkEmailConflict(email);
+      if (conflict.exists) {
+        const msg = `An account with this email already exists in our system (${conflict.table}). If this is a mistake, contact support.`;
+        setInlineError(msg);
+        return;
       }
 
-      // Create auth user
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+      // Create (or recover an orphaned) auth user
+      const authData = await signUpApplicant(
         email,
         password,
-        options: {
-          data: {
-            full_name: `${firstName} ${lastName}`,
-            role: "contractor",
-          },
-        },
-      });
-
-      if (authError) {
-        throw new Error(authError.message);
-      }
+        `${firstName} ${lastName}`,
+      );
 
       const newContractor = {
         id: authData.user?.id || crypto.randomUUID(),
@@ -177,7 +157,7 @@ export default function Apply() {
         userAgent: navigator.userAgent,
         trackingId: portalSettings?.hl_location_id
           ? "tk_02f0b02f7766475e8e0dd257bf546895"
-          : undefined, // Will be replaced by actual tracking ID if provided
+          : undefined,
         locationId: portalSettings?.hl_location_id,
         sessionId: crypto.randomUUID(),
         properties: {
@@ -207,87 +187,40 @@ export default function Apply() {
       }
 
       // Send Applicant Welcome or Rejected Email / SMS
-      try {
-        const appUrl = (
-          portalSettings?.app_url || window.location.origin
-        ).replace(/\/$/, "");
+      await sendApplicantNotifications({
+        portalSettings,
+        isRejected,
+        firstName,
+        email,
+        companyName,
+        logoUrl,
+      });
 
-        if (isRejected) {
-          if (
-            portalSettings?.email_pipeline_rejected_enabled &&
-            portalSettings?.email_pipeline_rejected_template
-          ) {
-            const subject = (
-              portalSettings.email_pipeline_rejected_subject ||
-              "Application Update"
-            )
-              .replace(/{{company_name}}/g, companyName)
-              .replace(/{{contractor_name}}/g, firstName);
-
-            const content = portalSettings.email_pipeline_rejected_template
-              .replace(/{{company_name}}/g, companyName)
-              .replace(/{{logo_url}}/g, logoUrl || DEFAULT_LOGO_URL)
-              .replace(/{{contractor_name}}/g, firstName)
-              .replace(/{{portal_link}}/g, appUrl);
-
-            await sendOvantaEmail(email, subject, content);
-          }
-          if (
-            portalSettings?.sms_pipeline_rejected_enabled &&
-            portalSettings?.sms_pipeline_rejected_template
-          ) {
-            const message = portalSettings.sms_pipeline_rejected_template
-              .replace(/{{company_name}}/g, companyName)
-              .replace(/{{contractor_name}}/g, firstName)
-              .replace(/{{portal_link}}/g, appUrl);
-
-            await sendOvantaSms(email, message);
-          }
-        } else {
-          if (
-            portalSettings?.email_applicant_welcome_enabled &&
-            portalSettings?.email_applicant_welcome_template
-          ) {
-            const subject = (
-              portalSettings.email_applicant_welcome_subject ||
-              "Application Received!"
-            )
-              .replace(/{{company_name}}/g, companyName)
-              .replace(/{{contractor_name}}/g, firstName);
-
-            const content = portalSettings.email_applicant_welcome_template
-              .replace(/{{company_name}}/g, companyName)
-              .replace(/{{logo_url}}/g, logoUrl || DEFAULT_LOGO_URL)
-              .replace(/{{contractor_name}}/g, firstName)
-              .replace(/{{portal_link}}/g, appUrl);
-
-            await sendOvantaEmail(email, subject, content);
-          }
-
-          if (
-            portalSettings?.sms_applicant_welcome_enabled &&
-            portalSettings?.sms_applicant_welcome_template
-          ) {
-            const message = portalSettings.sms_applicant_welcome_template
-              .replace(/{{company_name}}/g, companyName)
-              .replace(/{{contractor_name}}/g, firstName)
-              .replace(/{{portal_link}}/g, appUrl);
-
-            await sendOvantaSms(email, message);
-          }
-        }
-      } catch (e) {
-        console.error("Failed to send welcome/rejected email:", e);
+      // 🔔 Push: new contractor application received
+      if (!isRejected) {
+        sendPushNotification({
+          roles: ["owner", "super_admin"],
+          category: "team_operations",
+          title: "New Application — " + `${firstName} ${lastName}`.trim(),
+          body: `${specialty || "Contractor"} · ${selectedRegions.join(", ") || "No region"}`,
+          url: "/manager/contractors",
+          tag: "new-application",
+        }).catch(() => {});
       }
 
       setIsSuccess(true);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Application Failed",
-        description: error.message || "Something went wrong. Please try again.",
-      });
+      const msg = error.message || "Something went wrong. Please try again.";
+      if (isAccountExistsError(msg)) {
+        setInlineError(msg);
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Application Failed",
+          description: msg,
+        });
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -338,6 +271,8 @@ export default function Apply() {
           </CardHeader>
           <CardContent className="pt-6">
             <form onSubmit={handleSubmit} className="space-y-6">
+              {inlineError && <ApplyInlineError message={inlineError} />}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="firstName">
@@ -534,32 +469,7 @@ export default function Apply() {
         </div>
       </div>
 
-      <Dialog
-        open={isSuccess}
-        onOpenChange={(open) => {
-          if (!open) navigate("/login");
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader className="flex flex-col items-center sm:text-center">
-            <div className="h-16 w-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4">
-              <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-500" />
-            </div>
-            <DialogTitle className="text-2xl text-center">
-              Application Received!
-            </DialogTitle>
-            <DialogDescription className="text-center text-base pt-2">
-              We got your application and will be emailing and calling you
-              shortly. If you prefer text, you can reply back to us saying that.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="sm:justify-center pt-4">
-            <Button onClick={() => navigate("/login")} className="w-full">
-              Return to Login <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ApplySuccessDialog open={isSuccess} onClose={() => navigate("/login")} />
     </div>
   );
 }

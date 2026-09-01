@@ -11,6 +11,23 @@ serve(async (req) => {
     return new Response('ok', { headers: corsHeaders })
   }
 
+  // Lightweight GET: return the publishable key so the frontend can
+  // initialize Stripe Elements against the correct (booking) account
+  // without hardcoding the key. Mirrors the royalty-processor pattern.
+  if (req.method === 'GET') {
+    const publishableKey = Deno.env.get("STRIPE_PUBLISHABLE_KEY");
+    if (!publishableKey) {
+      return new Response(JSON.stringify({ error: "STRIPE_PUBLISHABLE_KEY not configured." }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(
+      JSON.stringify({ publishable_key: publishableKey }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    );
+  }
+
   try {
     const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
     if (!stripeKey) {
@@ -23,6 +40,10 @@ serve(async (req) => {
       apiVersion: '2023-10-16',
       httpClient: Stripe.createFetchHttpClient(),
     })
+
+    // Expose the publishable key on every response so the frontend can
+    // initialize Stripe Elements without a separate round-trip.
+    const publishableKey = Deno.env.get("STRIPE_PUBLISHABLE_KEY") || ""
 
     const { 
       amount, 
@@ -38,7 +59,8 @@ serve(async (req) => {
       cancelUrl,
       stripeCustomerId,
       couponId,
-      proposalId
+      proposalId,
+      packageName
     } = await req.json()
 
     // 1. Create or find customer
@@ -89,7 +111,39 @@ serve(async (req) => {
       })
 
       return new Response(
-        JSON.stringify({ url: session.url }),
+        JSON.stringify({ url: session.url, publishableKey }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // 2b. Handle "Upsell" (bartending add-on purchase by a booked bride)
+    if (type === 'upsell') {
+      const session = await stripe.checkout.sessions.create({
+        customer: customer?.id,
+        payment_method_types: ['card'],
+        line_items: [{
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: description || 'Bartending Add-On',
+            },
+            unit_amount: Math.round(amount * 100),
+          },
+          quantity: 1,
+        }],
+        mode: 'payment',
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        metadata: {
+          type: 'upsell',
+          weddingId: weddingId || null,
+          amount: amount.toString(),
+          packageName: packageName || description || 'Bartending Add-On',
+        }
+      })
+
+      return new Response(
+        JSON.stringify({ url: session.url, publishableKey }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
@@ -113,7 +167,7 @@ serve(async (req) => {
           metadata
         });
         return new Response(
-          JSON.stringify({ clientSecret: session.client_secret, customerId: customer?.id }),
+          JSON.stringify({ clientSecret: session.client_secret, customerId: customer?.id, publishableKey }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       } else {
@@ -201,7 +255,8 @@ serve(async (req) => {
               status: paidInvoice.status, 
               invoicePdf: paidInvoice.invoice_pdf,
               hostedInvoiceUrl: paidInvoice.hosted_invoice_url,
-              customerId: targetCustomerId 
+              customerId: targetCustomerId,
+              publishableKey
             }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
@@ -215,7 +270,7 @@ serve(async (req) => {
             metadata
           });
           return new Response(
-            JSON.stringify({ clientSecret: session.client_secret, customerId: customer?.id }),
+            JSON.stringify({ clientSecret: session.client_secret, customerId: customer?.id, publishableKey }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         }
@@ -268,7 +323,8 @@ serve(async (req) => {
         JSON.stringify({ 
           clientSecret: paymentIntent.client_secret, 
           customerId: customer?.id, 
-          subscriptionId: subscription.id 
+          subscriptionId: subscription.id,
+          publishableKey
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )

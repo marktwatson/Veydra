@@ -37,7 +37,6 @@ import {
   generatePaymentSchedule,
   generateHTMLReceipt,
 } from "@/lib/utils";
-import { loadStripe } from "@stripe/stripe-js";
 import {
   Elements,
   PaymentElement,
@@ -45,8 +44,8 @@ import {
   useElements,
 } from "@stripe/react-stripe-js";
 import confetti from "canvas-confetti";
-
-const stripePromise = loadStripe("pk_live_ksr3XxUGn2LLl5mf847DsThU");
+import { loadBookingStripe } from "@/lib/stripe-booking";
+const stripePromise = loadBookingStripe();
 
 function TypewriterText({
   text,
@@ -682,10 +681,13 @@ export default function Book() {
   const handleNextSubStep = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
 
-    if (formStep === 0 && !formData.firstName) {
+    if (
+      formStep === 0 &&
+      (!formData.firstName || !formData.lastName || !formData.partnerName)
+    ) {
       toast({
         title: "Required",
-        description: "Please enter your first name.",
+        description: "Please enter your first name and your partner's name.",
         variant: "destructive",
       });
       return;
@@ -738,6 +740,8 @@ export default function Book() {
     if (step === 1) {
       if (
         !formData.firstName ||
+        !formData.lastName ||
+        !formData.partnerName ||
         !formData.email ||
         !formData.phone ||
         !formData.weddingDate ||
@@ -1034,7 +1038,7 @@ export default function Book() {
                       </div>
                       <div className="space-y-2">
                         <Label className="text-stone-500 ml-1">
-                          Your Last Name
+                          Your Last Name *
                         </Label>
                         <Input
                           className="text-xl py-6 bg-stone-50/50 dark:bg-stone-900/50 border-stone-200 dark:border-stone-800 rounded-xl focus-visible:ring-stone-900"
@@ -1046,7 +1050,7 @@ export default function Book() {
                       </div>
                       <div className="space-y-2">
                         <Label className="text-stone-500 ml-1">
-                          Partner's Name
+                          Partner's Name *
                         </Label>
                         <Input
                           className="text-xl py-6 bg-stone-50/50 dark:bg-stone-900/50 border-stone-200 dark:border-stone-800 rounded-xl focus-visible:ring-stone-900"

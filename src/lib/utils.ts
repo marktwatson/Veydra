@@ -314,8 +314,7 @@ export const generatePaymentSchedule = (
       const d = new Date(createdAt);
       start = new Date(
         d.toLocaleDateString("en-US", {
-          timeZone:
-            localStorage.getItem("veydra_timezone") || "America/New_York",
+          timeZone: getCompanyTimezone(),
         }),
       );
     } else {

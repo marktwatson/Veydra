@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
+import { isSuperAdminEmail } from "@/lib/super-admin";
 import { supabase } from "@/lib/supabase";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -96,10 +97,7 @@ export default function Login() {
 
       if (type === "editor") {
         navigate(from === "/" ? "/editor" : from, { replace: true });
-      } else if (
-        type === "manager" ||
-        email.trim().toLowerCase() === "mark@kavoddigital.com"
-      ) {
+      } else if (type === "manager" || isSuperAdminEmail(email)) {
         navigate(from === "/" ? "/manager" : from, { replace: true });
       } else {
         navigate(from, { replace: true });

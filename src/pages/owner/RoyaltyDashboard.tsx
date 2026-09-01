@@ -834,7 +834,7 @@ function OwnerBankSetupForm({ onDone }: { onDone: () => void }) {
       // keep showing "No payment method" even though Stripe confirmed.
       if (setupIntent?.payment_method) {
         try {
-          await api.connectTerritoryStripe(String(setupIntent.payment_method));
+          await api.connectTerritoryStripe(setupIntent.payment_method);
         } catch (attachErr: any) {
           setError(
             attachErr?.message ||

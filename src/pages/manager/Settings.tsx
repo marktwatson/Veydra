@@ -27,6 +27,7 @@ import {
   Copy,
   CheckCircle2,
   XCircle,
+  UploadCloud,
 } from "lucide-react";
 import {
   Accordion,
@@ -70,8 +71,10 @@ import {
   cn,
 } from "@/lib/utils";
 import { api, sendOvantaSms, sendOvantaEmail } from "@/lib/api";
+import { AppIconUploader } from "@/components/AppIconUploader";
 import EmailPreviewModal from "@/components/EmailPreviewModal";
 import MarginCalculator from "@/components/MarginCalculator";
+import BartendingUpsellCard from "@/components/BartendingUpsellCard";
 
 const getPreviewHtml = (html: string) => {
   const logoUrl =
@@ -496,6 +499,9 @@ export default function ManagerSettings() {
   const [companyName, setCompanyName] = useState("");
   const [appUrl, setAppUrl] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
+  const [uploadEmail, setUploadEmail] = useState("");
+  const [uploadPassword, setUploadPassword] = useState("");
+  const [uploadInstructions, setUploadInstructions] = useState("");
   const [isTesting, setIsTesting] = useState(false);
   const [isSavingBranding, setIsSavingBranding] = useState(false);
   const [timezone, setTimezone] = useState("America/New_York");
@@ -1386,6 +1392,14 @@ export default function ManagerSettings() {
           try {
             localStorage.setItem("veydra_logo_url", logo);
           } catch (e) {}
+
+          // Load contractor upload credentials
+          if (settings.upload_account_email)
+            setUploadEmail(settings.upload_account_email);
+          if (settings.upload_account_password)
+            setUploadPassword(settings.upload_account_password);
+          if (settings.upload_instructions)
+            setUploadInstructions(settings.upload_instructions);
 
           // Load custom email colors
           if (settings.email_colors) {
@@ -2806,6 +2820,9 @@ export default function ManagerSettings() {
         logo_url: logoUrl || null,
         company_name: companyName || null,
         app_url: appUrl || null,
+        upload_account_email: uploadEmail || null,
+        upload_account_password: uploadPassword || null,
+        upload_instructions: uploadInstructions || null,
       });
 
       toast({
@@ -3263,6 +3280,49 @@ export default function ManagerSettings() {
                   <p className="text-xs text-muted-foreground">
                     Provide a direct link to an image to replace the default
                     portal logo.
+                  </p>
+                </div>
+
+                <AppIconUploader />
+
+                <div className="grid gap-2 pt-2 border-t">
+                  <Label
+                    htmlFor="upload-email"
+                    className="flex items-center gap-2"
+                  >
+                    <UploadCloud className="h-4 w-4" /> Contractor Upload
+                    Account Email
+                  </Label>
+                  <Input
+                    id="upload-email"
+                    placeholder="uploads@yourcompany.com"
+                    value={uploadEmail}
+                    onChange={(e) => setUploadEmail(e.target.value)}
+                  />
+                  <Label htmlFor="upload-password" className="pt-2">
+                    Contractor Upload Account Password
+                  </Label>
+                  <Input
+                    id="upload-password"
+                    type="text"
+                    placeholder="Shared upload account password"
+                    value={uploadPassword}
+                    onChange={(e) => setUploadPassword(e.target.value)}
+                  />
+                  <Label htmlFor="upload-instructions" className="pt-2">
+                    Custom Upload Instructions (optional)
+                  </Label>
+                  <Textarea
+                    id="upload-instructions"
+                    placeholder="Leave blank to use the default upload instructions. Override the text shown to contractors after a wedding."
+                    value={uploadInstructions}
+                    onChange={(e) => setUploadInstructions(e.target.value)}
+                    className="min-h-[80px]"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    These shared Google Drive login details are shown to
+                    contractors on the assignment page so they can upload raw
+                    files. Change per area as needed.
                   </p>
                 </div>
 
@@ -3862,6 +3922,8 @@ export default function ManagerSettings() {
             <>
               <MarginCalculator packages={pricingPackages} />
 
+              <BartendingUpsellCard />
+
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-xl font-semibold">Packages & Addons</h2>
@@ -4012,6 +4074,14 @@ export default function ManagerSettings() {
                             )}
                             {addon.isHourly && (
                               <Badge variant="outline">Hourly</Badge>
+                            )}
+                            {addon.isBartending && (
+                              <Badge
+                                variant="outline"
+                                className="border-[#c9a96e]/50 text-[#c9a96e]"
+                              >
+                                Bartending
+                              </Badge>
                             )}
                           </div>
                           <p className="text-sm text-muted-foreground">
@@ -8428,6 +8498,16 @@ function AddonEditor({
   const [isHourly, setIsHourly] = useState(addon.isHourly || false);
   const [minHours, setMinHours] = useState(addon.minHours || 0);
   const [isArchived, setIsArchived] = useState(addon.isArchived || false);
+  const [isBartending, setIsBartending] = useState(addon.isBartending || false);
+  const [description, setDescription] = useState(addon.description || "");
+  const [features, setFeatures] = useState<string[]>(addon.features || []);
+  const [featureInput, setFeatureInput] = useState("");
+
+  const addFeature = () => {
+    if (!featureInput.trim()) return;
+    setFeatures([...features, featureInput.trim()]);
+    setFeatureInput("");
+  };
 
   return (
     <div className="space-y-4">
@@ -8466,6 +8546,66 @@ function AddonEditor({
         <Switch checked={isArchived} onCheckedChange={setIsArchived} />
         <Label className="cursor-pointer">Archived</Label>
       </div>
+      <div className="flex items-center gap-2">
+        <Switch checked={isBartending} onCheckedChange={setIsBartending} />
+        <Label className="cursor-pointer">
+          Bartending upsell (show in bride portal)
+        </Label>
+      </div>
+      {isBartending && (
+        <>
+          <div className="grid gap-2">
+            <Label>Portal Description</Label>
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Up to 4 hours of service with 1 certified bartender"
+              rows={2}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label>Portal Features</Label>
+            <div className="flex gap-2">
+              <Input
+                value={featureInput}
+                onChange={(e) => setFeatureInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addFeature();
+                  }
+                }}
+                placeholder="Add a feature and press Enter"
+              />
+              <Button type="button" variant="outline" onClick={addFeature}>
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+            {features.length > 0 && (
+              <ul className="text-sm space-y-1 mt-2">
+                {features.map((ft, i) => (
+                  <li
+                    key={i}
+                    className="flex items-center justify-between bg-muted/30 rounded px-2 py-1"
+                  >
+                    <span>{ft}</span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-destructive"
+                      onClick={() =>
+                        setFeatures(features.filter((_, j) => j !== i))
+                      }
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </>
+      )}
       <DialogFooter>
         <Button variant="outline" onClick={onCancel}>
           Cancel
@@ -8479,6 +8619,9 @@ function AddonEditor({
               isHourly,
               minHours,
               isArchived,
+              isBartending,
+              description,
+              features,
             })
           }
           disabled={isSaving || !name.trim()}

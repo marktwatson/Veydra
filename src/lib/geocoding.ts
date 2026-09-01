@@ -1,4 +1,4 @@
-import { supabase, supabaseUrl } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
 
 const LOCAL_GEOCODE_CACHE_KEY = "veydra_geocode_cache_v3";
 
@@ -116,6 +116,7 @@ export async function geocodeAddress(
   // Send the normalized address — much more likely to get a result
   try {
     const { data: session } = await supabase.auth.getSession();
+    const supabaseUrl = "https://oosmhtzqdmntlzhheofw.supabase.co";
 
     const response = await fetch(`${supabaseUrl}/functions/v1/geocode`, {
       method: "POST",

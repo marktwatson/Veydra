@@ -1,59 +1,18 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { generatePaymentSchedule, formatDisplayDate } from "@/lib/utils";
+import { cancelPaymentInstallment } from "@/lib/cancel-payment";
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  PaymentAuditModals,
+  type AuditItem,
+} from "@/components/PaymentAuditModals";
+import { PaymentAuditStats } from "@/components/PaymentAuditStats";
+import { PaymentAuditFilters } from "@/components/PaymentAuditFilters";
+import { PaymentAuditTable } from "@/components/PaymentAuditTable";
+import { buildAuditScheduleItems } from "@/lib/audit-schedule";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  DollarSign,
-  Search,
-  CreditCard,
-  Send,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
-  Loader2,
-  Filter,
-  RefreshCw,
-  Mail,
-  ExternalLink,
-  ShieldCheck,
-  Building,
-  Calendar,
-  RotateCcw,
-} from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
 
 export default function ManagerPaymentAudit() {
   const { toast } = useToast();
@@ -73,12 +32,16 @@ export default function ManagerPaymentAudit() {
   >("date-asc");
 
   // Modal states for action triggers
-  const [autoChargeModalItem, setAutoChargeModalItem] = useState<any>(null);
+  const [autoChargeModalItem, setAutoChargeModalItem] =
+    useState<AuditItem | null>(null);
   const [manualInvoiceModalItem, setManualInvoiceModalItem] =
-    useState<any>(null);
-  const [markUnpaidModalItem, setMarkUnpaidModalItem] = useState<any>(null);
+    useState<AuditItem | null>(null);
+  const [markUnpaidModalItem, setMarkUnpaidModalItem] =
+    useState<AuditItem | null>(null);
   const [resendReceiptModalItem, setResendReceiptModalItem] =
-    useState<any>(null);
+    useState<AuditItem | null>(null);
+  const [cancelPaymentModalItem, setCancelPaymentModalItem] =
+    useState<AuditItem | null>(null);
 
   const {
     data: weddings = [],
@@ -90,103 +53,10 @@ export default function ManagerPaymentAudit() {
   });
 
   // Calculate all schedule items across every wedding
-  const auditScheduleItems = useMemo(() => {
-    const items: any[] = [];
-
-    const todayStr = new Date().toISOString().split("T")[0];
-    const todayDate = new Date(todayStr + "T12:00:00");
-
-    weddings.forEach((wedding: any) => {
-      // Skip draft or unpaid draft records unless explicitly desired
-      if (wedding.notes?.includes("[UNPAID_DRAFT]")) return;
-
-      const total = Number(wedding.total_amount) || 0;
-      const paid = Number(wedding.paid_amount) || 0;
-      const plan = wedding.payment_plan || "full";
-      const customPlan = wedding.custom_payment_plan;
-      const weddingDate = wedding.date || "";
-      const createdAt = wedding.contract_date || wedding.created_at || "";
-
-      // Generate expected payment breakdown
-      let schedule = generatePaymentSchedule(
-        total,
-        plan,
-        weddingDate,
-        createdAt,
-        paid,
-        customPlan,
-      );
-
-      // If no schedule items were generated (e.g. missing wedding date), fallback to single entry
-      if (!schedule || schedule.length === 0) {
-        const isPaidInFull =
-          paid > 0 && (paid >= total - 1 || paid >= total * 0.945);
-        schedule = [
-          {
-            date: weddingDate
-              ? new Date(weddingDate + "T12:00:00").toLocaleDateString("en-US")
-              : "TBD",
-            amount: total,
-            label: plan === "full" ? "Pay in Full" : "Package Balance",
-            status: isPaidInFull ? "paid" : "pending",
-          },
-        ];
-      }
-
-      // Map schedule items into structured records
-      schedule.forEach((inst: any, index: number) => {
-        let isPaid = inst.status === "paid";
-
-        // Parse payment date
-        let parsedDate: Date | null = null;
-        if (inst.date && inst.date !== "TBD") {
-          const parts = inst.date.split("/");
-          if (parts.length === 3) {
-            parsedDate = new Date(
-              `${parts[2]}-${parts[0].padStart(2, "0")}-${parts[1].padStart(2, "0")}T12:00:00`,
-            );
-          } else {
-            parsedDate = new Date(inst.date);
-          }
-        }
-
-        let isOverdue = false;
-        if (!isPaid && parsedDate) {
-          isOverdue = parsedDate < todayDate;
-        }
-
-        let computedStatus: "paid" | "overdue" | "pending" = "pending";
-        if (isPaid) computedStatus = "paid";
-        else if (isOverdue) computedStatus = "overdue";
-
-        items.push({
-          id: `${wedding.id}-${index}`,
-          weddingId: wedding.id,
-          clientName: wedding.client_name || "Unknown Client",
-          clientEmail:
-            wedding.client_email ||
-            wedding.questionnaire_data?.contact_info?.email ||
-            "",
-          weddingDate: weddingDate,
-          totalAmount: total,
-          paidAmount: paid,
-          installmentLabel: inst.label || `Installment #${index + 1}`,
-          installmentAmount: Number(inst.amount) || 0,
-          installmentDate: inst.date,
-          parsedDate,
-          status: computedStatus,
-          paymentPlan: plan,
-          hasCustomPlan: plan === "custom" || customPlan?.enabled,
-          stripeCustomerId: wedding.stripe_customer_id,
-          stripeSubscriptionId: wedding.stripe_subscription_id,
-          stripeSubscriptionStatus: wedding.stripe_subscription_status,
-          weddingObj: wedding,
-        });
-      });
-    });
-
-    return items;
-  }, [weddings]);
+  const auditScheduleItems = useMemo(
+    () => buildAuditScheduleItems(weddings),
+    [weddings],
+  );
 
   // Get unique list of clients for the filter dropdown
   const clientOptions = useMemo(() => {
@@ -206,7 +76,7 @@ export default function ManagerPaymentAudit() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const result = auditScheduleItems.filter((item) => {
+    const result = auditScheduleItems.filter((item: any) => {
       // Search
       const search = searchTerm.toLowerCase().trim();
       if (search) {
@@ -278,7 +148,7 @@ export default function ManagerPaymentAudit() {
     });
 
     // Sorting
-    return result.sort((a, b) => {
+    return result.sort((a: any, b: any) => {
       if (sortBy === "date-asc") {
         const timeA = a.parsedDate ? a.parsedDate.getTime() : 0;
         const timeB = b.parsedDate ? b.parsedDate.getTime() : 0;
@@ -313,7 +183,7 @@ export default function ManagerPaymentAudit() {
     let totalOverdue = 0;
     let totalPending = 0;
 
-    auditScheduleItems.forEach((item) => {
+    auditScheduleItems.forEach((item: any) => {
       totalScheduled += item.installmentAmount;
       if (item.status === "paid") {
         totalPaid += item.installmentAmount;
@@ -329,11 +199,14 @@ export default function ManagerPaymentAudit() {
       totalPaid,
       totalOverdue,
       totalPending,
-      overdueCount: auditScheduleItems.filter((i) => i.status === "overdue")
+      overdueCount: auditScheduleItems.filter(
+        (i: any) => i.status === "overdue",
+      ).length,
+      pendingCount: auditScheduleItems.filter(
+        (i: any) => i.status === "pending",
+      ).length,
+      paidCount: auditScheduleItems.filter((i: any) => i.status === "paid")
         .length,
-      pendingCount: auditScheduleItems.filter((i) => i.status === "pending")
-        .length,
-      paidCount: auditScheduleItems.filter((i) => i.status === "paid").length,
     };
   }, [auditScheduleItems]);
 
@@ -465,6 +338,35 @@ export default function ManagerPaymentAudit() {
     },
   });
 
+  const cancelPaymentMutation = useMutation({
+    mutationFn: async (item: AuditItem & { scheduleIndex?: number }) => {
+      return await cancelPaymentInstallment({
+        weddingId: item.weddingId,
+        installmentLabel: item.installmentLabel,
+        installmentAmount: item.installmentAmount,
+        installmentDate: item.installmentDate,
+        scheduleIndex: item.scheduleIndex,
+      });
+    },
+    onSuccess: (data, item) => {
+      queryClient.invalidateQueries({ queryKey: ["weddings"] });
+      setCancelPaymentModalItem(null);
+      toast({
+        title: "Payment Cancelled",
+        description: `"${item.installmentLabel}" was permanently removed from ${item.clientName}'s payment plan. Use Change Payment Plan to set up a new one if needed.`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "Could Not Cancel Payment",
+        description:
+          error.message ||
+          "Something went wrong removing this installment. Refresh and try again.",
+      });
+    },
+  });
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -491,817 +393,90 @@ export default function ManagerPaymentAudit() {
         </div>
       </div>
 
-      {/* Overview Stat Cards */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Card className="shadow-sm border-border/40 rounded-2xl bg-card">
-          <CardHeader className="p-4 pb-1">
-            <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Total Contract Volume
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-1">
-            <div className="text-2xl sm:text-3xl font-bold tracking-tight text-primary">
-              ${metrics.totalScheduled.toLocaleString()}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {auditScheduleItems.length} total installments
-            </p>
-          </CardContent>
-        </Card>
+      <PaymentAuditStats
+        metrics={metrics}
+        totalInstallments={auditScheduleItems.length}
+      />
 
-        <Card className="shadow-sm border-border/40 rounded-2xl bg-emerald-500/5 dark:bg-emerald-950/20 border-emerald-500/20">
-          <CardHeader className="p-4 pb-1">
-            <CardTitle className="text-xs font-medium text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
-              Collected Revenue
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-1">
-            <div className="text-2xl sm:text-3xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">
-              ${metrics.totalPaid.toLocaleString()}
-            </div>
-            <p className="text-xs text-emerald-600/80 dark:text-emerald-400/80 mt-1">
-              {metrics.paidCount} paid installments
-            </p>
-          </CardContent>
-        </Card>
+      <PaymentAuditFilters
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTrigger}
+        clientFilter={clientFilter}
+        onClientFilterChange={setClientFilter}
+        clientOptions={clientOptions}
+        dateFilter={dateFilter}
+        onDateFilterChange={setDateFilter}
+        statusFilter={statusFilter}
+        onStatusFilterChange={setStatusFilter}
+        planFilter={planFilter}
+        onPlanFilterChange={setPaymentPlanFilter}
+        sortBy={sortBy}
+        onSortByChange={setSortBy}
+        totalItems={auditScheduleItems.length}
+        metrics={metrics}
+        startDate={startDate}
+        onStartDateChange={setStartDate}
+        endDate={endDate}
+        onEndDateChange={setEndDate}
+      />
 
-        <Card className="shadow-sm border-border/40 rounded-2xl bg-amber-500/5 dark:bg-amber-950/20 border-amber-500/20">
-          <CardHeader className="p-4 pb-1">
-            <CardTitle className="text-xs font-medium text-amber-600 dark:text-amber-400 uppercase tracking-wider">
-              Overdue Payments
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-1">
-            <div className="text-2xl sm:text-3xl font-bold tracking-tight text-amber-600 dark:text-amber-400">
-              ${metrics.totalOverdue.toLocaleString()}
-            </div>
-            <p className="text-xs text-amber-600/80 dark:text-amber-400/80 mt-1">
-              {metrics.overdueCount} require attention
-            </p>
-          </CardContent>
-        </Card>
+      <PaymentAuditTable
+        isLoading={isLoading}
+        filteredItems={filteredItems}
+        totalItems={auditScheduleItems.length}
+        onAutoCharge={setAutoChargeModalItem}
+        onManualInvoice={setManualInvoiceModalItem}
+        onCancelPayment={setCancelPaymentModalItem}
+        onResendReceipt={setResendReceiptModalItem}
+        onMarkUnpaid={setMarkUnpaidModalItem}
+      />
 
-        <Card className="shadow-sm border-border/40 rounded-2xl bg-blue-500/5 dark:bg-blue-950/20 border-blue-500/20">
-          <CardHeader className="p-4 pb-1">
-            <CardTitle className="text-xs font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wider">
-              Upcoming Scheduled
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-1">
-            <div className="text-2xl sm:text-3xl font-bold tracking-tight text-blue-600 dark:text-blue-400">
-              ${metrics.totalPending.toLocaleString()}
-            </div>
-            <p className="text-xs text-blue-600/80 dark:text-blue-400/80 mt-1">
-              {metrics.pendingCount} pending future dates
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Filter and Search Toolbar */}
-      <Card className="shadow-sm border-border/40 rounded-2xl bg-card">
-        <CardContent className="p-4 space-y-3">
-          <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between">
-            {/* Search */}
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search client name, email, or payment label..."
-                value={searchTerm}
-                onChange={(e) => setSearchTrigger(e.target.value)}
-                className="pl-9 rounded-full"
-              />
-            </div>
-
-            {/* Dropdown Filters */}
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Filter by Client Name */}
-              <Select value={clientFilter} onValueChange={setClientFilter}>
-                <SelectTrigger className="w-[170px] rounded-full text-xs">
-                  <SelectValue placeholder="Filter by Client" />
-                </SelectTrigger>
-                <SelectContent rounded-xl className="max-h-60">
-                  <SelectItem value="all">
-                    All Clients ({clientOptions.length})
-                  </SelectItem>
-                  {clientOptions.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              {/* Filter by Date */}
-              <Select value={dateFilter} onValueChange={setDateFilter}>
-                <SelectTrigger className="w-[160px] rounded-full text-xs">
-                  <Calendar className="h-3.5 w-3.5 mr-1 text-muted-foreground" />
-                  <SelectValue placeholder="Date Range" />
-                </SelectTrigger>
-                <SelectContent rounded-xl>
-                  <SelectItem value="all">All Dates</SelectItem>
-                  <SelectItem value="past">Past Due & Historical</SelectItem>
-                  <SelectItem value="today">Due Today</SelectItem>
-                  <SelectItem value="this-month">This Month</SelectItem>
-                  <SelectItem value="next-30">Next 30 Days</SelectItem>
-                  <SelectItem value="custom">Custom Date Range</SelectItem>
-                </SelectContent>
-              </Select>
-
-              {/* Status Filter */}
-              <Select
-                value={statusFilter}
-                onValueChange={(v: any) => setStatusFilter(v)}
-              >
-                <SelectTrigger className="w-[140px] rounded-full text-xs">
-                  <SelectValue placeholder="All Statuses" />
-                </SelectTrigger>
-                <SelectContent rounded-xl>
-                  <SelectItem value="all">
-                    All Statuses ({auditScheduleItems.length})
-                  </SelectItem>
-                  <SelectItem value="overdue">
-                    Overdue ({metrics.overdueCount})
-                  </SelectItem>
-                  <SelectItem value="pending">
-                    Pending ({metrics.pendingCount})
-                  </SelectItem>
-                  <SelectItem value="paid">
-                    Paid ({metrics.paidCount})
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-
-              {/* Payment Plan Filter */}
-              <Select value={planFilter} onValueChange={setPaymentPlanFilter}>
-                <SelectTrigger className="w-[150px] rounded-full text-xs">
-                  <SelectValue placeholder="All Payment Plans" />
-                </SelectTrigger>
-                <SelectContent rounded-xl>
-                  <SelectItem value="all">All Payment Plans</SelectItem>
-                  <SelectItem value="custom">Custom Plan</SelectItem>
-                  <SelectItem value="full">Pay in Full</SelectItem>
-                  <SelectItem value="half">50/50 Split</SelectItem>
-                  <SelectItem value="monthly">Monthly Plan</SelectItem>
-                  <SelectItem value="quarterly">Quarterly Plan</SelectItem>
-                </SelectContent>
-              </Select>
-
-              {/* Sort Order */}
-              <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
-                <SelectTrigger className="w-[150px] rounded-full text-xs">
-                  <SelectValue placeholder="Sort By" />
-                </SelectTrigger>
-                <SelectContent rounded-xl>
-                  <SelectItem value="date-asc">Date: Earliest First</SelectItem>
-                  <SelectItem value="date-desc">Date: Latest First</SelectItem>
-                  <SelectItem value="name-asc">Client: A to Z</SelectItem>
-                  <SelectItem value="name-desc">Client: Z to A</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Custom Date Inputs if Custom Date selected */}
-          {dateFilter === "custom" && (
-            <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-border/40 text-xs">
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-muted-foreground">
-                  Start:
-                </span>
-                <Input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="h-8 rounded-full text-xs w-[140px]"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-muted-foreground">End:</span>
-                <Input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="h-8 rounded-full text-xs w-[140px]"
-                />
-              </div>
-              {(startDate || endDate) && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setStartDate("");
-                    setEndDate("");
-                  }}
-                  className="h-8 text-xs rounded-full text-muted-foreground hover:text-foreground"
-                >
-                  Clear Custom Dates
-                </Button>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Main Audit Schedule Table */}
-      <Card className="shadow-sm border-border/40 rounded-2xl overflow-hidden bg-card">
-        <CardHeader className="p-5 pb-3 border-b border-border/40 flex flex-row items-center justify-between">
-          <div>
-            <CardTitle className="text-lg font-bold">
-              Scheduled & Historical Payments
-            </CardTitle>
-            <CardDescription className="text-xs">
-              Showing {filteredItems.length} of {auditScheduleItems.length}{" "}
-              payment installment items
-            </CardDescription>
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          {isLoading ? (
-            <div className="flex flex-col items-center justify-center p-12 space-y-3">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <p className="text-sm text-muted-foreground">
-                Loading payment schedule audit...
-              </p>
-            </div>
-          ) : filteredItems.length === 0 ? (
-            <div className="flex flex-col items-center justify-center p-12 text-center text-muted-foreground space-y-2">
-              <CreditCard className="h-10 w-10 text-muted-foreground/40" />
-              <p className="font-semibold text-foreground">
-                No matching payments found
-              </p>
-              <p className="text-xs">
-                Try clearing your search query or filters.
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader className="bg-muted/30">
-                  <TableRow>
-                    <TableHead className="font-semibold">
-                      Client / Wedding
-                    </TableHead>
-                    <TableHead className="font-semibold">Installment</TableHead>
-                    <TableHead className="font-semibold">Plan Type</TableHead>
-                    <TableHead className="font-semibold">Due Date</TableHead>
-                    <TableHead className="font-semibold text-right">
-                      Amount
-                    </TableHead>
-                    <TableHead className="font-semibold">Status</TableHead>
-                    <TableHead className="font-semibold text-right pr-6">
-                      Payment Actions
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredItems.map((item) => (
-                    <TableRow
-                      key={item.id}
-                      className="hover:bg-muted/20 transition-colors"
-                    >
-                      {/* Client info */}
-                      <TableCell className="font-medium">
-                        <div className="flex flex-col">
-                          <span className="font-semibold text-foreground">
-                            {item.clientName}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {item.clientEmail || "No email on file"} • Paid: $
-                            {item.paidAmount.toLocaleString()} / Total: $
-                            {item.totalAmount.toLocaleString()}
-                          </span>
-                        </div>
-                      </TableCell>
-
-                      {/* Installment label */}
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className="rounded-full text-xs font-normal border-border/60"
-                        >
-                          {item.installmentLabel}
-                        </Badge>
-                      </TableCell>
-
-                      {/* Payment plan */}
-                      <TableCell>
-                        <span className="text-xs uppercase tracking-wider font-semibold text-muted-foreground">
-                          {item.hasCustomPlan ? (
-                            <Badge
-                              variant="secondary"
-                              className="rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20 text-[10px]"
-                            >
-                              Custom Plan
-                            </Badge>
-                          ) : (
-                            item.paymentPlan
-                          )}
-                        </span>
-                      </TableCell>
-
-                      {/* Due Date */}
-                      <TableCell>
-                        <div className="flex items-center gap-1.5 text-xs font-medium">
-                          <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span>{item.installmentDate}</span>
-                        </div>
-                      </TableCell>
-
-                      {/* Amount */}
-                      <TableCell className="text-right font-bold text-sm">
-                        $
-                        {item.installmentAmount.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                        })}
-                      </TableCell>
-
-                      {/* Status badge */}
-                      <TableCell>
-                        {item.status === "paid" ? (
-                          <Badge
-                            variant="outline"
-                            className="rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 font-medium"
-                          >
-                            <CheckCircle2 className="h-3 w-3 mr-1" /> Paid
-                          </Badge>
-                        ) : item.status === "overdue" ? (
-                          <Badge
-                            variant="outline"
-                            className="rounded-full bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20 font-bold animate-pulse"
-                          >
-                            <AlertCircle className="h-3 w-3 mr-1" /> Overdue
-                          </Badge>
-                        ) : (
-                          <Badge
-                            variant="outline"
-                            className="rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20 font-medium"
-                          >
-                            <Clock className="h-3 w-3 mr-1" /> Pending
-                          </Badge>
-                        )}
-                      </TableCell>
-
-                      {/* Action buttons */}
-                      <TableCell className="text-right pr-6">
-                        {item.status === "paid" ? (
-                          <div className="flex items-center justify-end gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 rounded-full text-xs shadow-sm gap-1"
-                              onClick={() => setResendReceiptModalItem(item)}
-                            >
-                              <Mail className="h-3.5 w-3.5 text-primary" />
-                              Resend Receipt
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 rounded-full text-xs shadow-sm text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/10 gap-1 font-medium"
-                              onClick={() => setMarkUnpaidModalItem(item)}
-                            >
-                              <RotateCcw className="h-3.5 w-3.5" />
-                              Mark Unpaid
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-end gap-2">
-                            {/* Auto-charge saved card button */}
-                            <Button
-                              size="sm"
-                              variant="default"
-                              className="h-8 rounded-full text-xs shadow-sm bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
-                              onClick={() => setAutoChargeModalItem(item)}
-                            >
-                              <CreditCard className="h-3.5 w-3.5" />
-                              Auto-Charge Card
-                            </Button>
-
-                            {/* Send manual payment invoice button */}
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 rounded-full text-xs shadow-sm gap-1"
-                              onClick={() => setManualInvoiceModalItem(item)}
-                            >
-                              <Send className="h-3.5 w-3.5 text-primary" />
-                              Send Invoice Link
-                            </Button>
-                          </div>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Modal: Auto-Charge Confirmation */}
-      <Dialog
-        open={!!autoChargeModalItem}
-        onOpenChange={(open) => !open && setAutoChargeModalItem(null)}
-      >
-        <DialogContent className="sm:max-w-[480px] rounded-3xl overflow-hidden shadow-xl border-border/40">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-xl font-bold text-foreground">
-              <CreditCard className="h-5 w-5 text-emerald-600" /> Auto-Charge
-              Saved Card
-            </DialogTitle>
-            <DialogDescription>
-              This will charge the saved payment method on file via Stripe for{" "}
-              <strong>{autoChargeModalItem?.clientName}</strong>.
-            </DialogDescription>
-          </DialogHeader>
-
-          {autoChargeModalItem && (
-            <div className="py-4 space-y-4">
-              <div className="bg-muted/40 p-4 rounded-2xl border border-border/50 space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Client:</span>
-                  <span className="font-semibold text-foreground">
-                    {autoChargeModalItem.clientName}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Email:</span>
-                  <span className="font-medium text-foreground">
-                    {autoChargeModalItem.clientEmail || "Not provided"}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Installment:</span>
-                  <span className="font-medium text-foreground">
-                    {autoChargeModalItem.installmentLabel}
-                  </span>
-                </div>
-                <div className="flex justify-between border-t border-border/40 pt-2 mt-2">
-                  <span className="font-bold text-foreground">
-                    Charge Amount:
-                  </span>
-                  <span className="font-extrabold text-emerald-600 text-base">
-                    $
-                    {autoChargeModalItem.installmentAmount.toLocaleString(
-                      undefined,
-                      { minimumFractionDigits: 2 },
-                    )}
-                  </span>
-                </div>
-              </div>
-
-              {!autoChargeModalItem.stripeCustomerId ? (
-                <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 rounded-xl text-xs space-y-1">
-                  <div className="font-semibold flex items-center gap-1">
-                    <AlertCircle className="h-4 w-4 shrink-0" /> Stripe Customer
-                    ID not directly linked
-                  </div>
-                  <p>
-                    The system will attempt to locate their customer profile via
-                    email ({autoChargeModalItem.clientEmail}) or their saved
-                    card tokens on file.
-                  </p>
-                </div>
-              ) : (
-                <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-xl text-xs flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 shrink-0" />
-                  <span>
-                    Stripe Customer Token Active (
-                    {autoChargeModalItem.stripeCustomerId})
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
-
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              variant="outline"
-              className="rounded-full"
-              onClick={() => setAutoChargeModalItem(null)}
-              disabled={autoChargeMutation.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="default"
-              className="rounded-full bg-emerald-600 hover:bg-emerald-700 text-white"
-              onClick={() => {
-                if (autoChargeModalItem) {
-                  autoChargeMutation.mutate({
-                    weddingId: autoChargeModalItem.weddingId,
-                    amount: autoChargeModalItem.installmentAmount,
-                    description: `${autoChargeModalItem.installmentLabel} for ${autoChargeModalItem.clientName} Wedding`,
-                  });
-                }
-              }}
-              disabled={autoChargeMutation.isPending}
-            >
-              {autoChargeMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <CreditCard className="h-4 w-4 mr-2" />
-              )}
-              Confirm Auto-Charge
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal: Send Manual Payment Invoice */}
-      <Dialog
-        open={!!manualInvoiceModalItem}
-        onOpenChange={(open) => !open && setManualInvoiceModalItem(null)}
-      >
-        <DialogContent className="sm:max-w-[480px] rounded-3xl overflow-hidden shadow-xl border-border/40">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-xl font-bold text-foreground">
-              <Send className="h-5 w-5 text-primary" /> Send Manual Invoice
-            </DialogTitle>
-            <DialogDescription>
-              This will send a direct payment link and formal invoice via email
-              & SMS to <strong>{manualInvoiceModalItem?.clientName}</strong>.
-            </DialogDescription>
-          </DialogHeader>
-
-          {manualInvoiceModalItem && (
-            <div className="py-4 space-y-4">
-              <div className="bg-muted/40 p-4 rounded-2xl border border-border/50 space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">
-                    Recipient Email:
-                  </span>
-                  <span className="font-semibold text-foreground">
-                    {manualInvoiceModalItem.clientEmail || "No email on file"}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">
-                    Installment Label:
-                  </span>
-                  <span className="font-medium text-foreground">
-                    {manualInvoiceModalItem.installmentLabel}
-                  </span>
-                </div>
-                <div className="flex justify-between border-t border-border/40 pt-2 mt-2">
-                  <span className="font-bold text-foreground">
-                    Invoice Amount:
-                  </span>
-                  <span className="font-extrabold text-primary text-base">
-                    $
-                    {manualInvoiceModalItem.installmentAmount.toLocaleString(
-                      undefined,
-                      { minimumFractionDigits: 2 },
-                    )}
-                  </span>
-                </div>
-              </div>
-
-              <div className="p-3 bg-primary/5 border border-primary/10 rounded-xl text-xs text-muted-foreground space-y-1">
-                <div className="font-semibold text-foreground flex items-center gap-1">
-                  <Mail className="h-3.5 w-3.5 text-primary" /> Formal Payment
-                  Link Included
-                </div>
-                <p>
-                  The client will receive an interactive link to their Bride
-                  Portal where they can complete this payment using any
-                  credit/debit card.
-                </p>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              variant="outline"
-              className="rounded-full"
-              onClick={() => setManualInvoiceModalItem(null)}
-              disabled={sendManualInvoiceMutation.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="default"
-              className="rounded-full"
-              onClick={() => {
-                if (manualInvoiceModalItem) {
-                  sendManualInvoiceMutation.mutate({
-                    weddingId: manualInvoiceModalItem.weddingId,
-                    amount: manualInvoiceModalItem.installmentAmount,
-                    label: manualInvoiceModalItem.installmentLabel,
-                  });
-                }
-              }}
-              disabled={
-                sendManualInvoiceMutation.isPending ||
-                !manualInvoiceModalItem?.clientEmail
-              }
-            >
-              {sendManualInvoiceMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <Send className="h-4 w-4 mr-2" />
-              )}
-              Send Invoice Link Now
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal: Mark Unpaid Confirmation */}
-      <Dialog
-        open={!!markUnpaidModalItem}
-        onOpenChange={(open) => !open && setMarkUnpaidModalItem(null)}
-      >
-        <DialogContent className="sm:max-w-[480px] rounded-3xl overflow-hidden shadow-xl border-border/40">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-xl font-bold text-amber-600 dark:text-amber-500">
-              <RotateCcw className="h-5 w-5" /> Mark Payment Unpaid
-            </DialogTitle>
-            <DialogDescription>
-              This will update{" "}
-              <strong>{markUnpaidModalItem?.clientName}</strong>'s wedding
-              ledger and subtract this installment amount from their paid
-              balance.
-            </DialogDescription>
-          </DialogHeader>
-
-          {markUnpaidModalItem && (
-            <div className="py-4 space-y-4">
-              <div className="bg-muted/40 p-4 rounded-2xl border border-border/50 space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Client:</span>
-                  <span className="font-semibold text-foreground">
-                    {markUnpaidModalItem.clientName}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Installment:</span>
-                  <span className="font-medium text-foreground">
-                    {markUnpaidModalItem.installmentLabel}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">
-                    Current Total Paid:
-                  </span>
-                  <span className="font-semibold text-emerald-600">
-                    ${markUnpaidModalItem.paidAmount.toLocaleString()}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">
-                    Deducting Amount:
-                  </span>
-                  <span className="font-semibold text-red-600">
-                    -${markUnpaidModalItem.installmentAmount.toLocaleString()}
-                  </span>
-                </div>
-                <div className="flex justify-between border-t border-border/40 pt-2 mt-2 font-bold">
-                  <span>New Total Paid Balance:</span>
-                  <span className="text-foreground">
-                    $
-                    {Math.max(
-                      0,
-                      markUnpaidModalItem.paidAmount -
-                        markUnpaidModalItem.installmentAmount,
-                    ).toLocaleString()}
-                  </span>
-                </div>
-              </div>
-
-              <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-700 dark:text-amber-400 flex items-start gap-2">
-                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                <span>
-                  This resets this installment's status back to pending/overdue
-                  on your Payment Audit hub and Bride Portal, enabling you to
-                  re-invoice or auto-charge if needed.
-                </span>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              variant="outline"
-              className="rounded-full"
-              onClick={() => setMarkUnpaidModalItem(null)}
-              disabled={markUnpaidMutation.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="default"
-              className="rounded-full bg-amber-600 hover:bg-amber-700 text-white"
-              onClick={() => {
-                if (markUnpaidModalItem) {
-                  markUnpaidMutation.mutate({
-                    weddingId: markUnpaidModalItem.weddingId,
-                    currentPaidAmount: markUnpaidModalItem.paidAmount,
-                    installmentAmount: markUnpaidModalItem.installmentAmount,
-                  });
-                }
-              }}
-              disabled={markUnpaidMutation.isPending}
-            >
-              {markUnpaidMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <RotateCcw className="h-4 w-4 mr-2" />
-              )}
-              Confirm & Mark Unpaid
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal: Resend Receipt Confirmation */}
-      <Dialog
-        open={!!resendReceiptModalItem}
-        onOpenChange={(open) => !open && setResendReceiptModalItem(null)}
-      >
-        <DialogContent className="sm:max-w-[480px] rounded-3xl overflow-hidden shadow-xl border-border/40">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-xl font-bold text-foreground">
-              <Mail className="h-5 w-5 text-primary" /> Resend Payment Receipt
-            </DialogTitle>
-            <DialogDescription>
-              This will send a copy of the formal HTML payment receipt to{" "}
-              <strong>{resendReceiptModalItem?.clientName}</strong>.
-            </DialogDescription>
-          </DialogHeader>
-
-          {resendReceiptModalItem && (
-            <div className="py-4 space-y-4">
-              <div className="bg-muted/40 p-4 rounded-2xl border border-border/50 space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">
-                    Recipient Email:
-                  </span>
-                  <span className="font-semibold text-foreground">
-                    {resendReceiptModalItem.clientEmail || "No email on file"}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Payment Item:</span>
-                  <span className="font-medium text-foreground">
-                    {resendReceiptModalItem.installmentLabel}
-                  </span>
-                </div>
-                <div className="flex justify-between border-t border-border/40 pt-2 mt-2">
-                  <span className="font-bold text-foreground">
-                    Receipt Amount:
-                  </span>
-                  <span className="font-extrabold text-emerald-600 text-base">
-                    $
-                    {resendReceiptModalItem.installmentAmount.toLocaleString(
-                      undefined,
-                      { minimumFractionDigits: 2 },
-                    )}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              variant="outline"
-              className="rounded-full"
-              onClick={() => setResendReceiptModalItem(null)}
-              disabled={resendReceiptMutation.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="default"
-              className="rounded-full"
-              onClick={() => {
-                if (resendReceiptModalItem) {
-                  resendReceiptMutation.mutate({
-                    weddingId: resendReceiptModalItem.weddingId,
-                    amount: resendReceiptModalItem.installmentAmount,
-                    label: resendReceiptModalItem.installmentLabel,
-                  });
-                }
-              }}
-              disabled={
-                resendReceiptMutation.isPending ||
-                !resendReceiptModalItem?.clientEmail
-              }
-            >
-              {resendReceiptMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <Send className="h-4 w-4 mr-2" />
-              )}
-              Send Receipt Email
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <PaymentAuditModals
+        autoChargeItem={autoChargeModalItem}
+        onAutoChargeClose={() => setAutoChargeModalItem(null)}
+        onAutoChargeConfirm={(item) =>
+          autoChargeMutation.mutate({
+            weddingId: item.weddingId,
+            amount: item.installmentAmount,
+            description: `${item.installmentLabel} for ${item.clientName} Wedding`,
+          })
+        }
+        autoChargePending={autoChargeMutation.isPending}
+        manualInvoiceItem={manualInvoiceModalItem}
+        onManualInvoiceClose={() => setManualInvoiceModalItem(null)}
+        onManualInvoiceConfirm={(item) =>
+          sendManualInvoiceMutation.mutate({
+            weddingId: item.weddingId,
+            amount: item.installmentAmount,
+            label: item.installmentLabel,
+          })
+        }
+        manualInvoicePending={sendManualInvoiceMutation.isPending}
+        markUnpaidItem={markUnpaidModalItem}
+        onMarkUnpaidClose={() => setMarkUnpaidModalItem(null)}
+        onMarkUnpaidConfirm={(item) =>
+          markUnpaidMutation.mutate({
+            weddingId: item.weddingId,
+            currentPaidAmount: item.paidAmount,
+            installmentAmount: item.installmentAmount,
+          })
+        }
+        markUnpaidPending={markUnpaidMutation.isPending}
+        resendReceiptItem={resendReceiptModalItem}
+        onResendReceiptClose={() => setResendReceiptModalItem(null)}
+        onResendReceiptConfirm={(item) =>
+          resendReceiptMutation.mutate({
+            weddingId: item.weddingId,
+            amount: item.installmentAmount,
+            label: item.installmentLabel,
+          })
+        }
+        resendReceiptPending={resendReceiptMutation.isPending}
+        cancelPaymentItem={cancelPaymentModalItem}
+        onCancelPaymentClose={() => setCancelPaymentModalItem(null)}
+        onCancelPaymentConfirm={(item) => cancelPaymentMutation.mutate(item)}
+        cancelPaymentPending={cancelPaymentMutation.isPending}
+      />
     </div>
   );
 }

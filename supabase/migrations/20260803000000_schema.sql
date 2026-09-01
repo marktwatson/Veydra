@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS public.portal_settings (
   notify_on_failed_autocharge BOOLEAN DEFAULT false,
   email_payment_failed_enabled BOOLEAN DEFAULT false,
   last_heartbeat_date TEXT,
+  last_digest_date TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -91,6 +92,7 @@ ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS company_name TEXT DE
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS company_state TEXT DEFAULT 'Tennessee';
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS app_url TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS logo_url TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS app_icon_url TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS invite_webhook TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS admin_invite_webhook TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS new_job_webhook TEXT;
@@ -128,6 +130,39 @@ ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS wedding_contract_tem
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS notify_on_failed_autocharge BOOLEAN DEFAULT false;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS email_payment_failed_enabled BOOLEAN DEFAULT false;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS last_heartbeat_date TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS last_digest_date TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS upload_account_email TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS upload_account_password TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS upload_instructions TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS portal_theme JSONB;
+
+-- Bartending Upsell (add-on service marketed to already-booked brides)
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS upsell_bartending_enabled BOOLEAN DEFAULT false;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS upsell_bartending_headline TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS upsell_bartending_subtext TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS upsell_bartending_packages JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS upsell_bartending_email_subject TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS upsell_bartending_email_template TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS upsell_bartending_sms_template TEXT;
+
+-- Track bartending add-on purchases (linked to wedding + Stripe payment)
+CREATE TABLE IF NOT EXISTS public.upsell_purchases (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  wedding_id UUID REFERENCES public.weddings(id) ON DELETE CASCADE,
+  service TEXT NOT NULL DEFAULT 'bartending',
+  package_name TEXT NOT NULL,
+  amount NUMERIC NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'pending',
+  stripe_payment_intent_id TEXT,
+  stripe_checkout_session_id TEXT,
+  stripe_customer_id TEXT,
+  purchased_at TIMESTAMPTZ DEFAULT now(),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.upsell_purchases ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public full access upsell_purchases" ON public.upsell_purchases;
+CREATE POLICY "Public full access upsell_purchases" ON public.upsell_purchases FOR ALL USING (true) WITH CHECK (true);
 
 -- Email/SMS Template Columns (Contractor)
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS email_invite_enabled BOOLEAN DEFAULT false;
@@ -612,6 +647,11 @@ CREATE TABLE IF NOT EXISTS public.pricing_addons (
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Bartending upsell tagging on addons (single source of truth for portal upsell)
+ALTER TABLE public.pricing_addons ADD COLUMN IF NOT EXISTS is_bartending BOOLEAN DEFAULT false;
+ALTER TABLE public.pricing_addons ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE public.pricing_addons ADD COLUMN IF NOT EXISTS features JSONB DEFAULT '[]'::jsonb;
 
 ALTER TABLE public.pricing_packages ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access pricing_packages" ON public.pricing_packages;
@@ -1331,3 +1371,199 @@ BEGIN
 END;
 $$;
 GRANT EXECUTE ON FUNCTION public.get_territory_royalty_summary() TO authenticated, service_role;
+
+-- ============================================================================
+-- 24. Payment Plan Change Requests
+-- Allows staff to propose a new remaining payment schedule, email/SMS the couple
+-- a unique approval link, and only write custom_payment_plan after they approve.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.payment_plan_change_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  wedding_id UUID NOT NULL REFERENCES public.weddings(id) ON DELETE CASCADE,
+  requested_by UUID,
+  status TEXT NOT NULL DEFAULT 'pending', -- pending | approved | declined | expired | cancelled
+  current_plan JSONB NOT NULL DEFAULT '{}'::jsonb,
+  proposed_plan JSONB NOT NULL DEFAULT '{}'::jsonb,
+  staff_note TEXT,
+  customer_token TEXT UNIQUE NOT NULL,
+  customer_responded_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+ALTER TABLE public.payment_plan_change_requests ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public full access payment_plan_change_requests" ON public.payment_plan_change_requests;
+CREATE POLICY "Public full access payment_plan_change_requests"
+  ON public.payment_plan_change_requests FOR ALL USING (true) WITH CHECK (true);
+CREATE INDEX IF NOT EXISTS idx_ppcr_wedding_id ON public.payment_plan_change_requests(wedding_id);
+CREATE INDEX IF NOT EXISTS idx_ppcr_status ON public.payment_plan_change_requests(status);
+CREATE INDEX IF NOT EXISTS idx_ppcr_customer_token ON public.payment_plan_change_requests(customer_token);
+
+-- ============================================================================
+-- 25. Push Notifications — VAPID keys, per-device subscriptions, per-user prefs
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.push_settings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  vapid_public_key TEXT NOT NULL,
+  vapid_private_key TEXT NOT NULL,
+  subject TEXT NOT NULL DEFAULT 'mailto:admin@veydra.com',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+ALTER TABLE public.push_settings ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public read push_settings" ON public.push_settings;
+CREATE POLICY "Public read push_settings public_key"
+  ON public.push_settings FOR SELECT
+  USING (true);
+
+-- Seed the VAPID keypair. Always replaces (DELETE + INSERT) so re-syncing
+-- fixes any invalid keys that were previously seeded.
+DELETE FROM public.push_settings;
+INSERT INTO public.push_settings (vapid_public_key, vapid_private_key, subject)
+VALUES (
+  'BP2Rhk8b2-A77mHB2XCSJjKEs4SyP_L8t9qTWDeQchhFbe03XQ0FkdCPSCN5xC8f02D2dsmf2i26vh84FgrAWuo',
+  'MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgpzGWJW9Jj0DbLYGY0PIKTbn5k2ioJRj5-0wKUBaN-tChRANCAAT9kYZPG9vgO-5hwdlwkiYyhLOEsj_y_Lfak1g3kHIYRW3tN10NBZHQj0gjecQvH9Ng9nbJn9otur4fOBYKwFrq',
+  'mailto:admin@veydra.com'
+);
+
+CREATE TABLE IF NOT EXISTS public.push_subscriptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL,
+  user_email TEXT,
+  endpoint TEXT NOT NULL,
+  p256dh_key TEXT NOT NULL,
+  auth_key TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "User manage own push_subscriptions" ON public.push_subscriptions;
+CREATE POLICY "User manage own push_subscriptions"
+  ON public.push_subscriptions FOR ALL
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE INDEX IF NOT EXISTS idx_push_subs_user_id ON public.push_subscriptions(user_id);
+-- Unique constraint on endpoint is required for the app's
+-- upsert(..., { onConflict: "endpoint" }) to work — without it Postgres
+-- throws "no unique or exclusion constraint matching the ON CONFLICT
+-- specification" and push subscribing fails.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'push_subscriptions_endpoint_key'
+  ) THEN
+    ALTER TABLE public.push_subscriptions
+      ADD CONSTRAINT push_subscriptions_endpoint_key UNIQUE (endpoint);
+  END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS public.push_preferences (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL UNIQUE,
+  enabled BOOLEAN DEFAULT true,
+  bookings_payments BOOLEAN DEFAULT true,
+  royalty_finance BOOLEAN DEFAULT true,
+  team_operations BOOLEAN DEFAULT false,
+  daily_digest BOOLEAN DEFAULT true,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+ALTER TABLE public.push_preferences ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "User manage own push_preferences" ON public.push_preferences;
+CREATE POLICY "User manage own push_preferences"
+  ON public.push_preferences FOR ALL
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- ── Storage bucket for app icons / avatars (used by Settings → App Icon upload) ──
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('avatars', 'avatars', true)
+ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS "Public read avatars" ON storage.objects;
+CREATE POLICY "Public read avatars"
+  ON storage.objects FOR SELECT
+  USING (bucket_id = 'avatars');
+
+DROP POLICY IF EXISTS "Public upload avatars" ON storage.objects;
+CREATE POLICY "Public upload avatars"
+  ON storage.objects FOR INSERT
+  WITH CHECK (bucket_id = 'avatars');
+
+DROP POLICY IF EXISTS "Public update avatars" ON storage.objects;
+CREATE POLICY "Public update avatars"
+  ON storage.objects FOR UPDATE
+  USING (bucket_id = 'avatars')
+  WITH CHECK (bucket_id = 'avatars');
+
+-- ============================================================================
+-- Server-side backstop for the "Owner (Read Only)" role.
+-- The frontend blocks writes for owner_readonly via localStorage, but that is
+-- client-side and bypassable. This trigger enforces it at the DB layer on
+-- every business table. Service-role / edge functions (no auth.uid()) are
+-- never blocked, so cron + webhooks keep working.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.is_owner_readonly()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+AS $$
+DECLARE
+  v_uid UUID;
+  v_email TEXT;
+  v_role TEXT;
+BEGIN
+  v_uid := auth.uid();
+  IF v_uid IS NULL THEN
+    v_email := auth.jwt() ->> 'email';
+    IF v_email IS NULL THEN
+      RETURN false;
+    END IF;
+  END IF;
+  SELECT role INTO v_role
+  FROM public.managers
+  WHERE (v_uid IS NOT NULL AND id = v_uid)
+     OR (v_email IS NOT NULL AND email ILIKE v_email)
+  LIMIT 1;
+  RETURN v_role = 'owner_readonly';
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.block_if_readonly()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  IF public.is_owner_readonly() THEN
+    RAISE EXCEPTION 'Your account is read-only. You can view data but cannot make changes. Contact a Super Admin if you need edit access.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DO $$
+DECLARE
+  t TEXT;
+  business_tables TEXT[] := ARRAY[
+    'portal_settings','managers','editors','contractors','weddings','jobs',
+    'applications','assignments','notifications','blackout_dates','expenses',
+    'activity_logs','sms_logs','api_logs','proposals','messages','coupons',
+    'notification_queue','territories','edge_function_sources','royalty_settings',
+    'royalty_secrets','royalty_periods','royalty_audit_log','royalty_sales',
+    'payment_plan_change_requests','push_settings','push_subscriptions',
+    'push_preferences','venue_geocodes','pricing_packages','pricing_addons',
+    'upsell_purchases'
+  ];
+BEGIN
+  FOREACH t IN ARRAY business_tables LOOP
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t) THEN
+      EXECUTE format('DROP TRIGGER IF EXISTS owner_readonly_block ON public.%I;', t);
+      EXECUTE format(
+        'CREATE TRIGGER owner_readonly_block BEFORE INSERT OR UPDATE OR DELETE ON public.%I '
+        'FOR EACH ROW EXECUTE FUNCTION public.block_if_readonly();',
+        t
+      );
+    END IF;
+  END LOOP;
+END;
+$$;

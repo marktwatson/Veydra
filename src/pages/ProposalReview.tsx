@@ -22,7 +22,8 @@ import {
   PenTool,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { loadStripe } from "@stripe/stripe-js";
+import { loadBookingStripe } from "@/lib/stripe-booking";
+const stripePromise = loadBookingStripe();
 import {
   Elements,
   PaymentElement,
@@ -187,8 +188,6 @@ const FALLBACK_ADDONS = [
     price: 750,
   },
 ];
-
-const stripePromise = loadStripe("pk_live_ksr3XxUGn2LLl5mf847DsThU");
 
 function CheckoutForm({
   clientSecret,

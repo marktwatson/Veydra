@@ -70,7 +70,6 @@ const parseLocalDate = (dateStr: string): Date => {
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
-import { toast as sonnerToast } from "sonner";
 import {
   Tooltip,
   TooltipContent,
@@ -128,17 +127,27 @@ export default function ManagerDashboard() {
     }
   }, []);
 
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
   const requestNotificationPermission = async () => {
     if (!("Notification" in window)) {
       const isIOS =
         /iPad|iPhone|iPod/.test(navigator.userAgent) ||
         (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
       if (isIOS) {
-        sonnerToast.error(
-          "To enable push notifications on iPhone/iPad, please tap 'Share' then 'Add to Home Screen' first.",
-        );
+        toast({
+          variant: "destructive",
+          title: "Add to Home Screen required",
+          description:
+            "To enable push notifications on iPhone/iPad, please tap 'Share' then 'Add to Home Screen' first.",
+        });
       } else {
-        sonnerToast.error("Your browser does not support push notifications.");
+        toast({
+          variant: "destructive",
+          title: "Not supported",
+          description: "Your browser does not support push notifications.",
+        });
       }
       return;
     }
@@ -146,9 +155,10 @@ export default function ManagerDashboard() {
       const permission = await Notification.requestPermission();
       setNotificationPermission(permission);
       if (permission === "granted") {
-        sonnerToast.success(
-          "Notifications enabled! You'll now receive alerts for messages and updates.",
-        );
+        toast({
+          title: "Notifications enabled",
+          description: "You'll now receive alerts for messages and updates.",
+        });
         if ("serviceWorker" in navigator) {
           try {
             await navigator.serviceWorker.register("/sw.js");
@@ -157,17 +167,16 @@ export default function ManagerDashboard() {
           }
         }
       } else {
-        sonnerToast.error(
-          "Notifications disabled. You can change this in your browser settings.",
-        );
+        toast({
+          variant: "destructive",
+          title: "Notifications disabled",
+          description: "You can change this in your browser settings.",
+        });
       }
     } catch (error) {
       console.error("Error requesting notification permission:", error);
     }
   };
-
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
 
   const updateWeddingMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: any }) => {

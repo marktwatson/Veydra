@@ -7,6 +7,7 @@ import React, {
   useCallback,
 } from "react";
 import { supabase } from "@/lib/supabase";
+import { isSuperAdminEmail } from "@/lib/super-admin";
 import { toast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { DEFAULT_LOGO_URL } from "@/lib/utils";
@@ -95,7 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           savedRole === "super_admin" ||
           savedRole === "manager" ||
           savedRole === "editor" ||
-          session.user.email?.toLowerCase() === "mark@kavoddigital.com" ||
+          isSuperAdminEmail(session.user.email) ||
           manager?.role === "super_admin";
 
         let role: UserRole = "contractor";
@@ -286,8 +287,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem("veydra_role", type || "contractor");
 
         if (type === "manager" || type === "super_admin") {
-          const isSuperAdmin =
-            data.user.email?.toLowerCase() === "mark@kavoddigital.com";
+          const isSuperAdmin = isSuperAdminEmail(data.user.email);
 
           let manager = null;
           let editor = null;
@@ -351,8 +351,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             localStorage.setItem("veydra_effective_role", finalRole);
           } catch (e) {}
         } else if (type === "editor") {
-          const isSuperAdmin =
-            data.user.email?.toLowerCase() === "mark@kavoddigital.com";
+          const isSuperAdmin = isSuperAdminEmail(data.user.email);
 
           let editor = null;
           let isManager = false;

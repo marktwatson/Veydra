@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DEFAULT_LOGO_URL } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
+import { isSuperAdminEmail } from "@/lib/super-admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -1275,8 +1276,7 @@ export default function ManagerTeam() {
                                   user?.role !== "super_admin") ||
                                 (manager.role === "owner_readonly" &&
                                   user?.role !== "super_admin") ||
-                                manager.email?.toLowerCase() ===
-                                  "mark@kavoddigital.com" ||
+                                isSuperAdminEmail(manager.email) ||
                                 deleteMutation.isPending
                               }
                               className="text-destructive hover:bg-destructive/10 hover:text-destructive"
@@ -1360,8 +1360,7 @@ export default function ManagerTeam() {
                   }
                   disabled={
                     editingAdmin.role === "super_admin" ||
-                    editingAdmin.email?.toLowerCase() ===
-                      "mark@kavoddigital.com"
+                    isSuperAdminEmail(editingAdmin.email)
                   }
                 >
                   <SelectTrigger>

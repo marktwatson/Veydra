@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import { User, Mail, Shield, Camera, Loader2, Key } from "lucide-react";
+import { User, Mail, Camera, Loader2 } from "lucide-react";
+import { PushNotificationsCard } from "@/components/PushNotificationsCard";
+import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
 import {
   Card,
   CardContent,
@@ -14,16 +16,8 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
+import { isSuperAdminEmail } from "@/lib/super-admin";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 
 export default function ManagerProfile() {
   const { toast } = useToast();
@@ -33,9 +27,6 @@ export default function ManagerProfile() {
 
   const [isEditing, setIsEditing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false);
-  const [newPassword, setNewPassword] = useState("");
-  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -81,10 +72,7 @@ export default function ManagerProfile() {
   // Save changes to Supabase
   const updateMutation = useMutation({
     mutationFn: async (updates: any) => {
-      if (
-        profile?.id === "m1" ||
-        user?.email?.toLowerCase() === "mark@kavoddigital.com"
-      ) {
+      if (profile?.id === "m1" || isSuperAdminEmail(user?.email)) {
         const { data: manager } = await supabase
           .from("managers")
           .select("id")
@@ -271,52 +259,6 @@ export default function ManagerProfile() {
     }
   };
 
-  const handleUpdatePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!newPassword || newPassword.length < 6) {
-      toast({
-        title: "Invalid password",
-        description: "Password must be at least 6 characters.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsUpdatingPassword(true);
-
-    if (user?.id === "m1") {
-      setTimeout(() => {
-        toast({
-          title: "Password updated",
-          description: "Your password has been changed successfully.",
-        });
-        setIsPasswordDialogOpen(false);
-        setNewPassword("");
-        setIsUpdatingPassword(false);
-      }, 500);
-      return;
-    }
-    setIsUpdatingPassword(true);
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
-    setIsUpdatingPassword(false);
-
-    if (error) {
-      toast({
-        title: "Failed to update password",
-        description: error.message,
-        variant: "destructive",
-      });
-    } else {
-      toast({
-        title: "Password updated",
-        description: "Your password has been changed successfully.",
-      });
-      setIsPasswordDialogOpen(false);
-      setNewPassword("");
-    }
-  };
-
   if (isLoading) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
@@ -409,56 +351,7 @@ export default function ManagerProfile() {
               <CardTitle className="text-lg">Account Security</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <Dialog
-                open={isPasswordDialogOpen}
-                onOpenChange={setIsPasswordDialogOpen}
-              >
-                <DialogTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="w-full justify-start gap-2"
-                  >
-                    <Key className="h-4 w-4" />
-                    Change Password
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[400px]">
-                  <DialogHeader>
-                    <DialogTitle>Change Password</DialogTitle>
-                    <DialogDescription>
-                      Update the password for your own manager account.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <form onSubmit={handleUpdatePassword} className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="new-password">New Password</Label>
-                      <Input
-                        id="new-password"
-                        type="password"
-                        placeholder="Enter new password"
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        required
-                      />
-                    </div>
-                    <DialogFooter className="pt-4">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => setIsPasswordDialogOpen(false)}
-                      >
-                        Cancel
-                      </Button>
-                      <Button type="submit" disabled={isUpdatingPassword}>
-                        {isUpdatingPassword ? (
-                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                        ) : null}
-                        Update Password
-                      </Button>
-                    </DialogFooter>
-                  </form>
-                </DialogContent>
-              </Dialog>
+              <ChangePasswordDialog />
             </CardContent>
           </Card>
         </div>
@@ -523,6 +416,8 @@ export default function ManagerProfile() {
               </div>
             </CardContent>
           </Card>
+
+          <PushNotificationsCard />
         </div>
       </div>
     </div>

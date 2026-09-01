@@ -16,6 +16,7 @@ import { AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, DbWedding } from "@/lib/api";
+import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
 
 interface CancelWeddingModalProps {
   wedding: DbWedding;
@@ -38,6 +39,8 @@ export function CancelWeddingModal({
   const [notes, setNotes] = useState("");
   const [notifyContractors, setNotifyContractors] = useState(true);
   const [notifyBride, setNotifyBride] = useState(false);
+  const [cancelPayments, setCancelPayments] = useState(true);
+  const [cancellingPayments, setCancellingPayments] = useState(false);
   const [confirmText, setConfirmText] = useState("");
 
   const resetForm = () => {
@@ -48,6 +51,7 @@ export function CancelWeddingModal({
     setNotes("");
     setNotifyContractors(true);
     setNotifyBride(false);
+    setCancelPayments(true);
     setConfirmText("");
   };
 
@@ -61,6 +65,64 @@ export function CancelWeddingModal({
   const handleSubmit = async () => {
     if (!canSubmit) return;
     try {
+      // Cancel all future Stripe payments (subscription + open invoices) unless opted out
+      if (
+        cancelPayments &&
+        (wedding.stripe_subscription_id || wedding.stripe_customer_id)
+      ) {
+        setCancellingPayments(true);
+        try {
+          let {
+            data: { session },
+          } = await supabase.auth.getSession();
+          if (!session?.access_token) {
+            const { data } = await supabase.auth.refreshSession();
+            session = data.session;
+          }
+          const token = session?.access_token;
+          if (token && token.startsWith("eyJ")) {
+            const res = await fetch(
+              `${supabaseUrl}/functions/v1/stripe-cancel-subscription`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${token}`,
+                  apikey: supabaseAnonKey,
+                },
+                body: JSON.stringify({
+                  subscriptionId: wedding.stripe_subscription_id,
+                  customerId: wedding.stripe_customer_id,
+                  weddingId: wedding.id,
+                }),
+              },
+            );
+            if (res.ok) {
+              const data = await res.json();
+              const cancelled = data?.cancelledSubscriptions?.length || 0;
+              const voided = data?.voidedInvoices?.length || 0;
+              if (cancelled || voided) {
+                toast({
+                  title: "Future payments cancelled",
+                  description: `${cancelled} subscription(s) cancelled, ${voided} open invoice(s) voided in Stripe.`,
+                });
+              }
+            }
+          }
+        } catch (cancelErr: any) {
+          console.error("Failed to cancel Stripe payments:", cancelErr);
+          toast({
+            variant: "destructive",
+            title: "Could not cancel Stripe payments",
+            description:
+              cancelErr.message ||
+              "The wedding was cancelled but future Stripe charges may still run. Cancel them manually in Stripe.",
+          });
+        } finally {
+          setCancellingPayments(false);
+        }
+      }
+
       await api.archiveWedding(wedding.id, {
         reason: reason.trim(),
         refundProcessed,
@@ -215,6 +277,27 @@ export function CancelWeddingModal({
                 Send cancellation email/SMS to client
               </Label>
             </div>
+            <div className="flex items-start space-x-2 pt-2 border-t border-border">
+              <Checkbox
+                id="cancel-payments"
+                checked={cancelPayments}
+                onCheckedChange={(c) => setCancelPayments(!!c)}
+                className="mt-0.5"
+              />
+              <div className="space-y-0.5">
+                <Label
+                  htmlFor="cancel-payments"
+                  className="font-normal cursor-pointer text-sm"
+                >
+                  Cancel all future Stripe payments
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Cancels the recurring subscription and voids any open invoices
+                  so the card is not charged again. Uncheck only if payments
+                  should continue.
+                </p>
+              </div>
+            </div>
           </div>
 
           {/* Type CANCEL Confirmation */}
@@ -249,9 +332,11 @@ export function CancelWeddingModal({
           <Button
             variant="destructive"
             onClick={handleSubmit}
-            disabled={!canSubmit}
+            disabled={!canSubmit || cancellingPayments}
           >
-            Cancel & Archive Wedding
+            {cancellingPayments
+              ? "Cancelling payments..."
+              : "Cancel & Archive Wedding"}
           </Button>
         </DialogFooter>
       </DialogContent>

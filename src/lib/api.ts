@@ -1,4 +1,4 @@
-import { supabase, supabaseUrl, supabaseAnonKey, areaId } from "./supabase";
+import { supabase, supabaseUrl, supabaseAnonKey } from "./supabase";
 import {
   formatDisplayDate,
   DEFAULT_LOGO_URL,
@@ -230,6 +230,7 @@ export interface DbPortalSettings {
   company_name?: string | null;
   app_url?: string | null;
   logo_url: string | null;
+  app_icon_url?: string | null;
   invite_webhook?: string | null;
   admin_invite_webhook?: string | null;
   new_job_webhook?: string | null;
@@ -447,6 +448,17 @@ export interface DbPortalSettings {
   email_bride_songs_template?: string | null;
   sms_bride_songs_enabled?: boolean | null;
   sms_bride_songs_template?: string | null;
+  upload_account_email?: string | null;
+  upload_account_password?: string | null;
+  upload_instructions?: string | null;
+  portal_theme?: any | null;
+  upsell_bartending_enabled?: boolean | null;
+  upsell_bartending_headline?: string | null;
+  upsell_bartending_subtext?: string | null;
+  upsell_bartending_packages?: any[] | null;
+  upsell_bartending_email_subject?: string | null;
+  upsell_bartending_email_template?: string | null;
+  upsell_bartending_sms_template?: string | null;
   updated_at: string;
 }
 
@@ -1052,11 +1064,17 @@ export async function sendOvantaSms(
         // Try to check weddings table just in case they are a client
         const { data: wedding } = await supabase
           .from("weddings")
-          .select("questionnaire_data")
+          .select("questionnaire_data, client_phone")
           .eq("client_email", email)
           .maybeSingle();
-        if (wedding?.questionnaire_data?.contact_info?.phone) {
+        if (wedding?.client_phone) {
+          dbPhone = wedding.client_phone;
+        } else if (wedding?.questionnaire_data?.contact_info?.phone) {
           dbPhone = wedding.questionnaire_data.contact_info.phone;
+        } else if (wedding?.questionnaire_data?.contact_info?.phone_bride) {
+          dbPhone = wedding.questionnaire_data.contact_info.phone_bride;
+        } else if (wedding?.questionnaire_data?.contact_info?.phone_groom) {
+          dbPhone = wedding.questionnaire_data.contact_info.phone_groom;
         }
       }
 
@@ -2050,6 +2068,25 @@ export const api = {
 
       console.log("Running daily heartbeat for automations...");
       await this.executeAutomations(settings, now);
+
+      // Fire the daily-digest push exactly once per day. The heartbeat's
+      // last_heartbeat_date guard above already ensures this whole block
+      // runs at most once per calendar day, so the digest edge function is
+      // called exactly once (not on every app load). Do NOT trigger the
+      // digest from main.tsx — that caused duplicate pushes on every reload.
+      try {
+        await fetch(`${supabaseUrl}/functions/v1/daily-digest`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${supabaseAnonKey}`,
+            apikey: supabaseAnonKey,
+          },
+          body: JSON.stringify({}),
+        });
+      } catch (e) {
+        console.warn("[Heartbeat] daily-digest trigger failed:", e);
+      }
     } catch (e) {
       console.error("Heartbeat error:", e);
     }
@@ -6493,6 +6530,9 @@ export const api = {
       isHourly: a.is_hourly,
       minHours: Number(a.min_hours) || 0,
       isArchived: a.is_archived,
+      isBartending: a.is_bartending || false,
+      description: a.description || "",
+      features: a.features || [],
       sortOrder: a.sort_order,
     }));
   },
@@ -6504,6 +6544,9 @@ export const api = {
     isHourly: boolean;
     minHours: number;
     isArchived: boolean;
+    isBartending?: boolean;
+    description?: string;
+    features?: string[];
   }) {
     const id =
       addon.id ||
@@ -6518,6 +6561,9 @@ export const api = {
       is_hourly: addon.isHourly,
       min_hours: addon.minHours,
       is_archived: addon.isArchived,
+      is_bartending: addon.isBartending || false,
+      description: addon.description || "",
+      features: addon.features || [],
       updated_at: new Date().toISOString(),
     };
     const { data, error } = await supabase
@@ -6535,6 +6581,56 @@ export const api = {
       .delete()
       .eq("id", id);
     if (error) throw error;
+  },
+
+  // ─── Upsell: Bartending add-on ───
+
+  async getUpsellPurchases(weddingId?: string) {
+    let query = supabase
+      .from("upsell_purchases")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (weddingId) query = query.eq("wedding_id", weddingId);
+    const { data, error } = await query;
+    if (error) throw error;
+    return data || [];
+  },
+
+  async createUpsellCheckout(opts: {
+    weddingId: string;
+    packageName: string;
+    amount: number;
+    customerEmail?: string;
+    customerName?: string;
+    stripeCustomerId?: string | null;
+    successUrl?: string;
+    cancelUrl?: string;
+  }) {
+    const res = await fetch(`${supabaseUrl}/functions/v1/stripe-checkout`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+        apikey: supabaseAnonKey,
+      },
+      body: JSON.stringify({
+        type: "upsell",
+        weddingId: opts.weddingId,
+        amount: opts.amount,
+        packageName: opts.packageName,
+        description: `Bartending Add-On: ${opts.packageName}`,
+        customerEmail: opts.customerEmail || "",
+        customerName: opts.customerName || "",
+        stripeCustomerId: opts.stripeCustomerId || undefined,
+        successUrl: opts.successUrl,
+        cancelUrl: opts.cancelUrl,
+      }),
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || "Failed to create checkout session");
+    }
+    return res.json();
   },
 
   // ─── CRM / Ovanta integration methods ───
@@ -6824,7 +6920,7 @@ export const api = {
     // Match by THIS instance's project_ref first (the Fleet Manager's self-row),
     // then fall back to is_primary. This is the single source of truth for
     // "which row is this instance's territory" across the royalty module.
-    const SELF_PROJECT_REF = areaId;
+    const SELF_PROJECT_REF = "oosmhtzqdmntlzhheofw";
 
     // Select BOTH payment method columns so the UI can detect a connection
     // regardless of which column the edge function actually wrote to.
@@ -7180,7 +7276,7 @@ export const api = {
     if (owned) return owned;
     // Fallback: THIS instance's own territory — match by project_ref first
     // (the Fleet Manager's self-row), then is_primary.
-    const SELF_PROJECT_REF = areaId;
+    const SELF_PROJECT_REF = "oosmhtzqdmntlzhheofw";
     const { data: selfRow } = await supabase
       .from("territories")
       .select("*")
@@ -7223,7 +7319,7 @@ export const api = {
     // Match by that exact identifier so we always reuse the row it created —
     // never create a duplicate. (Matching by is_primary alone is unreliable
     // because is_primary can be null/false on older rows.)
-    const SELF_PROJECT_REF = areaId;
+    const SELF_PROJECT_REF = "oosmhtzqdmntlzhheofw";
 
     const calculatedBalance =
       config.remaining_balance !== undefined
@@ -7298,7 +7394,7 @@ export const api = {
   // Link an owner user to the primary territory (single-territory model).
   // Only sets owner_user_id if not already set — does NOT create a new territory.
   async assignTerritoryOwner(userId: string) {
-    const SELF_PROJECT_REF = areaId;
+    const SELF_PROJECT_REF = "oosmhtzqdmntlzhheofw";
 
     // Match by project_ref first (the Fleet Manager's self-row), then is_primary.
     let territory: any = null;
@@ -7442,7 +7538,20 @@ export const api = {
   // DB. The previous implementation misassigned the PM id into
   // stripe_customer_id via a direct client update, which is why the UI kept
   // showing "No payment method on file".
-  async connectTerritoryStripe(paymentMethodId: string) {
+  async connectTerritoryStripe(
+    paymentMethodId: string | { id?: string } | undefined,
+  ) {
+    const pmId =
+      typeof paymentMethodId === "string"
+        ? paymentMethodId
+        : paymentMethodId && typeof paymentMethodId === "object"
+          ? paymentMethodId.id || ""
+          : "";
+    if (!pmId || !pmId.startsWith("pm_")) {
+      throw new Error(
+        "Invalid payment method id returned by Stripe. Please retry the bank connection.",
+      );
+    }
     const {
       data: { session },
     } = await supabase.auth.getSession();
@@ -7456,7 +7565,7 @@ export const api = {
       },
       body: JSON.stringify({
         action: "attach_payment_method",
-        payment_method_id: paymentMethodId,
+        payment_method_id: pmId,
       }),
     });
     if (!response.ok) {
@@ -7468,6 +7577,13 @@ export const api = {
       );
       throw new Error(`Attach failed (${response.status}): ${errText}`);
     }
-    return response.json();
+    const result = await response.json();
+    if (!result?.payment_method_id) {
+      throw new Error(
+        result?.error ||
+          "Bank authorized in Stripe, but it was not saved to the territory. Do not close this dialog.",
+      );
+    }
+    return result;
   },
 };

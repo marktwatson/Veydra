@@ -6,7 +6,7 @@
 // tables and columns exist via exec_sql. This prevents silent save failures
 // when a territory's schema is stale.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+import { createClient } from "jsr:@supabase/supabase-js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

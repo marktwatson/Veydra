@@ -11,6 +11,7 @@ import stripePayout from "../../supabase/functions/stripe-payout/index.ts?raw";
 import stripePortal from "../../supabase/functions/stripe-portal/index.ts?raw";
 import stripeOnboard from "../../supabase/functions/stripe-onboard/index.ts?raw";
 import stripeWebhook from "../../supabase/functions/stripe-webhook/index.ts?raw";
+import stripeCancelSubscription from "../../supabase/functions/stripe-cancel-subscription/index.ts?raw";
 import crmWebhook from "../../supabase/functions/crm-webhook/index.ts?raw";
 import processNotifications from "../../supabase/functions/process-notifications/index.ts?raw";
 import deployTerritory from "../../supabase/functions/deploy-territory/index.ts?raw";
@@ -19,6 +20,10 @@ import stripeStatus from "../../supabase/functions/stripe-status/index.ts?raw";
 import royaltyProcessor from "../../supabase/functions/royalty-processor/index.ts?raw";
 import royaltySummary from "../../supabase/functions/royalty-summary/index.ts?raw";
 import royaltyStripeKeys from "../../supabase/functions/royalty-stripe-keys/index.ts?raw";
+import paymentPlanApprove from "../../supabase/functions/payment-plan-approve/index.ts?raw";
+import dailyDigest from "../../supabase/functions/daily-digest/index.ts?raw";
+import sendPush from "../../supabase/functions/send-push/index.ts?raw";
+import pushSchema from "../../supabase/migrations/20260829000001_push_subscriptions.sql?raw";
 import masterSql from "../../supabase/migrations/20260803000000_schema.sql?raw";
 
 export const EDGE_FUNCTION_SOURCES: Record<string, string> = {
@@ -29,6 +34,7 @@ export const EDGE_FUNCTION_SOURCES: Record<string, string> = {
   "stripe-portal": stripePortal,
   "stripe-onboard": stripeOnboard,
   "stripe-webhook": stripeWebhook,
+  "stripe-cancel-subscription": stripeCancelSubscription,
   "stripe-status": stripeStatus,
   "crm-webhook": crmWebhook,
   "deploy-territory": deployTerritory,
@@ -36,6 +42,10 @@ export const EDGE_FUNCTION_SOURCES: Record<string, string> = {
   "royalty-processor": royaltyProcessor,
   "royalty-summary": royaltySummary,
   "royalty-stripe-keys": royaltyStripeKeys,
+  "payment-plan-approve": paymentPlanApprove,
   "process-notifications": processNotifications,
+  "daily-digest": dailyDigest,
+  "send-push": sendPush,
   master_sql: masterSql,
+  push_schema: pushSchema,
 };

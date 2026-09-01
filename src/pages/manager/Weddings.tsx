@@ -88,6 +88,7 @@ import {
   RefreshCw,
   ChevronDown,
   Music,
+  MessageSquare,
   Calendar,
   MapPin,
   Clock,
@@ -99,6 +100,7 @@ import {
   Rows3,
   CalendarCheck,
   Search,
+  Wine,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { api, DbWedding } from "@/lib/api";
@@ -130,6 +132,8 @@ import { CancelWeddingModal } from "@/components/CancelWeddingModal";
 import EmailPreviewModal, {
   EmailPreviewData,
 } from "@/components/EmailPreviewModal";
+import { ChangePaymentPlanDialog } from "@/components/ChangePaymentPlanDialog";
+import { ChangePendingBadge } from "@/components/ChangePendingBadge";
 
 const VIDEO_PRICING = [
   { id: "highlight_9_10", label: "Wedding Highlight (9-10 min)", price: 190 },
@@ -2144,6 +2148,7 @@ export function ManageWeddingSheet({
                       <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                         Payment Schedule
                       </Label>
+                      <ChangePendingBadge weddingId={wedding.id} />
 
                       {paymentPlan === "custom" && (
                         <div className="space-y-4 mb-4 pb-4 border-b">
@@ -3071,56 +3076,105 @@ export function ManageWeddingSheet({
                 </div>
 
                 <div className="pt-6 border-t mt-6 flex flex-col gap-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full rounded-full"
-                    onClick={async () => {
-                      const email =
-                        wedding.client_email ||
-                        questionnaireData?.contact_info?.email;
-                      if (!email) {
-                        toast({
-                          variant: "destructive",
-                          title: "No Email",
-                          description:
-                            "Please add an email address in the Details tab first.",
-                        });
-                        return;
-                      }
-                      const link = `${window.location.origin}/bride-portal/${wedding.id}`;
-                      const subject =
-                        "Please complete your wedding questionnaire";
-                      const msg = `Hi ${wedding.client_name.split(" ")[0]},<br><br>Please fill out your wedding details and timeline questionnaire here: <a href="${link}">${link}</a><br><br>Thank you!`;
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full rounded-full"
+                      onClick={async () => {
+                        const email =
+                          wedding.client_email ||
+                          questionnaireData?.contact_info?.email;
+                        if (!email) {
+                          toast({
+                            variant: "destructive",
+                            title: "No Email",
+                            description:
+                              "Please add an email address in the Details tab first.",
+                          });
+                          return;
+                        }
+                        const link = `${(settings?.app_url || window.location.origin).replace(/\/$/, "")}/bride-portal/${wedding.id}`;
+                        const subject =
+                          "Please complete your wedding questionnaire";
+                        const msg = `Hi ${wedding.client_name.split(" ")[0]},<br><br>Please fill out your wedding details and timeline questionnaire here: <a href="${link}">${link}</a><br><br>Thank you!`;
 
-                      toast({
-                        title: "Sending...",
-                        description: `Sending reminder to ${email}`,
-                      });
-                      try {
-                        await api.sendOvantaEmail(
-                          email,
-                          subject,
-                          msg,
-                          wedding.client_name,
-                          true,
-                        );
                         toast({
-                          title: "Sent!",
-                          description: `Reminder sent to ${email}`,
+                          title: "Sending...",
+                          description: `Sending reminder to ${email}`,
                         });
-                      } catch (err: any) {
+                        try {
+                          await api.sendOvantaEmail(
+                            email,
+                            subject,
+                            msg,
+                            wedding.client_name,
+                            true,
+                          );
+                          toast({
+                            title: "Sent!",
+                            description: `Reminder sent to ${email}`,
+                          });
+                        } catch (err: any) {
+                          toast({
+                            variant: "destructive",
+                            title: "Failed",
+                            description: err.message,
+                          });
+                        }
+                      }}
+                    >
+                      <Send className="mr-2 h-4 w-4" />
+                      Email Reminder
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full rounded-full"
+                      onClick={async () => {
+                        const email =
+                          wedding.client_email ||
+                          questionnaireData?.contact_info?.email;
+                        if (!email) {
+                          toast({
+                            variant: "destructive",
+                            title: "No Email",
+                            description:
+                              "An email is required to look up the contact for SMS.",
+                          });
+                          return;
+                        }
+                        const link = `${(settings?.app_url || window.location.origin).replace(/\/$/, "")}/bride-portal/${wedding.id}`;
+                        const smsMsg = `Hi ${wedding.client_name.split(" ")[0]}! Please complete your wedding details and timeline questionnaire here: ${link}`;
+
                         toast({
-                          variant: "destructive",
-                          title: "Failed",
-                          description: err.message,
+                          title: "Sending...",
+                          description: `Sending SMS reminder to ${email}`,
                         });
-                      }
-                    }}
-                  >
-                    <Send className="mr-2 h-4 w-4" />
-                    Send Reminder
-                  </Button>
+                        try {
+                          await api.sendOvantaSms(
+                            email,
+                            smsMsg,
+                            wedding.client_name,
+                            true,
+                          );
+                          toast({
+                            title: "Sent!",
+                            description: `SMS reminder sent to ${email}`,
+                          });
+                        } catch (err: any) {
+                          toast({
+                            variant: "destructive",
+                            title: "SMS Failed",
+                            description: err.message,
+                          });
+                        }
+                      }}
+                    >
+                      <MessageSquare className="mr-2 h-4 w-4" />
+                      SMS Reminder
+                    </Button>
+                  </div>
                   <Button
                     type="button"
                     variant="destructive"
@@ -3594,6 +3648,7 @@ export default function ManagerWeddings() {
   const [sendingPrepReminder, setSendingPrepReminder] = useState<string | null>(
     null,
   );
+  const [changePlanWedding, setChangePlanWedding] = useState<any>(null);
   const itemsPerPage = 10;
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -4743,7 +4798,54 @@ export default function ManagerWeddings() {
                                   className="cursor-pointer"
                                 >
                                   <Send className="h-4 w-4 mr-2" />
-                                  Send Portal Reminder
+                                  Send Portal Reminder (Email)
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={async () => {
+                                    const email =
+                                      wedding.client_email ||
+                                      wedding.questionnaire_data?.contact_info
+                                        ?.email ||
+                                      wedding.questionnaire_data?.email;
+                                    if (!email) {
+                                      toast({
+                                        variant: "destructive",
+                                        title: "No Email Found",
+                                        description:
+                                          "An email is required to look up the contact for SMS.",
+                                      });
+                                      return;
+                                    }
+                                    const link = `${(settings?.app_url || window.location.origin).replace(/\/$/, "")}/bride-portal/${wedding.id}`;
+                                    const smsMsg = `Hi ${wedding.client_name.split(" ")[0]}! Please complete your wedding details and timeline questionnaire here: ${link}`;
+
+                                    toast({
+                                      title: "Sending SMS Reminder...",
+                                      description: `Sending SMS to ${email}`,
+                                    });
+                                    try {
+                                      await api.sendOvantaSms(
+                                        email,
+                                        smsMsg,
+                                        wedding.client_name,
+                                        true,
+                                      );
+                                      toast({
+                                        title: "SMS Reminder Sent!",
+                                        description: `SMS successfully sent to ${email}`,
+                                      });
+                                    } catch (err: any) {
+                                      toast({
+                                        variant: "destructive",
+                                        title: "SMS Failed",
+                                        description: err.message,
+                                      });
+                                    }
+                                  }}
+                                  className="cursor-pointer"
+                                >
+                                  <MessageSquare className="h-4 w-4 mr-2" />
+                                  Send Portal Reminder (SMS)
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onClick={async () => {
@@ -5068,6 +5170,21 @@ export default function ManagerWeddings() {
                                   Send Payment Receipt
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
+                                  onClick={() => setChangePlanWedding(wedding)}
+                                  disabled={
+                                    wedding.status?.toLowerCase() ===
+                                      "cancelled" ||
+                                    (Number(wedding.total_amount) || 0) -
+                                      (Number(wedding.paid_amount) || 0) <=
+                                      0.01 ||
+                                    wedding.notes?.includes("[UNPAID_DRAFT]")
+                                  }
+                                  className="cursor-pointer"
+                                >
+                                  <Calendar className="h-4 w-4 mr-2" />
+                                  Change Payment Plan
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
                                   onClick={() =>
                                     navigate(
                                       `/build-proposal?upgrade=${wedding.id}`,
@@ -5080,7 +5197,7 @@ export default function ManagerWeddings() {
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
                                   onClick={() => {
-                                    const link = `${window.location.origin}/bride-portal/${wedding.id}`;
+                                    const link = `${(settings?.app_url || window.location.origin).replace(/\/$/, "")}/bride-portal/${wedding.id}`;
                                     const fallbackCopy = () => {
                                       const textArea =
                                         document.createElement("textarea");
@@ -5183,6 +5300,156 @@ export default function ManagerWeddings() {
                                 >
                                   <LinkIcon className="h-4 w-4 mr-2" />
                                   Copy Feedback Link
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={async () => {
+                                    const email =
+                                      wedding.client_email ||
+                                      wedding.questionnaire_data?.contact_info
+                                        ?.email ||
+                                      wedding.questionnaire_data?.email;
+                                    if (!email) {
+                                      toast({
+                                        variant: "destructive",
+                                        title: "No Email Found",
+                                        description:
+                                          "Please add the bride's email in the Manage > Details tab first.",
+                                      });
+                                      return;
+                                    }
+                                    if (!settings?.upsell_bartending_enabled) {
+                                      toast({
+                                        variant: "destructive",
+                                        title:
+                                          "Bartending upsell not configured",
+                                        description:
+                                          "Enable and configure the bartending upsell in Settings → Packages & Pricing first.",
+                                      });
+                                      return;
+                                    }
+                                    const portalLink = `${(settings?.app_url || window.location.origin).replace(/\/$/, "")}/bride-portal/${wedding.id}`;
+                                    const brideName =
+                                      wedding.client_name || "there";
+                                    const subject = (
+                                      settings.upsell_bartending_email_subject ||
+                                      "Add bartending to your wedding, {{bride_name}}!"
+                                    )
+                                      .replace(/{{bride_name}}/g, brideName)
+                                      .replace(
+                                        /{{company_name}}/g,
+                                        settings.company_name || "us",
+                                      );
+                                    const html = (
+                                      settings.upsell_bartending_email_template ||
+                                      `<p>Hi ${brideName}, we now offer professional bartending for your wedding. See packages here: <a href="${portalLink}">${portalLink}</a></p>`
+                                    )
+                                      .replace(/{{bride_name}}/g, brideName)
+                                      .replace(
+                                        /{{company_name}}/g,
+                                        settings.company_name || "us",
+                                      )
+                                      .replace(/{{portal_link}}/g, portalLink);
+                                    setEmailPreview({
+                                      to: email,
+                                      subject,
+                                      html,
+                                      recipientName: wedding.client_name,
+                                    });
+                                    setEmailPreviewSend(() => async () => {
+                                      await api.sendOvantaEmail(
+                                        email,
+                                        subject,
+                                        html,
+                                        wedding.client_name,
+                                        true,
+                                      );
+                                      await api.logAdminActivity(
+                                        "Sent Bartending Upsell Email",
+                                        `Sent bartending upsell email to ${wedding.client_name}`,
+                                      );
+                                      toast({
+                                        title: "Upsell email sent",
+                                        description: `Sent to ${email}`,
+                                      });
+                                    });
+                                    setEmailPreviewOpen(true);
+                                  }}
+                                  className="cursor-pointer"
+                                >
+                                  <Wine className="h-4 w-4 mr-2" />
+                                  Send Bartending Upsell (Email)
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={async () => {
+                                    const email =
+                                      wedding.client_email ||
+                                      wedding.questionnaire_data?.contact_info
+                                        ?.email ||
+                                      wedding.questionnaire_data?.email;
+                                    if (!email) {
+                                      toast({
+                                        variant: "destructive",
+                                        title: "No Email Found",
+                                        description:
+                                          "An email is required to look up the contact for SMS.",
+                                      });
+                                      return;
+                                    }
+                                    if (!settings?.upsell_bartending_enabled) {
+                                      toast({
+                                        variant: "destructive",
+                                        title:
+                                          "Bartending upsell not configured",
+                                        description:
+                                          "Enable and configure the bartending upsell in Settings → Packages & Pricing first.",
+                                      });
+                                      return;
+                                    }
+                                    const portalLink = `${(settings?.app_url || window.location.origin).replace(/\/$/, "")}/bride-portal/${wedding.id}`;
+                                    const brideName =
+                                      wedding.client_name || "there";
+                                    const msg = (
+                                      settings.upsell_bartending_sms_template ||
+                                      `Hi ${brideName}! Add pro bartending to your wedding — see packages here: ${portalLink}`
+                                    )
+                                      .replace(/{{bride_name}}/g, brideName)
+                                      .replace(
+                                        /{{company_name}}/g,
+                                        settings.company_name || "us",
+                                      )
+                                      .replace(/{{portal_link}}/g, portalLink);
+                                    toast({
+                                      title: "Sending SMS...",
+                                      description: `Sending bartending upsell SMS to ${email}`,
+                                    });
+                                    try {
+                                      await api.sendOvantaSms(
+                                        email,
+                                        msg,
+                                        wedding.client_name,
+                                        true,
+                                      );
+                                      await api.logAdminActivity(
+                                        "Sent Bartending Upsell SMS",
+                                        `Sent bartending upsell SMS to ${wedding.client_name}`,
+                                      );
+                                      toast({
+                                        title: "SMS Sent!",
+                                        description: `Bartending upsell SMS sent to ${email}`,
+                                      });
+                                    } catch (err: any) {
+                                      toast({
+                                        variant: "destructive",
+                                        title: "SMS Failed",
+                                        description: err.message,
+                                      });
+                                    }
+                                  }}
+                                  className="cursor-pointer"
+                                >
+                                  <Wine className="h-4 w-4 mr-2" />
+                                  Send Bartending Upsell (SMS)
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
@@ -6108,6 +6375,20 @@ export default function ManagerWeddings() {
           }}
         />
       )}
+
+      <ChangePaymentPlanDialog
+        wedding={changePlanWedding}
+        open={!!changePlanWedding}
+        onOpenChange={(open) => {
+          if (!open) setChangePlanWedding(null);
+        }}
+        settings={settings}
+        onEmailPreview={(email, subject, html, name, sendFn) => {
+          setEmailPreview({ to: email, subject, html, recipientName: name });
+          setEmailPreviewSend(() => sendFn);
+          setEmailPreviewOpen(true);
+        }}
+      />
 
       <EmailPreviewModal
         open={emailPreviewOpen}

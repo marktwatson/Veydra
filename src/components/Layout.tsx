@@ -156,6 +156,11 @@ const royaltyNavItem = {
   label: "Royalty & Payback",
   path: "/manager/royalty",
 };
+const stripePayoutNavItem = {
+  icon: CreditCard,
+  label: "Stripe Payout Setup",
+  path: "/manager/stripe-payout",
+};
 
 // Owner-specific nav item for their royalty dashboard
 const ownerRoyaltyNavItem = {
@@ -180,7 +185,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   useEffect(() => {
-    // Run daily heartbeat for automations
+    // Run daily heartbeat for automations (also fires the daily-digest push)
     api.runDailyHeartbeat().catch(console.error);
 
     const handleBeforeInstallPrompt = (e: any) => {
@@ -213,6 +218,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
               localStorage.setItem("veydra_timezone", settings.timezone);
             }
           } catch (e) {}
+          // Apply configured app icon (favicon + apple-touch-icon + manifest)
+          if (settings?.app_icon_url) {
+            import("@/components/AppIconUploader")
+              .then(({ applyAppIcon }) => applyAppIcon(settings.app_icon_url))
+              .catch(() => {});
+          }
         })
         .catch((err) => console.error("Error fetching logo:", err));
     };
@@ -730,11 +741,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
           items: filteredItems,
         };
       }
-      // Add royalty nav for super_admin only
+      // Add royalty + stripe payout nav for super_admin only
       if (role === "super_admin" && group.label === "System Control") {
         return {
           ...group,
-          items: [...group.items, royaltyNavItem],
+          items: [...group.items, royaltyNavItem, stripePayoutNavItem],
         };
       }
       // For owners (and owner_readonly): show full manager nav (minus territory fleet + royalty management)

@@ -68,6 +68,11 @@ export default function AssignmentDetail() {
     queryFn: api.getContractors,
   });
 
+  const { data: portalSettings } = useQuery({
+    queryKey: ["portalSettings"],
+    queryFn: () => api.getPortalSettings(),
+  });
+
   const assignment = assignments.find((a: any) => a.id === id);
   const job = assignment?.jobs;
   const wedding = job?.weddings;
@@ -437,71 +442,87 @@ export default function AssignmentDetail() {
                     1. Upload Instructions
                   </h3>
                   <div className="bg-background p-4 rounded-md border space-y-4 text-sm text-muted-foreground break-words">
-                    <div className="bg-primary/10 border border-primary/20 p-4 rounded-md text-foreground">
-                      <p className="font-semibold mb-1 text-destructive">
-                        REQUIRED: Shared Upload Account
-                      </p>
-                      <p className="text-sm mb-2">
-                        You <strong>MUST</strong> sign in with our shared upload
-                        account below to upload the files. Do not use your
-                        personal Google account, as it will cause storage quota
-                        errors:
-                      </p>
-                      <div className="bg-background p-2 rounded border font-mono text-sm select-all mb-3">
+                    {portalSettings?.upload_instructions ? (
+                      <div
+                        className="prose prose-sm max-w-none text-foreground"
+                        dangerouslySetInnerHTML={{
+                          __html: portalSettings.upload_instructions,
+                        }}
+                      />
+                    ) : (
+                      <>
+                        <div className="bg-primary/10 border border-primary/20 p-4 rounded-md text-foreground">
+                          <p className="font-semibold mb-1 text-destructive">
+                            REQUIRED: Shared Upload Account
+                          </p>
+                          <p className="text-sm mb-2">
+                            You <strong>MUST</strong> sign in with our shared
+                            upload account below to upload the files. Do not use
+                            your personal Google account, as it will cause
+                            storage quota errors:
+                          </p>
+                          <div className="bg-background p-2 rounded border font-mono text-sm select-all mb-3">
+                            <p>
+                              <strong>Email:</strong>{" "}
+                              {portalSettings?.upload_account_email ||
+                                "uploads@capturedmemoriesco.com"}
+                            </p>
+                            <p>
+                              <strong>Password:</strong>{" "}
+                              {portalSettings?.upload_account_password ||
+                                "Video3456@"}
+                            </p>
+                          </div>
+                          <p className="text-sm">
+                            <strong>Pro Tip:</strong> We highly recommend using{" "}
+                            <a
+                              href="https://www.airexplorer.net/"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary hover:underline font-semibold"
+                            >
+                              AirExplorer
+                            </a>{" "}
+                            to manage your uploads. It allows you to connect
+                            this Google Drive account directly without having to
+                            log in via your browser, and it prevents large
+                            uploads from timing out!
+                          </p>
+                        </div>
                         <p>
-                          <strong>Email:</strong> uploads@capturedmemoriesco.com
+                          Please follow these instructions to upload your files:
                         </p>
-                        <p>
-                          <strong>Password:</strong> Video3456@
-                        </p>
-                      </div>
-                      <p className="text-sm">
-                        <strong>Pro Tip:</strong> We highly recommend using{" "}
-                        <a
-                          href="https://www.airexplorer.net/"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary hover:underline font-semibold"
-                        >
-                          AirExplorer
-                        </a>{" "}
-                        to manage your uploads. It allows you to connect this
-                        Google Drive account directly without having to log in
-                        via your browser, and it prevents large uploads from
-                        timing out!
-                      </p>
-                    </div>
-                    <p>
-                      Please follow these instructions to upload your files:
-                    </p>
-                    <ul className="list-disc pl-5 space-y-1">
-                      <li>
-                        Click the Google Drive link below to access the wedding
-                        folder.
-                      </li>
-                      <li>
-                        Upload your files directly into either the{" "}
-                        <strong>Photo</strong> or <strong>Video</strong> folder
-                        that we have already created for you inside.
-                      </li>
-                      <li>
-                        Ensure all files are named sequentially and time-synced
-                        if possible.
-                      </li>
-                      <li>
-                        <strong>For Photos:</strong> Please cull your files down
-                        to around 100-120 final images per hour of coverage.
-                      </li>
-                      <li>
-                        <strong>For Video:</strong> Please do not cull—we need
-                        all raw, uncompressed files.
-                      </li>
-                      <li className="text-destructive font-medium mt-2">
-                        Note: Late uploads (after 7 days) will result in a lower
-                        rating, which may impact your ability to get future
-                        jobs.
-                      </li>
-                    </ul>
+                        <ul className="list-disc pl-5 space-y-1">
+                          <li>
+                            Click the Google Drive link below to access the
+                            wedding folder.
+                          </li>
+                          <li>
+                            Upload your files directly into either the{" "}
+                            <strong>Photo</strong> or <strong>Video</strong>{" "}
+                            folder that we have already created for you inside.
+                          </li>
+                          <li>
+                            Ensure all files are named sequentially and
+                            time-synced if possible.
+                          </li>
+                          <li>
+                            <strong>For Photos:</strong> Please cull your files
+                            down to around 100-120 final images per hour of
+                            coverage.
+                          </li>
+                          <li>
+                            <strong>For Video:</strong> Please do not cull—we
+                            need all raw, uncompressed files.
+                          </li>
+                          <li className="text-destructive font-medium mt-2">
+                            Note: Late uploads (after 7 days) will result in a
+                            lower rating, which may impact your ability to get
+                            future jobs.
+                          </li>
+                        </ul>
+                      </>
+                    )}
                   </div>
                 </div>
 

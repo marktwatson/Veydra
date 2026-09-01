@@ -74,6 +74,8 @@ import {
   generatePaymentSchedule,
   getCompanyTimezone,
 } from "@/lib/utils";
+import { applyPortalTheme, parsePortalTheme } from "@/lib/portal-theme";
+import BartendingUpsellBanner from "@/components/BartendingUpsellBanner";
 
 const getSafeDate = (dateStr: string | null) => {
   if (!dateStr) return new Date();
@@ -120,6 +122,7 @@ export default function BridePortal() {
     localStorage.getItem("veydra_logo_url") || "",
   );
   const [companyState, setCompanyState] = useState("Tennessee");
+  const [portalSettings, setPortalSettings] = useState<any>(null);
 
   const [contactModalOpen, setContactModalOpen] = useState(false);
   const [contactMessage, setContactMessage] = useState("");
@@ -311,6 +314,9 @@ export default function BridePortal() {
             if (settings?.state) {
               setCompanyState(settings.state);
             }
+            setPortalSettings(settings);
+            // Apply custom portal theme (colors + fonts) if configured.
+            applyPortalTheme(parsePortalTheme(settings?.portal_theme));
           })
           .catch(() => {});
 
@@ -386,6 +392,21 @@ export default function BridePortal() {
       }
     }
     loadWedding();
+
+    // Upsell return toast
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("upsell") === "success") {
+      toast({
+        title: "Purchase complete!",
+        description: "Your bartending add-on has been added to your wedding.",
+      });
+    } else if (params.get("upsell") === "cancelled") {
+      toast({
+        variant: "destructive",
+        title: "Purchase cancelled",
+        description: "No charge was made. You can try again anytime.",
+      });
+    }
   }, [id]);
 
   useEffect(() => {
@@ -1671,6 +1692,10 @@ export default function BridePortal() {
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6 outline-none">
+            <BartendingUpsellBanner
+              wedding={wedding}
+              settings={portalSettings}
+            />
             {!wedding.questionnaire_completed && (
               <Card className="bg-[#c9a96e]/15 border-[#c9a96e]/40 shadow-sm animate-pulse rounded-2xl">
                 <CardContent className="p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
