@@ -211,8 +211,8 @@ export default function OwnerRoyaltyDashboard() {
       !s.processed_period_id &&
       !s.is_refund &&
       !s.is_test &&
-      !/backfill|seed test|manual charge/i.test(s.description || "") &&
-      !!s.stripe_charge_id,
+      (!!s.stripe_charge_id ||
+        !/backfill|seed test|manual charge/i.test(s.description || "")),
   );
   const upcomingGross = upcomingSales.reduce(
     (sum, s) => sum + Number(s.sale_amount),
