@@ -1311,9 +1311,12 @@ CREATE TABLE IF NOT EXISTS public.royalty_sales (
 -- This prevents double-charging when the processor runs on overlapping windows.
 ALTER TABLE public.royalty_sales ADD COLUMN IF NOT EXISTS processed_period_id UUID REFERENCES public.royalty_periods(id) ON DELETE SET NULL;
 ALTER TABLE public.royalty_sales ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;
+ALTER TABLE public.royalty_sales ADD COLUMN IF NOT EXISTS stripe_charge_id TEXT;
+ALTER TABLE public.royalty_sales ADD COLUMN IF NOT EXISTS is_test BOOLEAN DEFAULT false;
 CREATE INDEX IF NOT EXISTS idx_royalty_sales_territory ON public.royalty_sales(territory_id);
 CREATE INDEX IF NOT EXISTS idx_royalty_sales_date ON public.royalty_sales(sale_date);
 CREATE INDEX IF NOT EXISTS idx_royalty_sales_unprocessed ON public.royalty_sales(territory_id) WHERE processed_period_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_royalty_sales_stripe_charge ON public.royalty_sales (stripe_charge_id) WHERE stripe_charge_id IS NOT NULL;
 ALTER TABLE public.royalty_sales ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "royalty_sales_admin_all" ON public.royalty_sales;
 DROP POLICY IF EXISTS "royalty_sales_owner_read" ON public.royalty_sales;

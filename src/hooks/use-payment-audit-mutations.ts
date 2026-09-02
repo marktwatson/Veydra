@@ -3,7 +3,7 @@ import { api } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { cancelPaymentInstallment } from "@/lib/cancel-payment";
 import { computeMarkUnpaidAmount } from "@/lib/mark-unpaid";
-import { chargeSavedCardWithLock } from "@/lib/charge-lock";
+import { chargeSavedCardWithLock, releaseStaleLock } from "@/lib/charge-lock";
 import type { AuditItem } from "@/components/PaymentAuditModals";
 import { useToast } from "@/hooks/use-toast";
 
@@ -55,10 +55,60 @@ export function usePaymentAuditMutations(setters: Setters) {
           ? error
           : error?.message ||
             "Failed to process card charge. You can send a manual invoice link instead.";
+      // If this is a lock-blocked error, tell the user they can release+retry.
+      const isLockBlocked = /already being processed|Release lock/i.test(msg);
       toast({
         variant: "destructive",
-        title: "Auto-Charge Failed",
-        description: msg,
+        title: isLockBlocked ? "Payment Locked" : "Auto-Charge Failed",
+        description: isLockBlocked
+          ? `${msg} Click "Release lock and retry" to clear the stuck lock and charge again.`
+          : msg,
+      });
+    },
+  });
+
+  // Release a stuck pending lock and immediately retry the charge. Used by the
+  // "Release lock and retry" button that appears when auto-charge is blocked
+  // by a stale pending row (teammate's failed attempt that didn't clean up).
+  const releaseAndRetryMutation = useMutation({
+    mutationFn: async (item: {
+      weddingId: string;
+      amount: number;
+      description: string;
+      scheduleIndex?: number;
+      installmentLabel?: string;
+    }) => {
+      // Force-release the lock regardless of age, then retry the charge.
+      await releaseStaleLock(
+        item.weddingId,
+        item.scheduleIndex,
+        item.installmentLabel,
+        item.description,
+        true,
+      );
+      return await chargeSavedCardWithLock({
+        weddingId: item.weddingId,
+        amount: item.amount,
+        description: item.description,
+        scheduleIndex: item.scheduleIndex,
+        installmentLabel: item.installmentLabel,
+      });
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["weddings"] });
+      setters.setAutoChargeModalItem(null);
+      toast({
+        title: "Lock Released — Payment Charged!",
+        description: `Cleared the stuck lock and collected $${data.amountPaid} from client.`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "Retry Failed",
+        description:
+          error?.message ||
+          "Could not release the lock and retry. Refresh and try again.",
       });
     },
   });
@@ -208,6 +258,7 @@ export function usePaymentAuditMutations(setters: Setters) {
 
   return {
     autoChargeMutation,
+    releaseAndRetryMutation,
     sendManualInvoiceMutation,
     markUnpaidMutation,
     resendReceiptMutation,

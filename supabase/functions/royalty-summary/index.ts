@@ -103,12 +103,12 @@ Deno.serve(async (req) => {
     // Fetch lifetime gross sales
     const { data: allSales } = await supabase
       .from("royalty_sales")
-      .select("sale_amount, is_refund")
+      .select("sale_amount, is_refund, is_test")
       .eq("territory_id", territory.id);
 
-    // Royalty rule: refunds NEVER count toward royalty — only processed sales.
+    // Royalty rule: refunds + test sales NEVER count — only real kept sales.
     const lifetimeGross = (allSales || []).reduce((sum: number, s: any) => {
-      return sum + (s.is_refund ? 0 : Number(s.sale_amount));
+      return sum + (s.is_refund || s.is_test ? 0 : Number(s.sale_amount));
     }, 0);
 
     // Current period gross sales (last 7 days)
@@ -119,14 +119,14 @@ Deno.serve(async (req) => {
 
     const { data: currentSales } = await supabase
       .from("royalty_sales")
-      .select("sale_amount, is_refund")
+      .select("sale_amount, is_refund, is_test")
       .eq("territory_id", territory.id)
       .gte("sale_date", periodStart.toISOString().split("T")[0])
       .lt("sale_date", periodEnd.toISOString().split("T")[0]);
 
-    // Royalty rule: refunds NEVER count toward royalty — only processed sales.
+    // Royalty rule: refunds + test sales NEVER count — only real kept sales.
     const currentGross = (currentSales || []).reduce((sum: number, s: any) => {
-      return sum + (s.is_refund ? 0 : Number(s.sale_amount));
+      return sum + (s.is_refund || s.is_test ? 0 : Number(s.sale_amount));
     }, 0);
 
     // Determine payment status

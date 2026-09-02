@@ -445,8 +445,9 @@ export default function RoyaltyManagement() {
   const failedCount = periods.filter((p: any) => p.status === "failed").length;
 
   // ─── Upcoming / projected royalty breakdown ───
-  // Sum all sales in the current (not-yet-processed) 7-day window to show what
-  // the NEXT processor run will calculate + charge.
+  // KEPT sales only in the current (not-yet-processed) 7-day window. Refunds
+  // (is_refund), test sales (is_test), and backfill/seed/manual rows without a
+  // real stripe_charge_id are excluded so the projection reflects real collected money.
   const royaltyPct = Number(territory.royalty_percentage || 0);
   const paybackPct = Number(territory.payback_percentage || 0);
   const today = new Date();
@@ -459,11 +460,14 @@ export default function RoyaltyManagement() {
     (s) =>
       s.sale_date >= windowStartStr &&
       s.sale_date <= todayStr &&
-      !s.processed_period_id,
+      !s.processed_period_id &&
+      !s.is_refund &&
+      !s.is_test &&
+      !/backfill|seed test|manual charge/i.test(s.description || "") &&
+      !!s.stripe_charge_id,
   );
-  // Royalty rule: refunds NEVER count toward royalty — only processed sales.
   const upcomingGross = upcomingSales.reduce(
-    (sum, s) => sum + (s.is_refund ? 0 : Number(s.sale_amount)),
+    (sum, s) => sum + Number(s.sale_amount),
     0,
   );
   const projectedRoyalty = Math.max(0, upcomingGross * (royaltyPct / 100));
@@ -638,8 +642,8 @@ export default function RoyaltyManagement() {
             Projection
           </CardTitle>
           <CardDescription className="text-xs">
-            Sales recorded in the last 7 days that the next processor run will
-            calculate and charge. Run the processor to lock these into a period.
+            Kept sales in the last 7 days that the next processor run will
+            calculate and charge. Refunds and test sales are excluded.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-5 pt-0 space-y-4">

@@ -202,18 +202,18 @@ export default function GrowthHub() {
     [leadsList],
   );
 
-  // Aggregates
+  // Aggregates. paid_amount is already NET of refunds (synced by daily-reminders
+  // + stripe-webhook) — do NOT subtract refunded_amount again (double-counts).
   const totalBookedValue = bookedWeddings.reduce(
-    (sum, w) => sum + (w.total_amount || 0),
+    (s, w) => s + (w.total_amount || 0),
     0,
   );
-  const totalCollectedRevenue = bookedWeddings.reduce(
-    (s, w: any) =>
-      s + Math.max(0, (w.paid_amount || 0) - (w.refunded_amount || 0)),
+  const totalCollectedRevenue = allBookedWeddings.reduce(
+    (s, w: any) => s + (Number(w.paid_amount) || 0),
     0,
   );
   const totalProposalsValue = filteredProposals.reduce(
-    (sum, p) => sum + (p.total_amount || 0),
+    (s, p) => s + (p.total_amount || 0),
     0,
   );
 

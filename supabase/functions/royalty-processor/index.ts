@@ -66,6 +66,9 @@ Deno.serve(async (req) => {
     `ALTER TABLE public.royalty_secrets ENABLE ROW LEVEL SECURITY`,
     `ALTER TABLE public.royalty_sales ADD COLUMN IF NOT EXISTS processed_period_id UUID REFERENCES public.royalty_periods(id) ON DELETE SET NULL`,
     `ALTER TABLE public.royalty_sales ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ`,
+    `ALTER TABLE public.royalty_sales ADD COLUMN IF NOT EXISTS stripe_charge_id TEXT`,
+    `ALTER TABLE public.royalty_sales ADD COLUMN IF NOT EXISTS is_test BOOLEAN DEFAULT false`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_royalty_sales_stripe_charge ON public.royalty_sales (stripe_charge_id) WHERE stripe_charge_id IS NOT NULL`,
     `CREATE INDEX IF NOT EXISTS idx_royalty_sales_unprocessed ON public.royalty_sales(territory_id) WHERE processed_period_id IS NULL`,
     // Hard safeguard: one period per territory per week — prevents double charge.
     `CREATE UNIQUE INDEX IF NOT EXISTS royalty_periods_unique_period ON public.royalty_periods (territory_id, period_start, period_end)`,
@@ -277,6 +280,15 @@ Deno.serve(async (req) => {
       }
     }
 
+    if (body.action === "seed_test_sale") {
+      const amt = Number(body.amount);
+      if (!amt || amt <= 0) return jsonResponse({ error: "Enter a positive amount" }, 400);
+      const territory = await getOwnTerritory(supabase);
+      if (!territory) return jsonResponse({ error: "No territory found" }, 400);
+      const { error: insErr } = await supabase.from("royalty_sales").insert({ territory_id: territory.id, sale_amount: amt, sale_date: new Date().toISOString().split("T")[0], description: `Seed Test Sale${body.note ? " — " + body.note : ""}`, is_test: true, stripe_charge_id: null });
+      if (insErr) return jsonResponse({ error: insErr.message }, 500);
+      return jsonResponse({ success: true, message: `Seeded $${amt} test sale (excluded from royalty).` });
+    }
     const forceRecalculate = body.force === true;
     const specificTerritoryId = body.territory_id || null;
 
@@ -370,14 +382,16 @@ Deno.serve(async (req) => {
 
     const { data: sales, error: salesError } = await supabase
       .from("royalty_sales")
-      .select("id, sale_amount, is_refund, description, wedding_id, sale_date")
+      .select("id, sale_amount, is_refund, is_test, description, wedding_id, sale_date")
       .eq("territory_id", territory.id)
       .gte("sale_date", periodStart.toISOString().split("T")[0])
       .lte("sale_date", periodEnd.toISOString().split("T")[0])
       .is("processed_period_id", null);
     if (salesError) throw salesError;
+    // Exclude test sales + refunds from the gross. Only real kept sales count.
+    const realSales = (sales || []).filter((s: any) => !s.is_test && !s.is_refund);
 
-    if (!force && (!sales || sales.length === 0)) {
+    if (!force && (!realSales || realSales.length === 0)) {
       const { data: existing } = await supabase
         .from("royalty_periods")
         .select("id, status")
@@ -390,8 +404,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Royalty rule: refunds NEVER count toward royalty — only processed sales.
-    const grossSales = (sales || []).reduce((sum: number, s: any) => sum + (s.is_refund ? 0 : Number(s.sale_amount)), 0);
+    const grossSales = realSales.reduce((sum: number, s: any) => sum + Number(s.sale_amount), 0);
     const royaltyPct = Number(territory.royalty_percentage) || 0;
     const paybackPct = Number(territory.payback_percentage) || 0;
     const remainingBalance = Number(territory.remaining_balance) || 0;
@@ -404,7 +417,7 @@ Deno.serve(async (req) => {
       territory_id: territory.id, period_start: periodStart.toISOString().split("T")[0], period_end: periodEnd.toISOString().split("T")[0],
       gross_sales: grossSales, royalty_amount: royaltyDue, payback_amount: paybackDue, total_due: totalDue,
       status: totalDue > 0 ? "processing" : "paid", calculated_at: new Date().toISOString(),
-      notes: sales && sales.length > 0 ? `${sales.length} sales transactions` : "No sales in period",
+      notes: realSales.length > 0 ? `${realSales.length} sales transactions` : "No sales in period",
     }).select().single();
     if (periodError) {
       // 23505 = unique_violation → another invocation already created this
@@ -414,8 +427,8 @@ Deno.serve(async (req) => {
       throw periodError;
     }
 
-    if (sales && sales.length > 0) {
-      const saleIds = (sales as any[]).map((s) => s.id);
+    if (realSales && realSales.length > 0) {
+      const saleIds = (realSales as any[]).map((s) => s.id);
       const { error: lockErr } = await supabase
         .from("royalty_sales")
         .update({ processed_period_id: period.id, processed_at: new Date().toISOString() })

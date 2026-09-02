@@ -86,7 +86,7 @@ serve(async (req) => {
       } catch (e) { console.error("CRM Sync Error:", e); }
     };
 
-    const recordRoyaltySale = async (weddingId: string | null, amount: number, description: string, isRefund = false) => {
+    const recordRoyaltySale = async (weddingId: string | null, amount: number, description: string, isRefund = false, stripeChargeId?: string) => {
       if (!amount || amount <= 0) return;
       try {
         let territory: any = null;
@@ -94,7 +94,19 @@ serve(async (req) => {
         if (primaryTerr?.id) territory = primaryTerr;
         else { const { data: anyTerr } = await supabase.from("territories").select("id").limit(1).maybeSingle(); if (anyTerr?.id) { territory = anyTerr; console.warn("[ROYALTY] No is_primary territory — using first row."); } }
         if (!territory?.id) { console.warn(`[ROYALTY] SKIPPED ${isRefund ? "refund" : "sale"} $${amount} — no territory.`); return; }
-        await supabase.from("royalty_sales").insert({ territory_id: territory.id, wedding_id: weddingId || null, sale_amount: Math.abs(amount), sale_date: new Date().toISOString().split("T")[0], description, is_refund: isRefund });
+        // Idempotent on stripe_charge_id: if a row already exists for this
+        // charge, do NOT insert a duplicate positive sale. Refunds flip the
+        // existing row's is_refund flag instead of creating a new positive row.
+        if (stripeChargeId) {
+          const { data: existing } = await supabase.from("royalty_sales").select("id, is_refund").eq("stripe_charge_id", stripeChargeId).maybeSingle();
+          if (existing) {
+            if (isRefund && !existing.is_refund) {
+              await supabase.from("royalty_sales").update({ is_refund: true }).eq("id", existing.id);
+            }
+            return; // already recorded — never duplicate
+          }
+        }
+        await supabase.from("royalty_sales").insert({ territory_id: territory.id, wedding_id: weddingId || null, sale_amount: Math.abs(amount), sale_date: new Date().toISOString().split("T")[0], description, is_refund: isRefund, stripe_charge_id: stripeChargeId || null });
       } catch (e) { console.error("[ROYALTY] Failed:", (e as any)?.message); }
     };
 
@@ -122,7 +134,7 @@ serve(async (req) => {
       await sendOvantaEmail(email, s, m, hlKey, hlLoc);
     };
 
-    const fulfillProposal = async (proposalId: string, customerId: string, subscriptionId: string, amountPaid: number, metadata: any) => {
+    const fulfillProposal = async (proposalId: string, customerId: string, subscriptionId: string, amountPaid: number, metadata: any, chargeId?: string) => {
       const { data: proposal } = await supabase.from("proposals").select("*").eq("id", proposalId).single();
       if (!proposal) return;
       let weddingId = proposal.original_wedding_id;
@@ -147,7 +159,7 @@ serve(async (req) => {
         await sendAdminBookingNotification(proposal.client_name, proposal.client_email, proposal.wedding_date, proposal.venue, packageString, amountPaid, weddingId);
         const { data: uw } = await supabase.from("weddings").select("*").eq("id", weddingId).single();
         if (uw) await syncToCRM(uw, 0, 'payment');
-        if (amountPaid > 0) await recordRoyaltySale(weddingId, amountPaid, `Proposal payment — ${proposal.client_name || "client"}`);
+        if (amountPaid > 0) await recordRoyaltySale(weddingId, amountPaid, `Proposal payment — ${proposal.client_name || "client"}`, false, chargeId);
         await notifyOwnersPush(su, sk, "bookings_payments", "New Booking — " + (proposal.client_name || "Client"), `$${amountPaid.toFixed(0)} received · ${packageString}`, "/manager/weddings", `booking-${weddingId}`);
       }
     };
@@ -164,7 +176,8 @@ serve(async (req) => {
             try { subscription = await stripe.subscriptions.retrieve(subId); } catch (e) { console.error("Failed to retrieve subscription:", e); }
             const proposalId = subscription?.metadata?.proposalId;
             const wId = subscription?.metadata?.weddingId;
-            if (proposalId) { await fulfillProposal(proposalId, custId || "", subId, amountPaid, subscription?.metadata || {}); }
+            const invChargeId = typeof invoice.payment_intent === 'string' ? invoice.payment_intent : invoice.payment_intent?.id || undefined;
+            if (proposalId) { await fulfillProposal(proposalId, custId || "", subId, amountPaid, subscription?.metadata || {}, invChargeId); }
             else if (wId) {
               const { data: wedding, error: fe } = await supabase.from('weddings').select('*').eq('id', wId).single();
               if (fe) console.error(`[WEBHOOK] fetch failed ${wId}:`, fe.message);
@@ -176,7 +189,7 @@ serve(async (req) => {
                 const { error: ue } = await supabase.from('weddings').update(up).eq('id', wId);
                 if (ue) console.error(`[WEBHOOK] update failed ${wId}:`, ue.message);
                 await syncToCRM(wedding, amountPaid, 'subscription');
-                await recordRoyaltySale(wId, amountPaid, `Invoice payment — ${wedding.client_name || "client"}`);
+                await recordRoyaltySale(wId, amountPaid, `Invoice payment — ${wedding.client_name || "client"}`, false, typeof invoice.payment_intent === 'string' ? invoice.payment_intent : invoice.payment_intent?.id || undefined);
                 await autoVerifyFinalPayment(wId, newPaid, wedding.total_amount);
                 if (isFirst) { await sendBrideWelcome(wedding.client_email, wedding.client_name, wedding.id); await sendAdminBookingNotification(wedding.client_name, wedding.client_email, wedding.date, wedding.location, wedding.package, amountPaid, wedding.id); await notifyOwnersPush(su, sk, "bookings_payments", "New Booking — " + (wedding.client_name || "Client"), `$${amountPaid.toFixed(0)} received · ${wedding.package || "Package"}`, "/manager/weddings", `booking-${wedding.id}`); }
                 else { await notifyOwnersPush(su, sk, "bookings_payments", "Payment Received — " + (wedding.client_name || "Client"), `$${amountPaid.toFixed(0)} · Balance $${Math.max(0, (Number(wedding.total_amount) || 0) - newPaid).toFixed(0)}`, "/manager/weddings", `payment-${wedding.id}`); }
@@ -204,7 +217,7 @@ serve(async (req) => {
           const amountPaid = invoice.amount_paid / 100;
           if (amountPaid > 0) {
             const { data: wedding } = await supabase.from('weddings').select('client_name, total_amount, paid_amount').eq('id', wId).maybeSingle();
-            await recordRoyaltySale(wId, amountPaid, `Manual charge — ${wedding?.client_name || "client"}`);
+            await recordRoyaltySale(wId, amountPaid, `Manual charge — ${wedding?.client_name || "client"}`, false, typeof invoice.payment_intent === 'string' ? invoice.payment_intent : invoice.payment_intent?.id || undefined);
             await autoVerifyFinalPayment(wId, Number(wedding?.paid_amount || 0), Number(wedding?.total_amount || 0));
             await notifyOwnersPush(su, sk, "bookings_payments", "Payment Received — " + (wedding?.client_name || "Client"), `$${amountPaid.toFixed(0)} · manual charge`, "/manager/weddings", `payment-${wId}`);
           }
@@ -221,9 +234,9 @@ serve(async (req) => {
             const newPaid = (wedding.paid_amount || 0) + amountPaid;
             await supabase.from('weddings').update({ paid_amount: newPaid }).eq('id', wId);
             await syncToCRM(wedding, amountPaid, type);
-            if (type === 'payment') { await recordRoyaltySale(wId, amountPaid, `Checkout payment — ${wedding.client_name || "client"}`); await autoVerifyFinalPayment(wId, newPaid, wedding.total_amount); await notifyOwnersPush(su, sk, "bookings_payments", "Payment Received — " + (wedding.client_name || "Client"), `$${amountPaid.toFixed(0)} · Balance $${Math.max(0, (Number(wedding.total_amount) || 0) - newPaid).toFixed(0)}`, "/manager/weddings", `payment-${wedding.id}`); }
+            if (type === 'payment') { const sessPi = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || undefined; await recordRoyaltySale(wId, amountPaid, `Checkout payment — ${wedding.client_name || "client"}`, false, sessPi); await autoVerifyFinalPayment(wId, newPaid, wedding.total_amount); await notifyOwnersPush(su, sk, "bookings_payments", "Payment Received — " + (wedding.client_name || "Client"), `$${amountPaid.toFixed(0)} · Balance $${Math.max(0, (Number(wedding.total_amount) || 0) - newPaid).toFixed(0)}`, "/manager/weddings", `payment-${wedding.id}`); }
             else if (type === 'upsell') {
-              await recordRoyaltySale(wId, amountPaid, `Bartending add-on — ${wedding.client_name || "client"}`);
+              await recordRoyaltySale(wId, amountPaid, `Bartending add-on — ${wedding.client_name || "client"}`, false, typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || undefined);
               // Record the upsell purchase row
               try {
                 await supabase.from('upsell_purchases').insert({
@@ -257,7 +270,8 @@ serve(async (req) => {
         const amountPaid = event.type === 'setup_intent.succeeded' ? 0 : (intent.amount_received / 100);
         if (custId && intent.payment_method) { try { const pmId = typeof intent.payment_method === 'string' ? intent.payment_method : intent.payment_method.id; await stripe.customers.update(custId, { invoice_settings: { default_payment_method: pmId } }); } catch (e) { console.error("Failed to update customer default PM:", e); } }
         const wId = intent.metadata?.weddingId;
-        if (proposalId) { await fulfillProposal(proposalId, custId || "", "", amountPaid, intent.metadata); }
+        const piChargeId = (intent.latest_charge && typeof intent.latest_charge === 'string') ? intent.latest_charge : intent.id;
+        if (proposalId) { await fulfillProposal(proposalId, custId || "", "", amountPaid, intent.metadata, piChargeId); }
         else if (wId) {
           const { data: wedding, error: fe } = await supabase.from('weddings').select('*').eq('id', wId).single();
           if (fe) console.error(`[WEBHOOK] fetch failed ${wId}:`, fe.message);
@@ -268,7 +282,7 @@ serve(async (req) => {
             const { error: ue } = await supabase.from('weddings').update(up).eq('id', wId);
             if (ue) console.error(`[WEBHOOK] update failed ${wId}:`, ue.message);
             await syncToCRM(wedding, amountPaid, 'payment');
-            await recordRoyaltySale(wId, amountPaid, `Payment intent — ${wedding.client_name || "client"}`);
+            await recordRoyaltySale(wId, amountPaid, `Payment intent — ${wedding.client_name || "client"}`, false, piChargeId);
             await autoVerifyFinalPayment(wId, newPaid, wedding.total_amount);
             if (isFirst) { await sendBrideWelcome(wedding.client_email, wedding.client_name, wedding.id); await sendAdminBookingNotification(wedding.client_name, wedding.client_email, wedding.date, wedding.location, wedding.package, amountPaid, wedding.id); await notifyOwnersPush(su, sk, "bookings_payments", "New Booking — " + (wedding.client_name || "Client"), `$${amountPaid.toFixed(0)} received · ${wedding.package || "Package"}`, "/manager/weddings", `booking-${wedding.id}`); }
             else { await notifyOwnersPush(su, sk, "bookings_payments", "Payment Received — " + (wedding.client_name || "Client"), `$${amountPaid.toFixed(0)} · Balance $${Math.max(0, (Number(wedding.total_amount) || 0) - newPaid).toFixed(0)}`, "/manager/weddings", `payment-${wedding.id}`); }

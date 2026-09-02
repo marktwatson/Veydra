@@ -38,6 +38,8 @@ interface Props {
   onAutoChargeClose: () => void;
   onAutoChargeConfirm: (item: AuditItem) => void;
   autoChargePending: boolean;
+  onReleaseAndRetry?: (item: AuditItem) => void;
+  releaseAndRetryPending?: boolean;
 
   manualInvoiceItem: AuditItem | null;
   onManualInvoiceClose: () => void;
@@ -89,6 +91,8 @@ export function PaymentAuditModals(props: Props) {
     onAutoChargeClose,
     onAutoChargeConfirm,
     autoChargePending,
+    onReleaseAndRetry,
+    releaseAndRetryPending,
     manualInvoiceItem,
     onManualInvoiceClose,
     onManualInvoiceConfirm,
@@ -172,22 +176,40 @@ export function PaymentAuditModals(props: Props) {
             </div>
           )}
 
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="gap-2 sm:gap-0 flex-wrap">
             <Button
               variant="outline"
               className="rounded-full"
               onClick={onAutoChargeClose}
-              disabled={autoChargePending}
+              disabled={autoChargePending || releaseAndRetryPending}
             >
               Cancel
             </Button>
+            {onReleaseAndRetry && (
+              <Button
+                variant="outline"
+                className="rounded-full border-amber-500/40 text-amber-600 hover:bg-amber-500/10"
+                onClick={() =>
+                  autoChargeItem && onReleaseAndRetry(autoChargeItem)
+                }
+                disabled={autoChargePending || releaseAndRetryPending}
+                title="Clear a stuck pending lock left by a failed attempt, then charge again."
+              >
+                {releaseAndRetryPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                )}
+                Release lock and retry
+              </Button>
+            )}
             <Button
               variant="default"
               className="rounded-full bg-emerald-600 hover:bg-emerald-700 text-white"
               onClick={() =>
                 autoChargeItem && onAutoChargeConfirm(autoChargeItem)
               }
-              disabled={autoChargePending}
+              disabled={autoChargePending || releaseAndRetryPending}
             >
               {autoChargePending ? (
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />

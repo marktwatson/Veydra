@@ -121,6 +121,7 @@ export default function ManagerPaymentAudit() {
 
   const {
     autoChargeMutation,
+    releaseAndRetryMutation,
     sendManualInvoiceMutation,
     markUnpaidMutation,
     resendReceiptMutation,
@@ -258,25 +259,42 @@ export default function ManagerPaymentAudit() {
   ]);
 
   // Aggregate Metrics
+  // IMPORTANT: `paid_amount` on each wedding is already NET (gross succeeded
+  // minus refunds, minus manual "mark unpaid" adjustments) — computed by the
+  // daily-reminders sync + the stripe-webhook refund handler. We must NOT
+  // subtract `refunded_amount` again here; that double-counts refunds and
+  // produces the wrong "Collected" number.
+  // Collected = sum of paid_amount on non-cancelled, non-draft weddings.
+  // Installment sums stay for volume / overdue / upcoming / paid-count only.
+  // totalRefunded is a footnote, never subtracted from collected.
   const metrics = useMemo(() => {
     let totalScheduled = 0,
-      totalPaid = 0,
       totalOverdue = 0,
       totalPending = 0;
     const totalRefunded = weddings.reduce(
       (s: number, w: any) => s + (Number(w.refunded_amount) || 0),
       0,
     );
+    // Collected = net paid_amount across non-cancelled, non-draft weddings.
+    // paid_amount is already net of refunds (synced by daily-reminders).
+    const collected = (weddings as any[])
+      .filter(
+        (w: any) =>
+          w.status !== "cancelled" && !w.notes?.includes("[UNPAID_DRAFT]"),
+      )
+      .reduce((s: number, w: any) => s + (Number(w.paid_amount) || 0), 0);
     auditScheduleItems.forEach((item: any) => {
       totalScheduled += item.installmentAmount;
-      if (item.status === "paid") totalPaid += item.installmentAmount;
-      else if (item.status === "overdue")
+      if (item.status === "paid") {
+        // count only — amount is NOT used for collected (see above)
+      } else if (item.status === "overdue")
         totalOverdue += item.installmentAmount;
       else totalPending += item.installmentAmount;
     });
     return {
       totalScheduled,
-      totalPaid,
+      totalPaid: 0, // deprecated — kept for interface compat; collected is the real number
+      collected,
       totalOverdue,
       totalPending,
       totalRefunded,
@@ -393,6 +411,16 @@ export default function ManagerPaymentAudit() {
           })
         }
         autoChargePending={autoChargeMutation.isPending}
+        onReleaseAndRetry={(item) =>
+          releaseAndRetryMutation.mutate({
+            weddingId: item.weddingId,
+            amount: item.installmentAmount,
+            description: `${item.installmentLabel} for ${item.clientName} Wedding`,
+            scheduleIndex: item.scheduleIndex,
+            installmentLabel: item.installmentLabel,
+          })
+        }
+        releaseAndRetryPending={releaseAndRetryMutation.isPending}
         manualInvoiceItem={manualInvoiceModalItem}
         onManualInvoiceClose={() => setManualInvoiceModalItem(null)}
         onManualInvoiceConfirm={(item) =>
