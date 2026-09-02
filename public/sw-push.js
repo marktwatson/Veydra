@@ -1,7 +1,54 @@
 // Service worker for web push notifications.
-// Registered from src/lib/push.ts. Handles incoming push events and
+// Registered from src/main.tsx. Handles incoming push events and
 // notification clicks (opens/focuses the app).
+//
+// IMPORTANT: This SW is network-first / pass-through for ALL fetch requests.
+// It never caches anything, so it can never strand a user with stale content
+// or cause "Failed to fetch" on auth/API calls. It exists only for push.
+// On install it calls skipWaiting() and on activate clients.claim() so the
+// newest version takes control immediately — clearing out any older SW that
+// might have had a caching fetch handler.
 
+const SW_VERSION = "veydra-sw-push-v3";
+
+// ─── Lifecycle: take over immediately ──────────────────────────────────────
+self.addEventListener("install", (event) => {
+  self.skipWaiting();
+});
+
+// Allow the page to force a waiting SW to activate immediately.
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    (async () => {
+      // Claim all clients so this SW controls the page right away.
+      await self.clients.claim();
+      // Remove any old/stale service worker registrations on this origin
+      // that are not us (e.g. a previous caching SW from an older deploy).
+      const keys = await self.caches.keys().catch(() => []);
+      for (const k of keys) {
+        await self.caches.delete(k).catch(() => {});
+      }
+    })(),
+  );
+});
+
+// ─── Network-first fetch handler (never blocks, never caches) ───────────────
+// A pass-through fetch handler ensures this SW never serves stale content.
+// Every request goes straight to the network. This also means an older
+// caching SW that gets replaced by this one can no longer intercept.
+self.addEventListener("fetch", (event) => {
+  // Only handle GET; let the browser handle everything else normally.
+  if (event.request.method !== "GET") return;
+  event.respondWith(fetch(event.request).catch(() => new Response("", { status: 504 })));
+});
+
+// ─── Push ──────────────────────────────────────────────────────────────────
 self.addEventListener("push", (event) => {
   let data = {};
   try {

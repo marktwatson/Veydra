@@ -276,58 +276,32 @@ serve(async (req) => {
         }
       }
     } else {
-      // Subscription based
-      const interval_count = paymentOption === 'quarterly' ? 3 : 1;
-
-      // Create a product and price for the retainer upfront charge
-      const retainerProduct = await stripe.products.create({ name: 'Wedding Retainer' });
-      const retainerPrice = await stripe.prices.create({
-        currency: 'usd',
-        unit_amount: 9900,
-        product: retainerProduct.id,
-      });
-
-      // Create a product and price for the recurring subscription
-      const recurringProduct = await stripe.products.create({
-        name: `Wedding Payment Plan (${paymentOption === 'quarterly' ? 'Quarterly' : 'Monthly'})`,
-      });
-      const recurringPrice = await stripe.prices.create({
-        currency: 'usd',
-        unit_amount: 25000,
-        product: recurringProduct.id,
-        recurring: {
-          interval: 'month',
-          interval_count: interval_count,
-        },
-      });
-
-      // We use trial_period_days to delay the first recurring charge, 
-      // while charging the retainer upfront via add_invoice_items.
-      const daysToAdd = paymentOption === 'quarterly' ? 89 : 28;
-
-      const subscription = await stripe.subscriptions.create({
+      // Deposit / quarterly: charge the $99 retainer as a ONE-TIME payment
+      // and save the card for future MANUAL charges via Payment Audit.
+      //
+      // Previously this created a recurring Stripe subscription ($250/mo with
+      // a trial). That subscription kept auto-billing forever — even after
+      // the wedding's plan was changed to "custom" in the app, because a
+      // direct plan change does NOT cancel the Stripe-side subscription.
+      // The result was phantom recurring charges the owner couldn't stop
+      // from the app. We no longer create subscriptions; all future
+      // payments are manual via the Payment Audit "Auto-Charge Card" button.
+      const session = await stripe.paymentIntents.create({
         customer: customer?.id,
-        items: [{ price: recurringPrice.id }],
-        trial_period_days: daysToAdd,
-        payment_behavior: 'default_incomplete',
-        payment_settings: { save_default_payment_method: 'on_subscription' },
-        expand: ['latest_invoice.payment_intent'],
+        amount: 9900,
+        currency: 'usd',
+        description: description || `Wedding Deposit for ${customerName}`,
+        setup_future_usage: 'off_session',
         metadata,
-        add_invoice_items: [{ price: retainerPrice.id }]
-      })
-
-      const invoice = subscription.latest_invoice as any;
-      const paymentIntent = invoice.payment_intent as any;
-
+      });
       return new Response(
-        JSON.stringify({ 
-          clientSecret: paymentIntent.client_secret, 
-          customerId: customer?.id, 
-          subscriptionId: subscription.id,
-          publishableKey
+        JSON.stringify({
+          clientSecret: session.client_secret,
+          customerId: customer?.id,
+          publishableKey,
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      );
     }
   } catch (error) {
     console.error("Checkout Error:", error)

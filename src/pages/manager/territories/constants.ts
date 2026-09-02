@@ -36,4 +36,5 @@ export const ALL_FUNCTION_NAMES = [
   "payment-plan-approve",
   "daily-digest",
   "send-push",
+  "scheduler",
 ];

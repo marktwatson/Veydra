@@ -208,7 +208,8 @@ export default function GrowthHub() {
     0,
   );
   const totalCollectedRevenue = bookedWeddings.reduce(
-    (sum, w) => sum + (w.paid_amount || 0),
+    (s, w: any) =>
+      s + Math.max(0, (w.paid_amount || 0) - (w.refunded_amount || 0)),
     0,
   );
   const totalProposalsValue = filteredProposals.reduce(

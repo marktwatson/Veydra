@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { ChangePendingBadge } from "@/components/ChangePendingBadge";
 import { type AuditItem } from "@/components/PaymentAuditModals";
 import {
@@ -28,7 +29,11 @@ import {
   Calendar,
   RotateCcw,
   Ban,
+  XCircle,
 } from "lucide-react";
+import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
+import { useToast } from "@/hooks/use-toast";
+import { api } from "@/lib/api";
 
 interface Props {
   isLoading: boolean;
@@ -51,6 +56,59 @@ export function PaymentAuditTable({
   onResendReceipt,
   onMarkUnpaid,
 }: Props) {
+  const { toast } = useToast();
+  const [cancellingSubId, setCancellingSubId] = useState<string | null>(null);
+
+  const handleCancelSubscription = async (item: any) => {
+    const subId = item.stripeSubscriptionId;
+    const customerId = item.stripeCustomerId;
+    if (!subId && !customerId) {
+      toast({
+        variant: "destructive",
+        title: "No subscription found",
+        description:
+          "This wedding has no Stripe subscription on file to cancel.",
+      });
+      return;
+    }
+    setCancellingSubId(item.id);
+    try {
+      const res = await fetch(
+        `${supabaseUrl}/functions/v1/stripe-cancel-subscription`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${supabaseAnonKey}`,
+            apikey: supabaseAnonKey,
+          },
+          body: JSON.stringify({
+            subscriptionId: subId || null,
+            customerId: customerId || null,
+            weddingId: item.weddingId,
+          }),
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to cancel");
+      await api.logAdminActivity(
+        "Cancelled Stripe Subscription",
+        `Cancelled subscription ${subId || "(by customer)"} for ${item.clientName} (${item.weddingId}). Cancelled: ${data.cancelledSubscriptions?.join(", ") || "none"}. Voided invoices: ${data.voidedInvoices?.join(", ") || "none"}.`,
+      );
+      toast({
+        title: "Subscription cancelled",
+        description: `Stopped recurring charges for ${item.clientName}. ${data.cancelledSubscriptions?.length || 0} subscription(s) cancelled, ${data.voidedInvoices?.length || 0} open invoice(s) voided.`,
+      });
+    } catch (e: any) {
+      toast({
+        variant: "destructive",
+        title: "Failed to cancel subscription",
+        description: e.message || "Something went wrong.",
+      });
+    } finally {
+      setCancellingSubId(null);
+    }
+  };
   return (
     <Card className="shadow-sm border-border/40 rounded-2xl overflow-hidden bg-card">
       <CardHeader className="p-5 pb-3 border-b border-border/40 flex flex-row items-center justify-between">
@@ -215,40 +273,72 @@ export function PaymentAuditTable({
                           </Button>
                         </div>
                       ) : (
-                        <div className="flex items-center justify-end gap-2">
-                          {/* Auto-charge saved card button */}
-                          <Button
-                            size="sm"
-                            variant="default"
-                            className="h-8 rounded-full text-xs shadow-sm bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
-                            onClick={() => onAutoCharge(item)}
-                          >
-                            <CreditCard className="h-3.5 w-3.5" />
-                            Auto-Charge Card
-                          </Button>
+                        <div className="flex flex-col items-end gap-2">
+                          {/* Active subscription warning — only show when the
+                              subscription STATUS is genuinely still billing
+                              (active/trialing/past_due/unpaid). We must NOT
+                              key off stripeSubscriptionId alone: that column
+                              is never cleared after a subscription is
+                              cancelled, so every wedding that ever had one
+                              (even long-cancelled) would falsely show as
+                              "live" here. */}
+                          {[
+                            "active",
+                            "trialing",
+                            "past_due",
+                            "unpaid",
+                          ].includes((item as any).stripeSubscriptionStatus) ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 rounded-full text-xs shadow-sm text-red-600 dark:text-red-400 border-red-500/40 hover:bg-red-500/10 gap-1 font-semibold animate-pulse"
+                              onClick={() => handleCancelSubscription(item)}
+                              disabled={cancellingSubId === item.id}
+                              title="This wedding has a live Stripe subscription still charging. Click to cancel it and void open invoices."
+                            >
+                              {cancellingSubId === item.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <XCircle className="h-3.5 w-3.5" />
+                              )}
+                              Stop Auto-Charge
+                            </Button>
+                          ) : null}
+                          <div className="flex items-center justify-end gap-2">
+                            {/* Auto-charge saved card button */}
+                            <Button
+                              size="sm"
+                              variant="default"
+                              className="h-8 rounded-full text-xs shadow-sm bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
+                              onClick={() => onAutoCharge(item)}
+                            >
+                              <CreditCard className="h-3.5 w-3.5" />
+                              Pay Now
+                            </Button>
 
-                          {/* Send manual payment invoice button */}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8 rounded-full text-xs shadow-sm gap-1"
-                            onClick={() => onManualInvoice(item)}
-                          >
-                            <Send className="h-3.5 w-3.5 text-primary" />
-                            Send Invoice Link
-                          </Button>
+                            {/* Send manual payment invoice button */}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 rounded-full text-xs shadow-sm gap-1"
+                              onClick={() => onManualInvoice(item)}
+                            >
+                              <Send className="h-3.5 w-3.5 text-primary" />
+                              Send Invoice Link
+                            </Button>
 
-                          {/* Cancel payment button */}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8 rounded-full text-xs shadow-sm text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-500/10 gap-1 font-medium"
-                            onClick={() => onCancelPayment(item)}
-                            title="Permanently remove this scheduled payment"
-                          >
-                            <Ban className="h-3.5 w-3.5" />
-                            Cancel Payment
-                          </Button>
+                            {/* Cancel payment button */}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 rounded-full text-xs shadow-sm text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-500/10 gap-1 font-medium"
+                              onClick={() => onCancelPayment(item)}
+                              title="Permanently remove this scheduled payment"
+                            >
+                              <Ban className="h-3.5 w-3.5" />
+                              Cancel Payment
+                            </Button>
+                          </div>
                         </div>
                       )}
                     </TableCell>

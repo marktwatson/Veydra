@@ -104,7 +104,10 @@ serve(async (req) => {
       }
     }
 
-    // Fetch past payments (charges) to include both invoices and one-time deposits
+    // Fetch past payments (charges) to include both invoices and one-time deposits.
+    // Only SUCCEEDED charges are included. Refunded amounts are netted out of
+    // totalPaid so the displayed paid total reflects real money kept — matching
+    // the daily-reminders sync and the charge.refunded webhook handler exactly.
     const charges = await stripe.charges.list({
       customer: customerId,
       limit: 50,
@@ -115,6 +118,7 @@ serve(async (req) => {
       .map((charge: any) => ({
         id: charge.id,
         amount: charge.amount / 100,
+        refunded: (charge.amount_refunded || 0) / 100,
         date: new Date(charge.created * 1000).toISOString(),
         status: 'paid',
         pdf: charge.receipt_url,
@@ -122,9 +126,15 @@ serve(async (req) => {
         description: charge.description || 'Payment'
       }));
 
-    const totalPaid = pastInvoices.reduce((sum: number, inv: any) => sum + inv.amount, 0);
+    // Net paid = gross succeeded minus refunds (same formula as sync + webhook).
+    const totalPaid = pastInvoices.reduce(
+      (sum: number, inv: any) => sum + Math.max(0, inv.amount - (inv.refunded || 0)), 0,
+    );
+    const totalRefunded = pastInvoices.reduce(
+      (sum: number, inv: any) => sum + (inv.refunded || 0), 0,
+    );
 
-    return new Response(JSON.stringify({ upcoming, pastInvoices, customerId, totalPaid }), {
+    return new Response(JSON.stringify({ upcoming, pastInvoices, customerId, totalPaid, totalRefunded }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error: any) {

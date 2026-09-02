@@ -210,9 +210,9 @@ export default function OwnerRoyaltyDashboard() {
       s.sale_date <= todayStr &&
       !s.processed_period_id,
   );
+  // Royalty rule: refunds NEVER count toward royalty — only processed sales.
   const upcomingGross = upcomingSales.reduce(
-    (sum, s) =>
-      sum + (s.is_refund ? -Number(s.sale_amount) : Number(s.sale_amount)),
+    (sum, s) => sum + (s.is_refund ? 0 : Number(s.sale_amount)),
     0,
   );
   const projectedRoyalty = Math.max(0, upcomingGross * (royaltyPct / 100));

@@ -106,8 +106,9 @@ Deno.serve(async (req) => {
       .select("sale_amount, is_refund")
       .eq("territory_id", territory.id);
 
+    // Royalty rule: refunds NEVER count toward royalty — only processed sales.
     const lifetimeGross = (allSales || []).reduce((sum: number, s: any) => {
-      return sum + (s.is_refund ? -Number(s.sale_amount) : Number(s.sale_amount));
+      return sum + (s.is_refund ? 0 : Number(s.sale_amount));
     }, 0);
 
     // Current period gross sales (last 7 days)
@@ -123,8 +124,9 @@ Deno.serve(async (req) => {
       .gte("sale_date", periodStart.toISOString().split("T")[0])
       .lt("sale_date", periodEnd.toISOString().split("T")[0]);
 
+    // Royalty rule: refunds NEVER count toward royalty — only processed sales.
     const currentGross = (currentSales || []).reduce((sum: number, s: any) => {
-      return sum + (s.is_refund ? -Number(s.sale_amount) : Number(s.sale_amount));
+      return sum + (s.is_refund ? 0 : Number(s.sale_amount));
     }, 0);
 
     // Determine payment status

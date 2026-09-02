@@ -194,6 +194,20 @@ serve(async (req) => {
               }
             }
           }
+        } else if (invoice.metadata?.weddingId) {
+          // One-time manual auto-charge invoice (no subscription) — created by
+          // the "Auto Charge Card" action in Payment Audit. The client already
+          // updated paid_amount, so here we ONLY record the royalty sale so it
+          // shows up in the royalty projection + gets processed by the weekly
+          // processor. Without this, manual charges never counted toward royalty.
+          const wId = invoice.metadata.weddingId;
+          const amountPaid = invoice.amount_paid / 100;
+          if (amountPaid > 0) {
+            const { data: wedding } = await supabase.from('weddings').select('client_name, total_amount, paid_amount').eq('id', wId).maybeSingle();
+            await recordRoyaltySale(wId, amountPaid, `Manual charge — ${wedding?.client_name || "client"}`);
+            await autoVerifyFinalPayment(wId, Number(wedding?.paid_amount || 0), Number(wedding?.total_amount || 0));
+            await notifyOwnersPush(su, sk, "bookings_payments", "Payment Received — " + (wedding?.client_name || "Client"), `$${amountPaid.toFixed(0)} · manual charge`, "/manager/weddings", `payment-${wId}`);
+          }
         }
         break;
       }
@@ -285,7 +299,75 @@ serve(async (req) => {
       }
       case 'charge.refunded': {
         const charge = event.data.object; const refundAmount = (charge.amount_refunded || 0) / 100; const wId = charge.metadata?.weddingId;
-        if (refundAmount > 0) { await recordRoyaltySale(wId || null, refundAmount, `Refund — ${charge.metadata?.proposalId ? "proposal" : "booking"}`, true); await notifyOwnersPush(su, sk, "bookings_payments", "Refund Issued", `$${refundAmount.toFixed(0)} refunded`, "/manager/weddings", `refund-${wId || charge.id}`); }
+        if (refundAmount > 0) {
+          // Idempotent: only deduct once per Stripe charge id.
+          const chargeId = typeof charge.id === 'string' ? charge.id : '';
+          let alreadyProcessed = false;
+          if (chargeId) {
+            const { data: existing } = await supabase.from('payment_refunds').select('id').eq('stripe_charge_id', chargeId).maybeSingle();
+            if (existing) alreadyProcessed = true;
+          }
+          if (!alreadyProcessed) {
+            // Find the wedding if metadata didn't carry it.
+            let weddingId = wId || null;
+            let wedding: any = null;
+            if (weddingId) {
+              const { data: w } = await supabase.from('weddings').select('id, paid_amount, client_name').eq('id', weddingId).maybeSingle();
+              wedding = w;
+            }
+            if (!wedding) {
+              // Try to match by Stripe customer on the charge.
+              const custId = typeof charge.customer === 'string' ? charge.customer : charge.customer?.id;
+              if (custId) {
+                const { data: w } = await supabase.from('weddings').select('id, paid_amount, client_name').eq('stripe_customer_id', custId).limit(1).maybeSingle();
+                if (w) { wedding = w; weddingId = w.id; }
+              }
+            }
+            if (wedding) {
+              // Recompute paid_amount from Stripe so the webhook and the
+              // daily sync always agree: net = gross succeeded minus
+              // refunds, minus manual "mark unpaid" adjustments. This
+              // replaces the old incremental deduction that fought with
+              // the sync and could over-deduct (driving legitimate paid
+              // deposits to $0) when wrongful charges were refunded but
+              // their invoice.paid events never inflated paid_amount.
+              const custId = typeof charge.customer === "string" ? charge.customer : charge.customer?.id;
+              if (custId) {
+                try {
+                  const ch = await stripe.charges.list({ customer: custId, limit: 100 });
+                  const succ = ch.data.filter((c: any) => c.paid && c.status === "succeeded");
+                  const netCents = succ.reduce((s: number, c: any) => s + ((c.amount || 0) - (c.amount_refunded || 0)), 0);
+                  const refCents = succ.reduce((s: number, c: any) => s + (c.amount_refunded || 0), 0);
+                  let manualTotal = 0;
+                  try {
+                    const { data: manual } = await supabase.from("payment_refunds").select("amount").eq("wedding_id", weddingId).eq("reason", "manual_unpaid");
+                    manualTotal = (manual || []).reduce((s: number, r: any) => s + (Number(r.amount) || 0), 0);
+                  } catch {}
+                  const paidAmount = Math.max(0, netCents / 100 - manualTotal);
+                  const refundedAmount = refCents / 100;
+                  const { error: ue } = await supabase.from("weddings").update({ paid_amount: paidAmount, refunded_amount: refundedAmount, final_payment_verified: paidAmount >= (Number(wedding.total_amount) || 0) - 0.01 }).eq("id", weddingId);
+                  if (ue) console.error(`[WEBHOOK] refund recompute failed ${weddingId}:`, ue.message);
+                } catch (e: any) {
+                  console.error(`[WEBHOOK] refund recompute error ${weddingId}:`, e?.message);
+                }
+              }
+            }
+            // Log the refund so it can never double-deduct.
+            if (chargeId) {
+              const { error: re } = await supabase.from('payment_refunds').insert({
+                wedding_id: weddingId, stripe_charge_id: chargeId,
+                stripe_refund_id: typeof charge.refunds?.data?.[0]?.id === 'string' ? charge.refunds.data[0].id : null,
+                amount: refundAmount, reason: charge.refunds?.data?.[0]?.reason || null,
+              });
+              if (re) console.error('[WEBHOOK] refund log insert failed:', re.message);
+            }
+          }
+          // Royalty rule: refunds NEVER count toward royalty. Only processed
+          // sales are counted. So we do NOT insert a royalty_sales row for
+          // refunds. The paid_amount adjustment + payment_refunds log above
+          // handle the booking side; royalty is left untouched.
+          await notifyOwnersPush(su, sk, "bookings_payments", "Refund Issued", `$${refundAmount.toFixed(0)} refunded${!alreadyProcessed ? " · paid balance adjusted" : ""}`, "/manager/weddings", `refund-${wId || charge.id}`);
+        }
         break;
       }
       default: console.log(`Unhandled event type ${event.type}`);

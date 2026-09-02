@@ -131,6 +131,7 @@ ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS notify_on_failed_aut
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS email_payment_failed_enabled BOOLEAN DEFAULT false;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS last_heartbeat_date TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS last_digest_date TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS last_payment_alert_date TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS upload_account_email TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS upload_account_password TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS upload_instructions TEXT;
@@ -555,6 +556,7 @@ ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS second_shooter_hours NUMERI
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS second_shooter_type TEXT;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS total_amount NUMERIC DEFAULT 0;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS paid_amount NUMERIC DEFAULT 0;
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS refunded_amount NUMERIC DEFAULT 0;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS payment_plan TEXT DEFAULT 'full';
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS custom_payment_plan JSONB;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
@@ -1236,6 +1238,27 @@ ALTER TABLE public.royalty_periods ADD COLUMN IF NOT EXISTS adjusted_at TIMESTAM
 CREATE INDEX IF NOT EXISTS idx_royalty_periods_territory ON public.royalty_periods(territory_id);
 CREATE INDEX IF NOT EXISTS idx_royalty_periods_status ON public.royalty_periods(status);
 CREATE INDEX IF NOT EXISTS idx_royalty_periods_dates ON public.royalty_periods(period_start, period_end);
+
+-- SAFEGUARD: each territory can have at most ONE royalty period per (start, end)
+-- window. This is the hard guarantee that the weekly processor can never charge
+-- a territory twice for the same week, even if two invocations race (e.g. the
+-- scheduler fires while someone clicks "Run Weekly Processor"). First, remove
+-- any pre-existing exact duplicates (keep the paid / most-recent one), then
+-- enforce uniqueness.
+WITH dups AS (
+  SELECT id FROM (
+    SELECT id,
+           row_number() OVER (
+             PARTITION BY territory_id, period_start, period_end
+             ORDER BY (status = 'paid') DESC, calculated_at DESC NULLS LAST, created_at DESC
+           ) AS rn
+    FROM public.royalty_periods
+  ) t WHERE rn > 1
+)
+DELETE FROM public.royalty_periods WHERE id IN (SELECT id FROM dups);
+CREATE UNIQUE INDEX IF NOT EXISTS royalty_periods_unique_period
+  ON public.royalty_periods (territory_id, period_start, period_end);
+
 ALTER TABLE public.royalty_periods ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access royalty_periods" ON public.royalty_periods;
 DROP POLICY IF EXISTS "royalty_periods_admin_all" ON public.royalty_periods;
@@ -1541,6 +1564,83 @@ BEGIN
 END;
 $$;
 
+
+-- --- Scheduled jobs queue + scheduler heartbeats ---
+-- Scheduled jobs queue + scheduler heartbeats for the notification scheduler.
+-- The scheduler edge function claims pending jobs (run_at <= now) and sends
+-- them using the existing SMS/email/push helpers. Idempotent via dedupe_key.
+
+CREATE TABLE IF NOT EXISTS public.scheduled_jobs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  type TEXT NOT NULL,
+  run_at TIMESTAMPTZ NOT NULL,
+  timezone TEXT DEFAULT 'America/New_York',
+  payload JSONB DEFAULT '{}'::jsonb,
+  status TEXT NOT NULL DEFAULT 'pending',
+  dedupe_key TEXT,
+  related_wedding_id UUID,
+  related_assignment_id UUID,
+  related_contractor_id UUID,
+  attempts INTEGER DEFAULT 0,
+  last_error TEXT,
+  sent_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.scheduled_jobs ADD COLUMN IF NOT EXISTS type TEXT;
+ALTER TABLE public.scheduled_jobs ADD COLUMN IF NOT EXISTS run_at TIMESTAMPTZ;
+ALTER TABLE public.scheduled_jobs ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT 'America/New_York';
+ALTER TABLE public.scheduled_jobs ADD COLUMN IF NOT EXISTS payload JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE public.scheduled_jobs ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE public.scheduled_jobs ADD COLUMN IF NOT EXISTS dedupe_key TEXT;
+ALTER TABLE public.scheduled_jobs ADD COLUMN IF NOT EXISTS related_wedding_id UUID;
+ALTER TABLE public.scheduled_jobs ADD COLUMN IF NOT EXISTS related_assignment_id UUID;
+ALTER TABLE public.scheduled_jobs ADD COLUMN IF NOT EXISTS related_contractor_id UUID;
+ALTER TABLE public.scheduled_jobs ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0;
+ALTER TABLE public.scheduled_jobs ADD COLUMN IF NOT EXISTS last_error TEXT;
+ALTER TABLE public.scheduled_jobs ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
+ALTER TABLE public.scheduled_jobs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now();
+ALTER TABLE public.scheduled_jobs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
+
+-- Unique partial index so a dedupe_key can only have one pending/running job
+-- at a time. This is what makes the queue idempotent.
+CREATE UNIQUE INDEX IF NOT EXISTS scheduled_jobs_dedupe_active
+  ON public.scheduled_jobs (dedupe_key)
+  WHERE status IN ('pending', 'running');
+
+-- Index for the worker's claim query (run_at <= now AND status = 'pending').
+CREATE INDEX IF NOT EXISTS scheduled_jobs_claim_idx
+  ON public.scheduled_jobs (run_at)
+  WHERE status = 'pending';
+
+CREATE TABLE IF NOT EXISTS public.scheduler_heartbeats (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  last_seen_at TIMESTAMPTZ,
+  last_source TEXT,
+  last_result JSONB,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.scheduler_heartbeats ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
+ALTER TABLE public.scheduler_heartbeats ADD COLUMN IF NOT EXISTS last_source TEXT;
+ALTER TABLE public.scheduler_heartbeats ADD COLUMN IF NOT EXISTS last_result JSONB;
+
+ALTER TABLE public.scheduled_jobs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public full access scheduled_jobs" ON public.scheduled_jobs;
+CREATE POLICY "Public full access scheduled_jobs" ON public.scheduled_jobs FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.scheduler_heartbeats ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public full access scheduler_heartbeats" ON public.scheduler_heartbeats;
+CREATE POLICY "Public full access scheduler_heartbeats" ON public.scheduler_heartbeats FOR ALL USING (true) WITH CHECK (true);
+
+-- NOTE: Automatic scheduling is done via Supabase Scheduled Functions
+-- (Edge Functions → Schedules), NOT pg_cron. pg_cron cannot reliably call
+-- edge functions across projects because each project has its own
+-- service-role key. See the "Clock & Scheduler" card in Settings for the
+-- per-project setup steps.
+
+
 DO $$
 DECLARE
   t TEXT;
@@ -1552,8 +1652,50 @@ DECLARE
     'royalty_secrets','royalty_periods','royalty_audit_log','royalty_sales',
     'payment_plan_change_requests','push_settings','push_subscriptions',
     'push_preferences','venue_geocodes','pricing_packages','pricing_addons',
-    'upsell_purchases'
+    'upsell_purchases','scheduled_jobs','scheduler_heartbeats','payment_refunds','payment_charges'
   ];
+
+-- Refunds log (idempotent: one row per Stripe charge id)
+CREATE TABLE IF NOT EXISTS public.payment_refunds (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  wedding_id UUID REFERENCES public.weddings(id) ON DELETE CASCADE,
+  stripe_charge_id TEXT UNIQUE NOT NULL,
+  stripe_refund_id TEXT,
+  amount NUMERIC NOT NULL DEFAULT 0,
+  reason TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+ALTER TABLE public.payment_refunds ENABLE ROW LEVEL SECURITY;
+CREATE POLICY IF NOT EXISTS "Managers can read refunds" ON public.payment_refunds FOR SELECT TO authenticated USING (true);
+CREATE POLICY IF NOT EXISTS "Managers insert refunds" ON public.payment_refunds FOR INSERT TO authenticated WITH CHECK (true);
+
+-- Per-installment charge lock: prevents two staff members from
+-- double-charging the same installment. The dedupe_key is unique per
+-- wedding+installment, so only the first charge attempt can insert.
+CREATE TABLE IF NOT EXISTS public.payment_charges (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  wedding_id UUID NOT NULL REFERENCES public.weddings(id) ON DELETE CASCADE,
+  schedule_index INTEGER,
+  installment_label TEXT,
+  amount NUMERIC NOT NULL,
+  stripe_charge_id TEXT,
+  dedupe_key TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  charged_by TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+-- Only ONE pending/running row per wedding+installment. The partial unique
+-- index means a 'sent' row does NOT block a legitimate future re-charge
+-- (e.g. after Mark Unpaid resets the installment).
+CREATE UNIQUE INDEX IF NOT EXISTS payment_charges_active_dedupe_idx
+  ON public.payment_charges (dedupe_key)
+  WHERE status IN ('pending','running');
+ALTER TABLE public.payment_charges ENABLE ROW LEVEL SECURITY;
+CREATE POLICY IF NOT EXISTS "Staff read charges" ON public.payment_charges FOR SELECT TO authenticated USING (true);
+CREATE POLICY IF NOT EXISTS "Staff insert charges" ON public.payment_charges FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY IF NOT EXISTS "Staff update charges" ON public.payment_charges FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+
 BEGIN
   FOREACH t IN ARRAY business_tables LOOP
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t) THEN

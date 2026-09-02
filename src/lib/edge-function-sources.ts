@@ -23,6 +23,8 @@ import royaltyStripeKeys from "../../supabase/functions/royalty-stripe-keys/inde
 import paymentPlanApprove from "../../supabase/functions/payment-plan-approve/index.ts?raw";
 import dailyDigest from "../../supabase/functions/daily-digest/index.ts?raw";
 import sendPush from "../../supabase/functions/send-push/index.ts?raw";
+import scheduler from "../../supabase/functions/scheduler/index.ts?raw";
+import scheduledJobsSchema from "../../supabase/migrations/20260901000000_scheduled_jobs.sql?raw";
 import pushSchema from "../../supabase/migrations/20260829000001_push_subscriptions.sql?raw";
 import masterSql from "../../supabase/migrations/20260803000000_schema.sql?raw";
 
@@ -46,6 +48,8 @@ export const EDGE_FUNCTION_SOURCES: Record<string, string> = {
   "process-notifications": processNotifications,
   "daily-digest": dailyDigest,
   "send-push": sendPush,
+  scheduler: scheduler,
   master_sql: masterSql,
+  scheduled_jobs_schema: scheduledJobsSchema,
   push_schema: pushSchema,
 };

@@ -2066,8 +2066,17 @@ export const api = {
 
       if (error || !updated) return;
 
-      console.log("Running daily heartbeat for automations...");
-      await this.executeAutomations(settings, now);
+      console.log("Running daily heartbeat (backup path)...");
+      // The scheduler worker is now the primary notification engine. The
+      // heartbeat no longer runs executeAutomations itself (which fired
+      // everything at once on first login). It only kicks the worker as a
+      // backup so offset notifications still send if the 10-min cron is down.
+      // executeAutomations is kept for forceRunAutomations (manual testing).
+      try {
+        await this.runSchedulerBackup();
+      } catch (e) {
+        console.warn("[Heartbeat] scheduler backup failed:", e);
+      }
 
       // Fire the daily-digest push exactly once per day. The heartbeat's
       // last_heartbeat_date guard above already ensures this whole block
@@ -2089,6 +2098,77 @@ export const api = {
       }
     } catch (e) {
       console.error("Heartbeat error:", e);
+    }
+  },
+
+  // Kick the scheduler worker as a backup (idempotent). The worker writes a
+  // heartbeat, claims due jobs, and sends them. Safe to call on every page
+  // load because dedupe_key prevents double-sends.
+  async runSchedulerBackup() {
+    try {
+      await fetch(`${supabaseUrl}/functions/v1/scheduler`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${supabaseAnonKey}`,
+          apikey: supabaseAnonKey,
+        },
+        body: JSON.stringify({ source: "heartbeat" }),
+      });
+    } catch (e) {
+      // Silent — the cron is the primary driver; this is just a backup.
+    }
+  },
+
+  // Manually trigger the scheduler worker (from Settings "Run scheduler now").
+  async runSchedulerNow() {
+    const res = await fetch(`${supabaseUrl}/functions/v1/scheduler`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+        apikey: supabaseAnonKey,
+      },
+      body: JSON.stringify({ source: "manual" }),
+    });
+    if (!res.ok) throw new Error(`Scheduler returned ${res.status}`);
+    return res.json();
+  },
+
+  // Fetch upcoming scheduled jobs + heartbeat for the Settings clock card.
+  async getSchedulerStatus() {
+    const { supabase: sb } = await import("./supabase");
+    const [hb, jobs] = await Promise.all([
+      sb
+        .from("scheduler_heartbeats")
+        .select("last_seen_at,last_source,last_result")
+        .eq("id", "default")
+        .maybeSingle()
+        .then(({ data, error }) => (error ? null : data)),
+      sb
+        .from("scheduled_jobs")
+        .select("id,type,run_at,status,dedupe_key,attempts,last_error")
+        .in("status", ["pending", "running"])
+        .order("run_at", { ascending: true })
+        .limit(10)
+        .then(({ data, error }) => (error ? [] : data || [])),
+    ]);
+    return { heartbeat: hb, upcoming: jobs };
+  },
+
+  // Cancel all pending scheduled_jobs for a wedding so the next worker
+  // backfill recreates them with the correct run_at (e.g. after a date edit
+  // or publish). Idempotent — only touches pending jobs.
+  async rescheduleWeddingJobs(weddingId: string) {
+    try {
+      const { supabase: sb } = await import("./supabase");
+      await sb
+        .from("scheduled_jobs")
+        .update({ status: "cancelled", updated_at: new Date().toISOString() })
+        .eq("related_wedding_id", weddingId)
+        .eq("status", "pending");
+    } catch (e) {
+      // Table may not exist on old snapshots — ignore.
     }
   },
 
@@ -7035,9 +7115,9 @@ export const api = {
     if (error) throw error;
 
     const rows = sales || [];
+    // Royalty rule: refunds NEVER count toward royalty — only processed sales.
     const grossSales = rows.reduce(
-      (sum: number, s: any) =>
-        sum + (s.is_refund ? -Number(s.sale_amount) : Number(s.sale_amount)),
+      (sum: number, s: any) => sum + (s.is_refund ? 0 : Number(s.sale_amount)),
       0,
     );
     const royaltyGenerated = Math.max(0, grossSales * (royaltyPct / 100));
@@ -7079,9 +7159,16 @@ export const api = {
   },
 
   async getRoyaltySettings() {
+    // Order by configured DESC + created_at DESC so we always read the real
+    // configured row, not an empty clone row created by stale self-heal SQL.
     const { data, error } = await supabase
       .from("royalty_settings")
       .select("*")
+      .order("stripe_royalty_configured", {
+        ascending: false,
+        nullsFirst: false,
+      })
+      .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
     if (error) {

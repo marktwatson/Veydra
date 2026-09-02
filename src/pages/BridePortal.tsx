@@ -51,6 +51,7 @@ import {
   FileSignature,
   Download,
   Music,
+  RotateCcw,
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
@@ -113,6 +114,7 @@ export default function BridePortal() {
   const [invoicesData, setInvoicesData] = useState<{
     upcoming: any;
     pastInvoices: any[];
+    totalPaid?: number;
   } | null>(null);
   const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
   const [companyName, setCompanyName] = useState(
@@ -656,25 +658,28 @@ export default function BridePortal() {
     const baseDate =
       wedding.contract_date || firstInvoiceDate || wedding.created_at || "";
 
+    const netPaid =
+      invoicesData && typeof invoicesData.totalPaid === "number"
+        ? invoicesData.totalPaid
+        : wedding.paid_amount || 0;
+
     let schedule = generatePaymentSchedule(
       wedding.total_amount || 0,
       wedding.payment_plan || "full",
       wedding.date || "",
       baseDate,
-      invoicesData
-        ? Math.max(
-            wedding.paid_amount || 0,
-            sortedPast.reduce((sum: number, inv: any) => sum + inv.amount, 0),
-          )
-        : wedding.paid_amount || 0,
+      netPaid,
       wedding.custom_payment_plan,
     );
 
     if (invoicesData) {
+      const nonRefundedPast = sortedPast.filter(
+        (inv) => inv.amount - (inv.refunded || 0) > 0,
+      );
       let pastIdx = 0;
       schedule = schedule.map((item) => {
-        if (item.status === "paid" && pastIdx < sortedPast.length) {
-          const inv = sortedPast[pastIdx++];
+        if (item.status === "paid" && pastIdx < nonRefundedPast.length) {
+          const inv = nonRefundedPast[pastIdx++];
           return { ...item, date: formatDisplayDate(inv.date) };
         }
         return item;
@@ -3016,14 +3021,9 @@ export default function BridePortal() {
                     </span>
                     <span className="text-3xl font-bold text-emerald-600">
                       $
-                      {(invoicesData
-                        ? Math.max(
-                            wedding.paid_amount || 0,
-                            invoicesData.pastInvoices.reduce(
-                              (sum: number, inv: any) => sum + inv.amount,
-                              0,
-                            ),
-                          )
+                      {(invoicesData &&
+                      typeof invoicesData.totalPaid === "number"
+                        ? invoicesData.totalPaid
                         : wedding.paid_amount || 0
                       ).toLocaleString()}
                     </span>
@@ -3037,14 +3037,9 @@ export default function BridePortal() {
                       {Math.max(
                         0,
                         (wedding.total_amount || 0) -
-                          (invoicesData
-                            ? Math.max(
-                                wedding.paid_amount || 0,
-                                invoicesData.pastInvoices.reduce(
-                                  (sum: number, inv: any) => sum + inv.amount,
-                                  0,
-                                ),
-                              )
+                          (invoicesData &&
+                          typeof invoicesData.totalPaid === "number"
+                            ? invoicesData.totalPaid
                             : wedding.paid_amount || 0),
                       ).toLocaleString()}
                     </span>
@@ -3137,48 +3132,89 @@ export default function BridePortal() {
                           Past Receipts
                         </h3>
                         <div className="border border-[#c9a96e]/20 rounded-xl divide-y divide-[#c9a96e]/20">
-                          {invoicesData.pastInvoices.map((inv: any) => (
-                            <div
-                              key={inv.id}
-                              className="flex items-center justify-between p-4 bg-[#faf7f2]"
-                            >
-                              <div className="flex items-center gap-3">
-                                <CheckCircle className="h-5 w-5 text-emerald-500" />
-                                <div>
-                                  <p className="font-medium text-[#1a1a1a]">
-                                    {inv.description === "Subscription creation"
-                                      ? "Payment Plan Deposit"
-                                      : inv.description || "Invoice"}
-                                  </p>
-                                  <p className="text-sm text-[#1a1a1a]/60">
-                                    {new Date(inv.date).toLocaleDateString(
-                                      "en-US",
-                                      {
-                                        month: "short",
-                                        day: "numeric",
-                                        year: "numeric",
-                                      },
+                          {invoicesData.pastInvoices.map((inv: any) => {
+                            const isFullyRefunded =
+                              inv.refunded && inv.refunded >= inv.amount;
+                            const isPartialRefund =
+                              inv.refunded &&
+                              inv.refunded > 0 &&
+                              inv.refunded < inv.amount;
+                            const netAmt = Math.max(
+                              0,
+                              inv.amount - (inv.refunded || 0),
+                            );
+
+                            return (
+                              <div
+                                key={inv.id}
+                                className="flex items-center justify-between p-4 bg-[#faf7f2]"
+                              >
+                                <div className="flex items-center gap-3">
+                                  {isFullyRefunded ? (
+                                    <RotateCcw className="h-5 w-5 text-amber-500" />
+                                  ) : (
+                                    <CheckCircle className="h-5 w-5 text-emerald-500" />
+                                  )}
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <p className="font-medium text-[#1a1a1a]">
+                                        {inv.description ===
+                                        "Subscription creation"
+                                          ? "Payment Plan Deposit"
+                                          : inv.description || "Invoice"}
+                                      </p>
+                                      {isFullyRefunded && (
+                                        <span className="text-[10px] font-semibold px-2 py-0.5 bg-amber-500/10 text-amber-700 dark:text-amber-400 rounded-full border border-amber-500/20">
+                                          Fully Refunded
+                                        </span>
+                                      )}
+                                      {isPartialRefund && (
+                                        <span className="text-[10px] font-semibold px-2 py-0.5 bg-amber-500/10 text-amber-700 dark:text-amber-400 rounded-full border border-amber-500/20">
+                                          Partial Refund ($
+                                          {inv.refunded.toLocaleString()})
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="text-sm text-[#1a1a1a]/60">
+                                      {new Date(inv.date).toLocaleDateString(
+                                        "en-US",
+                                        {
+                                          month: "short",
+                                          day: "numeric",
+                                          year: "numeric",
+                                        },
+                                      )}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-4">
+                                  <span
+                                    className={cn(
+                                      "font-semibold",
+                                      isFullyRefunded
+                                        ? "text-muted-foreground line-through"
+                                        : "text-emerald-600",
                                     )}
-                                  </p>
+                                  >
+                                    $
+                                    {isFullyRefunded
+                                      ? inv.amount.toLocaleString()
+                                      : netAmt.toLocaleString()}
+                                  </span>
+                                  {inv.pdf && (
+                                    <a
+                                      href={inv.pdf}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-xs font-medium text-primary hover:underline"
+                                    >
+                                      Receipt
+                                    </a>
+                                  )}
                                 </div>
                               </div>
-                              <div className="flex items-center gap-4">
-                                <span className="font-semibold text-emerald-600">
-                                  ${inv.amount.toLocaleString()}
-                                </span>
-                                {inv.pdf && (
-                                  <a
-                                    href={inv.pdf}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-xs font-medium text-primary hover:underline"
-                                  >
-                                    Receipt
-                                  </a>
-                                )}
-                              </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     )}

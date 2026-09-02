@@ -7,55 +7,46 @@
 
 import Stripe from "https://esm.sh/stripe@14.14.0";
 import { createClient } from "jsr:@supabase/supabase-js";
+// ─── Inlined from _royalty-lib.ts (deploy only uploads index.ts) ───
+const SELF_PROJECT_REF = Deno.env.get("PROJECT_REF") || "oosmhtzqdmntlzhheofw";
+async function getOwnTerritory(supabase: any): Promise<any | null> {
+  const { data: selfRow } = await supabase.from("territories").select("*").eq("project_ref", SELF_PROJECT_REF).limit(1).maybeSingle();
+  if (selfRow) return selfRow;
+  const { data: primRow } = await supabase.from("territories").select("*").eq("is_primary", true).limit(1).maybeSingle();
+  return primRow || null;
+}
+async function persistPaymentMethod(supabase: any, stripe: any, territory: any, pmId: string): Promise<{ payment_method_id: string }> {
+  if (!pmId || !pmId.startsWith("pm_")) throw new Error("Invalid payment method id");
+  let customerId = territory.stripe_customer_id;
+  if (!customerId) { const c = await stripe.customers.create({ name: territory.name || "Royalty Territory", metadata: { territory_id: territory.id, project_ref: SELF_PROJECT_REF } }); customerId = c.id; }
+  try { await stripe.paymentMethods.attach(pmId, { customer: customerId }); } catch (e: any) { const m = (e?.message || "").toLowerCase(); if (!m.includes("already attached") && !m.includes("is already attached")) throw new Error(`Attach payment method failed: ${e?.message || e}`); }
+  try { await stripe.customers.update(customerId, { invoice_settings: { default_payment_method: pmId } }); } catch (_) {}
+  const { data: updated, error: updErr } = await supabase.from("territories").update({ primary_payment_method_id: pmId, stripe_payment_method_id: pmId, stripe_customer_id: customerId, stripe_royalty_configured: true, stripe_connected: true }).eq("id", territory.id).select("id").maybeSingle();
+  if (updErr) throw new Error(`Territory payment method save failed: ${updErr.message}`);
+  if (!updated) throw new Error("Bank authorized in Stripe, but it was not saved to the territory. Do not close this dialog.");
+  return { payment_method_id: pmId };
+}
+function portalNow(tz: string): { dow: number; hhmm: string } {
+  try { const dtf = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour12: false, weekday: "short", hour: "2-digit", minute: "2-digit" }); const p: any = {}; for (const x of dtf.formatToParts(new Date())) p[x.type] = x.value; const dm: any = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }; const hh = p.hour === "24" ? "00" : p.hour || "00"; return { dow: dm[p.weekday] ?? 5, hhmm: `${hh.padStart(2, "0")}:${(p.minute || "00").padStart(2, "0")}` }; } catch { return { dow: 5, hhmm: "02:00" }; }
+}
+async function pushRoyaltyAlert(type: string, territory: any, amount: number, errorMsg: string | null, newBalance: number | null): Promise<void> {
+  let title = "", body = "";
+  if (type === "paid") { title = "Royalty Collected"; body = `$${amount.toFixed(2)} collected from ${territory.name}`; if (newBalance !== null) body += newBalance === 0 ? " · Payback complete!" : ` · Remaining $${newBalance.toFixed(2)}`; }
+  else if (type === "failed") { const noPm = /no valid payment method|payment method/i.test(errorMsg || ""); title = noPm ? "Royalty Payment Method Missing" : "Royalty Charge Failed"; body = `$${amount.toFixed(2)} for ${territory.name}${errorMsg ? " — " + errorMsg : ""}`; }
+  if (!title) return;
+  try { await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-push`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`, apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "" }, body: JSON.stringify({ action: "send", roles: ["owner", "super_admin"], category: "royalty_finance", title, body, url: "/manager/royalty", tag: `royalty-${type}-${territory.id}` }) }); } catch (e) { console.warn("[Royalty] push failed:", (e as any)?.message); }
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const SELF_PROJECT_REF = Deno.env.get("PROJECT_REF") || "oosmhtzqdmntlzhheofw";
-
 function jsonResponse(data: any, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-}
-
-async function pushRoyaltyAlert(type: string, territory: any, amount: number, errorMsg: string | null, newBalance: number | null) {
-  let title = "", body = "";
-  if (type === "paid") {
-    title = "Royalty Collected";
-    body = `$${amount.toFixed(2)} collected from ${territory.name}`;
-    if (newBalance !== null) body += newBalance === 0 ? " · Payback complete!" : ` · Remaining $${newBalance.toFixed(2)}`;
-  } else if (type === "failed") {
-    const noPm = /no valid payment method|payment method/i.test(errorMsg || "");
-    title = noPm ? "Royalty Payment Method Missing" : "Royalty Charge Failed";
-    body = `$${amount.toFixed(2)} for ${territory.name}${errorMsg ? " — " + errorMsg : ""}`;
-  }
-  if (!title) return;
-  try {
-    await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-push`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-        apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "",
-      },
-      body: JSON.stringify({
-        action: "send", roles: ["owner", "super_admin"], category: "royalty_finance",
-        title, body, url: "/manager/royalty", tag: `royalty-${type}-${territory.id}`,
-      }),
-    });
-  } catch (e) { console.warn("[Royalty] push failed:", (e as any)?.message); }
-}
-
-// Resolve THIS instance's own territory (project_ref first, then is_primary).
-async function getOwnTerritory(supabase: any): Promise<any | null> {
-  const { data: selfRow } = await supabase.from("territories").select("*").eq("project_ref", SELF_PROJECT_REF).limit(1).maybeSingle();
-  if (selfRow) return selfRow;
-  const { data: primRow } = await supabase.from("territories").select("*").eq("is_primary", true).limit(1).maybeSingle();
-  return primRow || null;
 }
 
 Deno.serve(async (req) => {
@@ -76,19 +67,26 @@ Deno.serve(async (req) => {
     `ALTER TABLE public.royalty_sales ADD COLUMN IF NOT EXISTS processed_period_id UUID REFERENCES public.royalty_periods(id) ON DELETE SET NULL`,
     `ALTER TABLE public.royalty_sales ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ`,
     `CREATE INDEX IF NOT EXISTS idx_royalty_sales_unprocessed ON public.royalty_sales(territory_id) WHERE processed_period_id IS NULL`,
+    // Hard safeguard: one period per territory per week — prevents double charge.
+    `CREATE UNIQUE INDEX IF NOT EXISTS royalty_periods_unique_period ON public.royalty_periods (territory_id, period_start, period_end)`,
+    // Deduplicate royalty_settings: delete empty clone rows so .limit(1) reads
+    // can't accidentally return an unconfigured row instead of the real one.
+    `DELETE FROM public.royalty_settings WHERE stripe_royalty_configured = true AND id NOT IN (SELECT id FROM public.royalty_settings WHERE stripe_royalty_configured = true ORDER BY created_at ASC LIMIT 1)`,
+    `DELETE FROM public.royalty_settings WHERE stripe_royalty_configured IS NULL OR stripe_royalty_configured = false`,
   ];
-  for (const stmt of HEAL_SQL) {
-    try { await supabase.rpc("exec_sql", { sql_text: stmt }); } catch (_) {}
-  }
+  for (const stmt of HEAL_SQL) { try { await supabase.rpc("exec_sql", { sql_text: stmt }); } catch (_) {} }
 
   const { data: royaltySettingsRow } = await supabase
     .from("royalty_settings")
     .select("stripe_royalty_publishable_key, stripe_royalty_configured")
+    .order("stripe_royalty_configured", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
     .limit(1).maybeSingle();
   const royaltyPublishableKey = royaltySettingsRow?.stripe_royalty_publishable_key || null;
   const { data: royaltySecretsRow } = await supabase
     .from("royalty_secrets")
     .select("stripe_secret_key, stripe_webhook_secret")
+    .order("created_at", { ascending: false })
     .limit(1).maybeSingle();
   const stripeKey = royaltySecretsRow?.stripe_secret_key || Deno.env.get("STRIPE_SECRET_KEY");
   const webhookSecret = royaltySecretsRow?.stripe_webhook_secret || Deno.env.get("STRIPE_ROYALTY_WEBHOOK_SECRET");
@@ -104,28 +102,13 @@ Deno.serve(async (req) => {
         const rawBody = await req.text();
         const event = await stripeForWh.webhooks.constructEventAsync(rawBody, stripeSig, webhookSecret);
         if (["setup_intent.succeeded", "payment_method.attached"].includes(event.type)) {
-          let pmId: string | null = null;
-          let customerId: string | null = null;
-          if (event.type === "setup_intent.succeeded") {
-            const si = event.data.object;
-            pmId = typeof si.payment_method === "string" ? si.payment_method : si.payment_method?.id || null;
-            customerId = typeof si.customer === "string" ? si.customer : null;
-          } else if (event.type === "payment_method.attached") {
-            const pm = event.data.object;
-            pmId = pm.id;
-            customerId = typeof pm.customer === "string" ? pm.customer : null;
-          }
-          if (pmId && customerId) {
-            const { data: terr } = await supabase.from("territories").select("id").eq("stripe_customer_id", customerId).maybeSingle();
-            if (terr?.id) {
-              await supabase.from("territories").update({ primary_payment_method_id: pmId, stripe_payment_method_id: pmId, stripe_royalty_configured: true, stripe_connected: true }).eq("id", terr.id);
-            }
-          }
+          let pmId: string | null = null, customerId: string | null = null;
+          if (event.type === "setup_intent.succeeded") { const si = event.data.object; pmId = typeof si.payment_method === "string" ? si.payment_method : si.payment_method?.id || null; customerId = typeof si.customer === "string" ? si.customer : null; }
+          else if (event.type === "payment_method.attached") { const pm = event.data.object; pmId = pm.id; customerId = typeof pm.customer === "string" ? pm.customer : null; }
+          if (pmId && customerId) { const { data: terr } = await supabase.from("territories").select("id").eq("stripe_customer_id", customerId).maybeSingle(); if (terr?.id) await supabase.from("territories").update({ primary_payment_method_id: pmId, stripe_payment_method_id: pmId, stripe_royalty_configured: true, stripe_connected: true }).eq("id", terr.id); }
           return jsonResponse({ received: true, persisted: pmId });
         }
-      } catch (whErr: any) {
-        return jsonResponse({ error: `Webhook failed: ${whErr.message}` }, 400);
-      }
+      } catch (whErr: any) { return jsonResponse({ error: `Webhook failed: ${whErr.message}` }, 400); }
     }
 
     let body: any = {};
@@ -206,22 +189,6 @@ Deno.serve(async (req) => {
     if (body.action === "get_publishable_key") {
       if (!royaltyPublishableKey) return jsonResponse({ error: "Royalty Stripe account not configured. Super Admin must add the royalty publishable + secret keys." }, 400);
       return jsonResponse({ publishable_key: royaltyPublishableKey });
-    }
-
-    // Seed a test sale (Super Admin testing tool).
-    if (body.action === "seed_test_sale") {
-      const amount = Number(body.amount);
-      if (!amount || amount <= 0) return jsonResponse({ error: "A positive amount is required" }, 400);
-      const territory = await getOwnTerritory(supabase);
-      if (!territory) return jsonResponse({ error: "No primary territory found for this instance" }, 400);
-      const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
-      const { error: insErr } = await supabase.from("royalty_sales").insert({
-        territory_id: territory.id, wedding_id: null, sale_amount: amount,
-        sale_date: yesterday.toISOString().split("T")[0],
-        description: `TEST SALE — ${body.note || "seeded by Super Admin"} (not a real booking)`, is_refund: false,
-      });
-      if (insErr) return jsonResponse({ error: `Failed to seed sale: ${insErr.message}` }, 500);
-      return jsonResponse({ success: true, territory: territory.name, amount, message: `Seeded $${amount} test sale for ${territory.name}. Run the processor to calculate + charge.` });
     }
 
     // Sync payment methods from Stripe to database.
@@ -316,6 +283,24 @@ Deno.serve(async (req) => {
     const { data: settings } = await supabase.from("royalty_settings").select("*").limit(1).single();
     if (!settings) return jsonResponse({ error: "Royalty settings not configured" }, 400);
 
+    // Portal timezone — same source as the scheduler / header clock. Processing
+    // day/time are interpreted in THIS timezone, not UTC.
+    const { data: portalSettings } = await supabase.from("portal_settings").select("timezone, company_timezone").limit(1).maybeSingle();
+    const portalTz = portalSettings?.timezone || portalSettings?.company_timezone || "America/New_York";
+
+    // Scheduled (auto) runs only fire on the configured day at/after the
+    // configured time in portal TZ. Manual "Run Weekly Processor" always runs
+    // but is still protected against double-charging by the existing-period
+    // check + the unique index on royalty_periods(territory_id, period_start, period_end).
+    if (body.scheduled === true && !forceRecalculate) {
+      const { dow, hhmm } = portalNow(portalTz);
+      const targetDow = Number(settings.processing_day_of_week ?? 5);
+      const targetTime = String(settings.processing_time || "02:00").padStart(5, "0");
+      if (dow !== targetDow || hhmm < targetTime) {
+        return jsonResponse({ skipped: true, reason: "Not the scheduled processing day/time in portal timezone", portal_tz: portalTz, portal_dow: dow, portal_time: hhmm, target_dow: targetDow, target_time: targetTime });
+      }
+    }
+
     let territoryQuery = supabase.from("territories").select("*").eq("status", "active").gt("royalty_percentage", 0);
     if (specificTerritoryId) territoryQuery = territoryQuery.eq("id", specificTerritoryId);
     else territoryQuery = territoryQuery.eq("is_primary", true);
@@ -405,7 +390,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    const grossSales = (sales || []).reduce((sum: number, s: any) => sum + (s.is_refund ? -Number(s.sale_amount) : Number(s.sale_amount)), 0);
+    // Royalty rule: refunds NEVER count toward royalty — only processed sales.
+    const grossSales = (sales || []).reduce((sum: number, s: any) => sum + (s.is_refund ? 0 : Number(s.sale_amount)), 0);
     const royaltyPct = Number(territory.royalty_percentage) || 0;
     const paybackPct = Number(territory.payback_percentage) || 0;
     const remainingBalance = Number(territory.remaining_balance) || 0;
@@ -414,18 +400,19 @@ Deno.serve(async (req) => {
     if (paybackDue > remainingBalance) paybackDue = remainingBalance;
     const totalDue = Math.round((royaltyDue + paybackDue) * 100) / 100;
 
-    const { data: period, error: periodError } = await supabase
-      .from("royalty_periods")
-      .insert({
-        territory_id: territory.id,
-        period_start: periodStart.toISOString().split("T")[0],
-        period_end: periodEnd.toISOString().split("T")[0],
-        gross_sales: grossSales, royalty_amount: royaltyDue, payback_amount: paybackDue, total_due: totalDue,
-        status: totalDue > 0 ? "processing" : "paid", calculated_at: new Date().toISOString(),
-        notes: sales && sales.length > 0 ? `${sales.length} sales transactions` : "No sales in period",
-      })
-      .select().single();
-    if (periodError) throw periodError;
+    const { data: period, error: periodError } = await supabase.from("royalty_periods").insert({
+      territory_id: territory.id, period_start: periodStart.toISOString().split("T")[0], period_end: periodEnd.toISOString().split("T")[0],
+      gross_sales: grossSales, royalty_amount: royaltyDue, payback_amount: paybackDue, total_due: totalDue,
+      status: totalDue > 0 ? "processing" : "paid", calculated_at: new Date().toISOString(),
+      notes: sales && sales.length > 0 ? `${sales.length} sales transactions` : "No sales in period",
+    }).select().single();
+    if (periodError) {
+      // 23505 = unique_violation → another invocation already created this
+      // week's period. Hard safeguard against double charging — never insert
+      // a second period for the same week. Treat as already processed.
+      if (periodError.code === "23505") return { territory_id: territory.id, territory_name: territory.name, status: "skipped", reason: "Period already exists for this week (double-charge safeguard)" };
+      throw periodError;
+    }
 
     if (sales && sales.length > 0) {
       const saleIds = (sales as any[]).map((s) => s.id);

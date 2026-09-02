@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
+import { ClockSchedulerCard } from "@/components/ClockSchedulerCard";
 import {
   Card,
   CardContent,
@@ -4650,6 +4651,7 @@ export default function ManagerSettings() {
         </TabsContent>
 
         <TabsContent value="notifications" className="space-y-6">
+          <ClockSchedulerCard />
           <div className="grid gap-6 md:grid-cols-2">
             <Card className="md:col-span-2 max-w-3xl">
               <CardHeader className="flex flex-row items-start justify-between">

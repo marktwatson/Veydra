@@ -674,6 +674,11 @@ function ReviewWeddingDialog({
           });
         }
       }
+
+      // Reschedule offset notifications (pre-wedding, day-after, rating) for
+      // this wedding now that it's published. The next scheduler worker tick
+      // will recreate the pending jobs with correct run_at values.
+      api.rescheduleWeddingJobs(wedding.id).catch(() => {});
     },
     onError: (error: any) => {
       toast({
@@ -1412,8 +1417,8 @@ export function ManageWeddingSheet({
           if (data) {
             if (data.customerId) setStripeCustomerId(data.customerId);
             if (data.pastInvoices) setInvoicesData(data);
-            if (typeof data.totalPaid === "number" && data.totalPaid > 0) {
-              setPaidAmount((prev) => Math.max(prev, data.totalPaid));
+            if (typeof data.totalPaid === "number" && data.totalPaid >= 0) {
+              setPaidAmount(data.totalPaid);
             }
           }
         })
@@ -1489,6 +1494,9 @@ export function ManageWeddingSheet({
         custom_payment_plan: customPaymentPlan,
         contract_date: contractDate || null,
       });
+
+      // Reschedule offset notifications if the wedding date changed.
+      api.rescheduleWeddingJobs(wedding.id).catch(() => {});
 
       // 2. Delete removed jobs
       for (const id of jobsToDelete) {
@@ -2025,14 +2033,18 @@ export function ManageWeddingSheet({
                               typeof data.totalPaid === "number"
                                 ? data.totalPaid
                                 : data.pastInvoices?.reduce(
-                                    (sum: number, inv: any) => sum + inv.amount,
+                                    (sum: number, inv: any) =>
+                                      sum +
+                                      Math.max(
+                                        0,
+                                        inv.amount - (inv.refunded || 0),
+                                      ),
                                     0,
                                   ) || 0;
-                            const newTotal = Math.max(stripeTotal, paidAmount);
-                            setPaidAmount(newTotal);
+                            setPaidAmount(stripeTotal);
                             toast({
                               title: "Synced!",
-                              description: `Found $${stripeTotal} in Stripe past payments.`,
+                              description: `Synced $${stripeTotal} from Stripe past payments.`,
                             });
                           }
                         } catch (err: any) {

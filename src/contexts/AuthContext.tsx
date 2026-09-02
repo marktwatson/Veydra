@@ -8,9 +8,11 @@ import React, {
 } from "react";
 import { supabase } from "@/lib/supabase";
 import { isSuperAdminEmail } from "@/lib/super-admin";
+import { findManagerAccount, findEditorAccount } from "@/lib/auth-helpers";
+import { AuthLoadingScreen } from "@/components/AuthLoadingScreen";
+import { useInactivityTimer } from "@/hooks/useInactivityTimer";
 import { toast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { DEFAULT_LOGO_URL } from "@/lib/utils";
 
 export type UserRole =
   | "super_admin"
@@ -58,19 +60,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           savedRole = localStorage.getItem("veydra_role") || "contractor";
         } catch (e) {}
 
-        let { data: manager } = await supabase
-          .from("managers")
-          .select("*")
-          .or(`id.eq.${session.user.id},email.ilike.${session.user.email}`)
-          .limit(1)
-          .maybeSingle();
-
-        const { data: editor } = await supabase
-          .from("editors")
-          .select("*")
-          .or(`id.eq.${session.user.id},email.ilike.${session.user.email}`)
-          .limit(1)
-          .maybeSingle();
+        const manager = await findManagerAccount(
+          session.user.id,
+          session.user.email,
+        );
+        const editor = await findEditorAccount(
+          session.user.id,
+          session.user.email,
+        );
 
         if (!isMounted) return;
 
@@ -293,14 +290,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           let editor = null;
 
           if (!isSuperAdmin) {
-            let { data: mData, error: mError } = await supabase
-              .from("managers")
-              .select("*")
-              .or(`id.eq.${data.user.id},email.ilike.${data.user.email}`)
-              .limit(1)
-              .maybeSingle();
-
-            manager = mData;
+            manager = await findManagerAccount(data.user.id, data.user.email);
 
             if (manager && manager.status === "invited" && data.user.id) {
               await supabase
@@ -310,14 +300,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               manager.status = "active";
             }
 
-            if (mError || !manager) {
-              const { data: eData } = await supabase
-                .from("editors")
-                .select("*")
-                .or(`id.eq.${data.user.id},email.ilike.${data.user.email}`)
-                .limit(1)
-                .maybeSingle();
-              editor = eData;
+            if (!manager) {
+              editor = await findEditorAccount(data.user.id, data.user.email);
               if (!editor) {
                 await supabase.auth.signOut().catch(() => {});
                 throw new Error(
@@ -396,12 +380,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Contractor login — but first check if this account is actually a
           // manager/owner in the managers table. If so, escalate to that role
           // instead of stranding them as a contractor (which shows Training).
-          const { data: mgr } = await supabase
-            .from("managers")
-            .select("id, name, role, status")
-            .or(`id.eq.${data.user.id},email.ilike.${data.user.email}`)
-            .limit(1)
-            .maybeSingle();
+          const mgr = await findManagerAccount(data.user.id, data.user.email);
 
           if (mgr && mgr.status !== "invited") {
             let mgrRole: UserRole =
@@ -486,44 +465,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  useEffect(() => {
-    if (!user) return;
-
-    let timeoutId: NodeJS.Timeout;
-
-    const handleIdle = () => {
-      logout();
-      toast({
-        title: "Session Expired",
-        description:
-          "You have been logged out due to 30 minutes of inactivity.",
-        variant: "destructive",
-      });
-    };
-
-    const resetTimer = () => {
-      clearTimeout(timeoutId);
-      timeoutId = setTimeout(handleIdle, 30 * 60 * 1000); // 30 minutes
-    };
-
-    const events = [
-      "mousedown",
-      "mousemove",
-      "keypress",
-      "scroll",
-      "touchstart",
-    ];
-
-    events.forEach((e) =>
-      document.addEventListener(e, resetTimer, { passive: true }),
-    );
-    resetTimer();
-
-    return () => {
-      clearTimeout(timeoutId);
-      events.forEach((e) => document.removeEventListener(e, resetTimer));
-    };
-  }, [user, logout]);
+  useInactivityTimer(user, logout);
 
   return (
     <AuthContext.Provider
@@ -537,36 +479,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
       }}
     >
-      {isLoading ? (
-        <div className="min-h-screen flex flex-col items-center justify-center bg-muted/30 p-4">
-          <div className="relative flex items-center justify-center mb-6">
-            <div className="absolute inset-0 rounded-full bg-primary/10 animate-ping"></div>
-            <img
-              src={DEFAULT_LOGO_URL}
-              alt="Loading..."
-              className="w-32 h-auto object-contain animate-pulse relative z-10"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = DEFAULT_LOGO_URL;
-              }}
-            />
-          </div>
-          <p className="mt-4 text-muted-foreground font-medium">
-            Loading session...
-          </p>
-          <button
-            onClick={() => {
-              localStorage.clear();
-              sessionStorage.clear();
-              window.location.reload();
-            }}
-            className="mt-8 px-4 py-2 text-sm bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 transition-colors"
-          >
-            Clear Cache & Reload (Click if stuck)
-          </button>
-        </div>
-      ) : (
-        children
-      )}
+      {isLoading ? <AuthLoadingScreen /> : children}
     </AuthContext.Provider>
   );
 }

@@ -34,7 +34,22 @@ CREATE TABLE IF NOT EXISTS public.royalty_settings (
 ALTER TABLE public.royalty_settings ADD COLUMN IF NOT EXISTS stripe_royalty_publishable_key TEXT;
 ALTER TABLE public.royalty_settings ADD COLUMN IF NOT EXISTS stripe_royalty_configured BOOLEAN DEFAULT false;
 ALTER TABLE public.royalty_settings ADD COLUMN IF NOT EXISTS stripe_royalty_webhook_secret TEXT;
-INSERT INTO public.royalty_settings (processing_day_of_week, processing_time) VALUES (5, '02:00') ON CONFLICT DO NOTHING;
+-- Only insert a default row if the table is completely empty. The previous
+-- "ON CONFLICT DO NOTHING" never conflicted (id is random) so it created a
+-- new empty row on every call, drowning the real configured row.
+INSERT INTO public.royalty_settings (processing_day_of_week, processing_time)
+SELECT 5, '02:00' WHERE NOT EXISTS (SELECT 1 FROM public.royalty_settings);
+-- Deduplicate: if a configured row exists, delete all unconfigured rows so
+-- .limit(1) reads can't accidentally pick an empty clone.
+DELETE FROM public.royalty_settings
+WHERE stripe_royalty_configured = true
+  AND id NOT IN (
+    SELECT id FROM public.royalty_settings
+    WHERE stripe_royalty_configured = true
+    ORDER BY created_at ASC LIMIT 1
+  );
+DELETE FROM public.royalty_settings
+WHERE stripe_royalty_configured IS NULL OR stripe_royalty_configured = false;
 ALTER TABLE public.royalty_settings ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access royalty_settings" ON public.royalty_settings;
 CREATE POLICY "Public full access royalty_settings" ON public.royalty_settings FOR ALL USING (true) WITH CHECK (true);
@@ -98,9 +113,14 @@ Deno.serve(async (req) => {
 
     // GET: return current royalty Stripe config status (safe to expose)
     if (req.method === "GET") {
+      // Prefer a configured row; fall back to any row. Without this ordering,
+      // .limit(1) could return an empty clone row and report "not configured".
       const { data: settings, error: readErr } = await supabase
         .from("royalty_settings")
         .select("stripe_royalty_configured, stripe_royalty_publishable_key")
+        .order("stripe_royalty_configured", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false })
+        .limit(1)
         .maybeSingle();
 
       return new Response(
@@ -178,19 +198,35 @@ Deno.serve(async (req) => {
       if (insErr) throw new Error(`royalty_secrets insert failed: ${insErr.message}`);
     }
 
-    // Upsert settings row. Surface errors.
-    const { data: existingSettings, error: setSelErr } = await supabase
+    // Upsert settings row. Prefer updating a configured row; if none, update
+    // the newest row; if none, insert. This prevents the "first random row"
+    // bug where an empty clone row gets updated instead of the real one.
+    let targetId: string | null = null;
+    const { data: configuredRow } = await supabase
       .from("royalty_settings")
       .select("id")
+      .eq("stripe_royalty_configured", true)
+      .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle();
-    if (setSelErr) throw new Error(`royalty_settings read failed: ${setSelErr.message}`);
+    if (configuredRow?.id) {
+      targetId = configuredRow.id;
+    } else {
+      const { data: anyRow, error: setSelErr } = await supabase
+        .from("royalty_settings")
+        .select("id")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (setSelErr) throw new Error(`royalty_settings read failed: ${setSelErr.message}`);
+      targetId = anyRow?.id || null;
+    }
 
-    if (existingSettings?.id) {
+    if (targetId) {
       const { error: updErr } = await supabase
         .from("royalty_settings")
         .update(settingsUpdates)
-        .eq("id", existingSettings.id);
+        .eq("id", targetId);
       if (updErr) throw new Error(`royalty_settings update failed: ${updErr.message}`);
     } else {
       const { error: insErr } = await supabase.from("royalty_settings").insert(settingsUpdates);

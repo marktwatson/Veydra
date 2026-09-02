@@ -5,6 +5,7 @@ interface Metrics {
   totalPaid: number;
   totalOverdue: number;
   totalPending: number;
+  totalRefunded: number;
   overdueCount: number;
   pendingCount: number;
   paidCount: number;
@@ -16,6 +17,9 @@ interface Props {
 }
 
 export function PaymentAuditStats({ metrics, totalInstallments }: Props) {
+  // Net collected = paid minus refunds (refunds are real money returned).
+  const netCollected = Math.max(0, metrics.totalPaid - metrics.totalRefunded);
+
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
       <Card className="shadow-sm border-border/40 rounded-2xl bg-card">
@@ -37,15 +41,16 @@ export function PaymentAuditStats({ metrics, totalInstallments }: Props) {
       <Card className="shadow-sm border-border/40 rounded-2xl bg-emerald-500/5 dark:bg-emerald-950/20 border-emerald-500/20">
         <CardHeader className="p-4 pb-1">
           <CardTitle className="text-xs font-medium text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
-            Collected Revenue
+            Net Collected
           </CardTitle>
         </CardHeader>
         <CardContent className="p-4 pt-1">
           <div className="text-2xl sm:text-3xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">
-            ${metrics.totalPaid.toLocaleString()}
+            ${netCollected.toLocaleString()}
           </div>
           <p className="text-xs text-emerald-600/80 dark:text-emerald-400/80 mt-1">
-            {metrics.paidCount} paid installments
+            {metrics.paidCount} paid · ${metrics.totalRefunded.toLocaleString()}{" "}
+            refunded
           </p>
         </CardContent>
       </Card>

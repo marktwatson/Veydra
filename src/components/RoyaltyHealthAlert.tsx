@@ -44,9 +44,15 @@ export function RoyaltyHealthAlert() {
   const { data: royaltySettings } = useQuery({
     queryKey: ["royalty-settings-config"],
     queryFn: async () => {
+      // Order by configured DESC so we read the real row, not an empty clone.
       const { data, error } = await supabase
         .from("royalty_settings")
         .select("stripe_royalty_configured")
+        .order("stripe_royalty_configured", {
+          ascending: false,
+          nullsFirst: false,
+        })
+        .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
       if (error) {

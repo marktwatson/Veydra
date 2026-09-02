@@ -30,12 +30,21 @@ export function buildAuditScheduleItems(weddings: any[]): AuditScheduleItem[] {
     // Skip draft or unpaid draft records
     if (wedding.notes?.includes("[UNPAID_DRAFT]")) return;
 
+    // Skip cancelled weddings entirely — they should never show as overdue.
+    if (wedding.status === "cancelled") return;
+
     const total = Number(wedding.total_amount) || 0;
     const paid = Number(wedding.paid_amount) || 0;
     const plan = wedding.payment_plan || "full";
     const customPlan = wedding.custom_payment_plan;
     const weddingDate = wedding.date || "";
     const createdAt = wedding.contract_date || wedding.created_at || "";
+    // Pending (unsigned proposal) weddings only show installments that are
+    // already paid (e.g. a deposit collected before the contract was signed).
+    // Their future-dated installments are NOT "overdue" — the contract isn't
+    // signed yet — so we never mark them overdue. This stops unsigned
+    // proposals with past retainer dates from inflating the overdue count.
+    const isPending = wedding.status === "pending";
 
     // Generate expected payment breakdown
     let schedule = generatePaymentSchedule(
@@ -86,7 +95,7 @@ export function buildAuditScheduleItems(weddings: any[]): AuditScheduleItem[] {
       }
 
       let isOverdue = false;
-      if (!isPaid && parsedDate) {
+      if (!isPaid && parsedDate && !isPending) {
         isOverdue = parsedDate < todayDate;
       }
 

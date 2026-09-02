@@ -461,9 +461,9 @@ export default function RoyaltyManagement() {
       s.sale_date <= todayStr &&
       !s.processed_period_id,
   );
+  // Royalty rule: refunds NEVER count toward royalty — only processed sales.
   const upcomingGross = upcomingSales.reduce(
-    (sum, s) =>
-      sum + (s.is_refund ? -Number(s.sale_amount) : Number(s.sale_amount)),
+    (sum, s) => sum + (s.is_refund ? 0 : Number(s.sale_amount)),
     0,
   );
   const projectedRoyalty = Math.max(0, upcomingGross * (royaltyPct / 100));
@@ -898,7 +898,7 @@ export default function RoyaltyManagement() {
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label>Processing Time (UTC)</Label>
+                      <Label>Processing Time (portal timezone)</Label>
                       <Input
                         className="rounded-full"
                         defaultValue={settings.processing_time}
@@ -907,8 +907,13 @@ export default function RoyaltyManagement() {
                             processing_time: e.target.value,
                           })
                         }
-                        placeholder="02:00"
+                        placeholder="09:00"
                       />
+                      <p className="text-xs text-muted-foreground">
+                        Interpreted in your portal timezone. Scheduler auto-runs
+                        on this day at/after this time. One run per week —
+                        safeguarded against double charges.
+                      </p>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">

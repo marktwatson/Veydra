@@ -300,7 +300,7 @@ Deno.serve(async (req) => {
     }
 
     // Deploy Edge Functions — including self-deploy when an access token is provided
-    const targetFunctions = functionNames || ["daily-reminders", "stripe-checkout", "stripe-invoices", "stripe-payout", "stripe-portal", "stripe-onboard", "stripe-webhook", "stripe-status", "crm-webhook", "process-notifications", "deploy-territory", "geocode", "royalty-processor", "royalty-summary", "royalty-stripe-keys", "payment-plan-approve", "stripe-cancel-subscription", "send-push", "daily-digest"];
+    const targetFunctions = functionNames || ["daily-reminders", "stripe-checkout", "stripe-invoices", "stripe-payout", "stripe-portal", "stripe-onboard", "stripe-webhook", "stripe-status", "crm-webhook", "process-notifications", "deploy-territory", "geocode", "royalty-processor", "royalty-summary", "royalty-stripe-keys", "payment-plan-approve", "stripe-cancel-subscription", "send-push", "daily-digest", "scheduler"];
 
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

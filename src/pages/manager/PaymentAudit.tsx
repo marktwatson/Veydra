@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { api } from "@/lib/api";
-import { cancelPaymentInstallment } from "@/lib/cancel-payment";
 import {
   PaymentAuditModals,
   type AuditItem,
@@ -10,11 +10,25 @@ import { PaymentAuditStats } from "@/components/PaymentAuditStats";
 import { PaymentAuditFilters } from "@/components/PaymentAuditFilters";
 import { PaymentAuditTable } from "@/components/PaymentAuditTable";
 import { buildAuditScheduleItems } from "@/lib/audit-schedule";
+import { syncPaymentsFromStripe } from "@/lib/sync-payments";
 import { Button } from "@/components/ui/button";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, CloudDownload, FileText } from "lucide-react";
+import { SyncReportDialog } from "@/components/SyncReportDialog";
+import { usePaymentAuditMutations } from "@/hooks/use-payment-audit-mutations";
 import { useToast } from "@/hooks/use-toast";
 
+// Map query param values to the dateFilter dropdown values.
+const DATE_PARAM_MAP: Record<string, string> = {
+  today: "today",
+  past: "past",
+  overdue: "past",
+  "this-month": "this-month",
+  "next-30": "next-30",
+  custom: "custom",
+};
+
 export default function ManagerPaymentAudit() {
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -24,7 +38,12 @@ export default function ManagerPaymentAudit() {
   >("all");
   const [planFilter, setPaymentPlanFilter] = useState<string>("all");
   const [clientFilter, setClientFilter] = useState<string>("all");
-  const [dateFilter, setDateFilter] = useState<string>("all");
+
+  // Pre-apply the date filter from the query string (?date=today) so the
+  // "Go to Payment Audit" modal can deep-link straight into the right view.
+  const [dateFilter, setDateFilter] = useState<string>(
+    DATE_PARAM_MAP[searchParams.get("date") || ""] || "all",
+  );
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [sortBy, setSortBy] = useState<
@@ -42,6 +61,7 @@ export default function ManagerPaymentAudit() {
     useState<AuditItem | null>(null);
   const [cancelPaymentModalItem, setCancelPaymentModalItem] =
     useState<AuditItem | null>(null);
+  const [showSyncReport, setShowSyncReport] = useState(false);
 
   const {
     data: weddings = [],
@@ -50,6 +70,67 @@ export default function ManagerPaymentAudit() {
   } = useQuery({
     queryKey: ["weddings"],
     queryFn: api.getWeddings,
+  });
+
+  // Force a Stripe paid-amount recompute (no notifications, no charging).
+  // Fixes stale paid_amount after refunds without waiting for the daily cron.
+  // Shows a per-wedding diagnostic so staff can see exactly what changed (or
+  // didn't) instead of a generic "Synced" that hides silent failures.
+  const [syncResult, setSyncResult] = useState<any>(null);
+  const syncMutation = useMutation({
+    mutationFn: syncPaymentsFromStripe,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["weddings"] });
+      setSyncResult(data);
+      const s = data?.summary;
+      if (s?.stripe_key_missing) {
+        toast({
+          variant: "destructive",
+          title: "Stripe key missing",
+          description:
+            "The STRIPE_SECRET_KEY env var is not set on the daily-reminders edge function. Add it in Supabase → Edge Functions → daily-reminders → Secrets, then redeploy.",
+        });
+      } else if (s && s.weddings_updated > 0) {
+        toast({
+          title: "Synced from Stripe",
+          description: `Updated ${s.weddings_updated} wedding(s) · Net collected $${s.total_net_collected?.toLocaleString()} · Click "Last Sync Report" to see per-wedding details.`,
+        });
+      } else if (s && s.weddings_errored > 0) {
+        toast({
+          variant: "destructive",
+          title: "Sync completed with errors",
+          description: `${s.weddings_errored} wedding(s) failed. Click "Last Sync Report" to see what went wrong.`,
+        });
+      } else {
+        toast({
+          title: "Synced from Stripe",
+          description: `All ${s?.total_weddings || 0} weddings already up to date. Net collected $${s?.total_net_collected?.toLocaleString() || 0}.`,
+        });
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "Stripe sync failed",
+        description:
+          error?.message ||
+          "Could not reach the sync function. Make sure daily-reminders is deployed.",
+      });
+    },
+  });
+
+  const {
+    autoChargeMutation,
+    sendManualInvoiceMutation,
+    markUnpaidMutation,
+    resendReceiptMutation,
+    cancelPaymentMutation,
+  } = usePaymentAuditMutations({
+    setAutoChargeModalItem,
+    setManualInvoiceModalItem,
+    setMarkUnpaidModalItem,
+    setResendReceiptModalItem,
+    setCancelPaymentModalItem,
   });
 
   // Calculate all schedule items across every wedding
@@ -178,27 +259,27 @@ export default function ManagerPaymentAudit() {
 
   // Aggregate Metrics
   const metrics = useMemo(() => {
-    let totalScheduled = 0;
-    let totalPaid = 0;
-    let totalOverdue = 0;
-    let totalPending = 0;
-
+    let totalScheduled = 0,
+      totalPaid = 0,
+      totalOverdue = 0,
+      totalPending = 0;
+    const totalRefunded = weddings.reduce(
+      (s: number, w: any) => s + (Number(w.refunded_amount) || 0),
+      0,
+    );
     auditScheduleItems.forEach((item: any) => {
       totalScheduled += item.installmentAmount;
-      if (item.status === "paid") {
-        totalPaid += item.installmentAmount;
-      } else if (item.status === "overdue") {
+      if (item.status === "paid") totalPaid += item.installmentAmount;
+      else if (item.status === "overdue")
         totalOverdue += item.installmentAmount;
-      } else {
-        totalPending += item.installmentAmount;
-      }
+      else totalPending += item.installmentAmount;
     });
-
     return {
       totalScheduled,
       totalPaid,
       totalOverdue,
       totalPending,
+      totalRefunded,
       overdueCount: auditScheduleItems.filter(
         (i: any) => i.status === "overdue",
       ).length,
@@ -208,164 +289,7 @@ export default function ManagerPaymentAudit() {
       paidCount: auditScheduleItems.filter((i: any) => i.status === "paid")
         .length,
     };
-  }, [auditScheduleItems]);
-
-  // Mutations
-  const autoChargeMutation = useMutation({
-    mutationFn: async ({
-      weddingId,
-      amount,
-      description,
-    }: {
-      weddingId: string;
-      amount: number;
-      description: string;
-    }) => {
-      return await api.chargeSavedCard({ weddingId, amount, description });
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["weddings"] });
-      setAutoChargeModalItem(null);
-      toast({
-        title: "Payment Charged Successfully!",
-        description: `Successfully collected $${data.amountPaid || autoChargeModalItem?.installmentAmount} from client.`,
-      });
-    },
-    onError: (error: any) => {
-      const msg =
-        typeof error === "string"
-          ? error
-          : error?.message ||
-            "Failed to process card charge. You can send a manual invoice link instead.";
-      toast({
-        variant: "destructive",
-        title: "Auto-Charge Failed",
-        description: msg,
-      });
-    },
-  });
-
-  const sendManualInvoiceMutation = useMutation({
-    mutationFn: async ({
-      weddingId,
-      amount,
-      label,
-    }: {
-      weddingId: string;
-      amount: number;
-      label: string;
-    }) => {
-      return await api.sendManualPaymentInvoice({ weddingId, amount, label });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["weddings"] });
-      setManualInvoiceModalItem(null);
-      toast({
-        title: "Invoice Sent!",
-        description:
-          "An email and SMS invoice notification has been sent directly to the client.",
-      });
-    },
-    onError: (error: any) => {
-      toast({
-        variant: "destructive",
-        title: "Failed to Send Invoice",
-        description: error.message,
-      });
-    },
-  });
-
-  const markUnpaidMutation = useMutation({
-    mutationFn: async ({
-      weddingId,
-      currentPaidAmount,
-      installmentAmount,
-    }: {
-      weddingId: string;
-      currentPaidAmount: number;
-      installmentAmount: number;
-    }) => {
-      const newPaidAmount = Math.max(0, currentPaidAmount - installmentAmount);
-      await api.updateWedding(weddingId, { paid_amount: newPaidAmount });
-      await api.logAdminActivity(
-        "Marked Payment Unpaid",
-        `Adjusted paid_amount for wedding ${weddingId} to $${newPaidAmount}`,
-      );
-      return { newPaidAmount };
-    },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["weddings"] });
-      setMarkUnpaidModalItem(null);
-      toast({
-        title: "Payment Marked Unpaid",
-        description: `Subtracted $${variables.installmentAmount.toLocaleString()} from client's paid balance.`,
-      });
-    },
-    onError: (error: any) => {
-      toast({
-        variant: "destructive",
-        title: "Failed to Mark Unpaid",
-        description: error.message || "Could not update wedding record.",
-      });
-    },
-  });
-
-  const resendReceiptMutation = useMutation({
-    mutationFn: async ({
-      weddingId,
-      amount,
-      label,
-    }: {
-      weddingId: string;
-      amount: number;
-      label?: string;
-    }) => {
-      return await api.sendPaymentReceipt({ weddingId, amount, label });
-    },
-    onSuccess: () => {
-      setResendReceiptModalItem(null);
-      toast({
-        title: "Receipt Sent!",
-        description: "Payment receipt has been emailed to the client.",
-      });
-    },
-    onError: (error: any) => {
-      toast({
-        variant: "destructive",
-        title: "Failed to Send Receipt",
-        description: error.message || "Could not send receipt email.",
-      });
-    },
-  });
-
-  const cancelPaymentMutation = useMutation({
-    mutationFn: async (item: AuditItem & { scheduleIndex?: number }) => {
-      return await cancelPaymentInstallment({
-        weddingId: item.weddingId,
-        installmentLabel: item.installmentLabel,
-        installmentAmount: item.installmentAmount,
-        installmentDate: item.installmentDate,
-        scheduleIndex: item.scheduleIndex,
-      });
-    },
-    onSuccess: (data, item) => {
-      queryClient.invalidateQueries({ queryKey: ["weddings"] });
-      setCancelPaymentModalItem(null);
-      toast({
-        title: "Payment Cancelled",
-        description: `"${item.installmentLabel}" was permanently removed from ${item.clientName}'s payment plan. Use Change Payment Plan to set up a new one if needed.`,
-      });
-    },
-    onError: (error: any) => {
-      toast({
-        variant: "destructive",
-        title: "Could Not Cancel Payment",
-        description:
-          error.message ||
-          "Something went wrong removing this installment. Refresh and try again.",
-      });
-    },
-  });
+  }, [auditScheduleItems, weddings]);
 
   return (
     <div className="space-y-6">
@@ -389,6 +313,31 @@ export default function ManagerPaymentAudit() {
             className="rounded-full shadow-sm"
           >
             <RefreshCw className="h-4 w-4 mr-2" /> Refresh Audit Data
+          </Button>
+          {syncResult && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowSyncReport(true)}
+              className="rounded-full shadow-sm"
+            >
+              <FileText className="h-4 w-4 mr-2" /> Last Sync Report
+            </Button>
+          )}
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+            className="rounded-full shadow-sm"
+            title="Recompute paid amounts from Stripe (net of refunds). Does not charge anyone or send notifications."
+          >
+            {syncMutation.isPending ? (
+              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <CloudDownload className="h-4 w-4 mr-2" />
+            )}
+            Sync from Stripe
           </Button>
         </div>
       </div>
@@ -439,6 +388,8 @@ export default function ManagerPaymentAudit() {
             weddingId: item.weddingId,
             amount: item.installmentAmount,
             description: `${item.installmentLabel} for ${item.clientName} Wedding`,
+            scheduleIndex: item.scheduleIndex,
+            installmentLabel: item.installmentLabel,
           })
         }
         autoChargePending={autoChargeMutation.isPending}
@@ -459,6 +410,8 @@ export default function ManagerPaymentAudit() {
             weddingId: item.weddingId,
             currentPaidAmount: item.paidAmount,
             installmentAmount: item.installmentAmount,
+            scheduleIndex: item.scheduleIndex,
+            wedding: item.weddingObj,
           })
         }
         markUnpaidPending={markUnpaidMutation.isPending}
@@ -476,6 +429,13 @@ export default function ManagerPaymentAudit() {
         onCancelPaymentClose={() => setCancelPaymentModalItem(null)}
         onCancelPaymentConfirm={(item) => cancelPaymentMutation.mutate(item)}
         cancelPaymentPending={cancelPaymentMutation.isPending}
+      />
+
+      <SyncReportDialog
+        open={showSyncReport}
+        onOpenChange={setShowSyncReport}
+        summary={syncResult?.summary}
+        log={syncResult?.log}
       />
     </div>
   );

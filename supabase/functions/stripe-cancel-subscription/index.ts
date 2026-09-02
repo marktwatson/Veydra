@@ -78,6 +78,24 @@ serve(async (req) => {
       }
     }
 
+    // 2b. Update weddings table status to 'canceled' in Supabase
+    try {
+      const su = Deno.env.get("SUPABASE_URL");
+      const sk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      if (su && sk) {
+        const { createClient } = await import("jsr:@supabase/supabase-js");
+        const supabase = createClient(su, sk);
+        if (weddingId) {
+          await supabase.from("weddings").update({ stripe_subscription_status: "canceled" }).eq("id", weddingId);
+        }
+        for (const subId of cancelledSubs) {
+          await supabase.from("weddings").update({ stripe_subscription_status: "canceled" }).eq("stripe_subscription_id", subId);
+        }
+      }
+    } catch (e: any) {
+      console.error("Failed to update database subscription status:", e?.message);
+    }
+
     // 3. Void any open/draft invoices for this customer tied to the wedding
     if (customerId && typeof customerId === "string") {
       try {
