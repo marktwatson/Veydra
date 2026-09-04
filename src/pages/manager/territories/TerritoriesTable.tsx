@@ -108,6 +108,8 @@ export function TerritoriesTable({
           );
           const schemaOk = result?.schema?.status === "success";
           const schemaErrors = result?.schema?.details || [];
+          const verificationMissing: string[] =
+            result?.verification?.missing || [];
 
           return (
             <React.Fragment key={t.id}>
@@ -355,6 +357,27 @@ export function TerritoriesTable({
                         {fnSkipped.join(", ")} — Click{" "}
                         <strong>Set Token</strong> and add a Supabase Personal
                         Access Token to deploy these.
+                      </p>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )}
+              {verificationMissing.length > 0 && (
+                <TableRow>
+                  <TableCell
+                    colSpan={5}
+                    className="bg-red-50 dark:bg-red-950/20 px-6 py-3"
+                  >
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold text-red-700 dark:text-red-400 uppercase tracking-wider">
+                        Missing on Target — Sync Did Not Push These
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {verificationMissing.join(", ")} — These functions were
+                        not found on the target project after sync. Click{" "}
+                        <strong>Redeploy & Sync All</strong> to push the latest
+                        deploy-territory (with the dynamic function list) and
+                        re-sync.
                       </p>
                     </div>
                   </TableCell>

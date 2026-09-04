@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
-import { EDGE_FUNCTION_SOURCES } from "@/lib/edge-function-sources";
+import { supabase } from "@/lib/supabase";
 import {
   Card,
   CardContent,
@@ -18,6 +17,7 @@ import {
   Rocket,
   Cloud,
   Upload,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -32,11 +32,23 @@ import {
   TokenDialog,
 } from "./territories/TerritoriesDialogs";
 import { ManualDeployDialog } from "./territories/ManualDeployDialog";
-
-const FN_IMPORTS = EDGE_FUNCTION_SOURCES;
+import { NewAreaSetupChecklist } from "@/components/NewAreaSetupChecklist";
+import { useAuth } from "@/contexts/AuthContext";
+import { api } from "@/lib/api";
+import {
+  uploadSources,
+  ensureSourcesUploaded,
+  syncTerritory,
+} from "./territories/sync-logic";
+import {
+  redeploySelf as redeploySelfFn,
+  redeploySelfAndSyncAll,
+} from "./territories/redeploy";
 
 export default function Territories() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === "super_admin";
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [tokenDialogTerritory, setTokenDialogTerritory] =
@@ -44,6 +56,7 @@ export default function Territories() {
   const [manualDeployOpen, setManualDeployOpen] = useState(false);
   const [sourcesVerified, setSourcesVerified] = useState<boolean | null>(null);
   const [isRecovering, setIsRecovering] = useState(false);
+  const [selfRedeploying, setSelfRedeploying] = useState(false);
 
   const {
     data: territories = [],
@@ -110,196 +123,23 @@ export default function Territories() {
       toast.error("Failed to delete", { description: e.message }),
   });
 
-  const uploadSources = async () => {
-    const loadingToast = toast.loading(
-      "Uploading edge function sources + master SQL to DB...",
-    );
-    try {
-      const entries = Object.entries(FN_IMPORTS);
-      for (const [name, source] of entries) {
-        const { error } = await supabase
-          .from("edge_function_sources")
-          .upsert(
-            { name, source_code: source, updated_at: new Date().toISOString() },
-            { onConflict: "name" },
-          );
-        if (error) console.error(`Failed to upload ${name}:`, error.message);
-      }
-      toast.success(`${entries.length} sources uploaded!`, {
-        description:
-          "Edge functions + master SQL are now in DB. Click Sync to deploy.",
-        id: loadingToast,
-      });
-    } catch (e: any) {
-      toast.error("Failed to upload sources", {
-        description: e.message,
-        id: loadingToast,
-      });
-    }
-  };
-
-  const ensureSourcesUploaded = async (): Promise<boolean> => {
-    await uploadSources();
-    try {
-      const { data: verifyRow, error: verifyErr } = await supabase
-        .from("edge_function_sources")
-        .select("source_code")
-        .eq("name", "master_sql")
-        .single();
-      if (verifyErr || !verifyRow?.source_code) {
-        toast.error("Source upload verification failed", {
-          description:
-            "master_sql not found in edge_function_sources table. Sync aborted to prevent stale schema.",
-        });
-        return false;
-      }
-      const criticalColumns = [
-        "email_contractor_prep_enabled",
-        "email_contractor_prep_subject",
-        "email_contractor_prep_template",
-        "sms_contractor_prep_enabled",
-        "venue_geocodes",
-        "email_colors",
-      ];
-      const missing = criticalColumns.filter(
-        (col) => !verifyRow.source_code.includes(col),
-      );
-      if (missing.length > 0) {
-        toast.error("Source upload verification failed", {
-          description: `master_sql is missing: ${missing.join(", ")}. Sync aborted — click Upload Sources again.`,
-        });
-        return false;
-      }
-      return true;
-    } catch (e: any) {
-      console.error("[Territories] Verification error:", e.message);
-      return false;
-    }
-  };
-
-  const syncTerritory = async (
-    territory: Territory,
+  const handleSync = (
+    t: Territory,
     functionsOnly = false,
     schemaOnly = false,
-  ) => {
-    setSyncingId(territory.id);
-    const sourcesOk = await ensureSourcesUploaded();
-    if (!sourcesOk) {
-      setSyncingId(null);
-      return;
-    }
-    const { data: latestTerritory, error: fetchErr } = await supabase
-      .from("territories")
-      .select("*")
-      .eq("id", territory.id)
-      .single();
-    if (fetchErr || !latestTerritory) {
-      toast.error("Failed to fetch territory data", {
-        description: fetchErr?.message,
-      });
-      setSyncingId(null);
-      return;
-    }
-    const t = latestTerritory as Territory;
-    const loadingToast = toast.loading(
-      `${schemaOnly ? "Pushing schema to" : functionsOnly ? "Deploying functions to" : "Syncing"} ${t.name}...`,
-    );
-    try {
-      const functionUrl = `${supabaseUrl}/functions/v1/deploy-territory`;
-      const res = await fetch(functionUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${supabaseAnonKey}`,
-          "x-client-info": "veydra-fleet-manager",
-        },
-        body: JSON.stringify({
-          territoryId: t.id,
-          projectRef: t.project_ref,
-          accessToken: t.access_token || "",
-          deploySchema: schemaOnly || !functionsOnly,
-          deployFunctions: !schemaOnly,
-        }),
-      });
-      let data: any;
-      try {
-        data = await res.json();
-      } catch {
-        const text = await res.text();
-        throw new Error(
-          `Server returned non-JSON response (${res.status}): ${text.substring(0, 200)}`,
-        );
-      }
-      if (!res.ok) {
-        if (res.status === 404)
-          throw new Error(
-            "deploy-territory Edge Function not found. Run: supabase functions deploy deploy-territory",
-          );
-        throw new Error(data.error || `HTTP ${res.status}: Sync failed`);
-      }
-      const fnCount = data.functions
-        ? Object.keys(data.functions).filter(
-            (k: string) => data.functions[k].status === "success",
-          ).length
-        : 0;
-      const fnSkipped = data.functions
-        ? Object.keys(data.functions).filter(
-            (k: string) => data.functions[k].status === "skipped",
-          ).length
-        : 0;
-      const fnFailed = data.functions
-        ? Object.keys(data.functions).filter(
-            (k: string) => data.functions[k].status === "failed",
-          ).length
-        : 0;
-      const fnTotal = Object.keys(data.functions || {}).length;
-      const schemaOk = data.schema?.status === "success";
-      if (data.success && fnSkipped === 0) {
-        toast.success(`${t.name} synced!`, {
-          description: `Schema: ${schemaOk ? "OK" : "Failed"} | Functions: ${fnCount}/${fnTotal}`,
-          id: loadingToast,
-          duration: 5000,
-        });
-      } else if (fnSkipped > 0 && fnFailed === 0) {
-        toast.warning(`${t.name} partially synced`, {
-          description: `Schema: ${schemaOk ? "OK" : "Failed"} | Functions: ${fnCount} deployed, ${fnSkipped} skipped (no access token). Add a token to deploy functions.`,
-          id: loadingToast,
-          duration: 8000,
-        });
-      } else {
-        const fnErrors = data.functions
-          ? Object.entries(data.functions)
-              .filter(([, f]: [string, any]) => f.status === "failed")
-              .map(
-                ([name, f]: [string, any]) =>
-                  `${name}: ${(f.error || "unknown").substring(0, 120)}`,
-              )
-          : [];
-        const schemaErrors = data.schema?.details || [];
-        const schemaErrorSummary = data.schema?.error || "";
-        toast.error(`${t.name} sync had issues`, {
-          description: `Schema: ${schemaErrorSummary || "OK"} | ${fnFailed} fn(s) failed, ${fnSkipped} skipped. ${fnErrors.length > 0 ? fnErrors.slice(0, 2).join(" | ") : ""}${schemaErrors.length > 0 ? " | Schema: " + schemaErrors.slice(0, 2).join(" | ") : ""}`,
-          id: loadingToast,
-          duration: 12000,
-        });
-      }
-      queryClient.invalidateQueries({ queryKey: ["territories"] });
-    } catch (e: any) {
-      toast.error(`Failed to sync ${t.name}`, {
-        description: e.message.includes("fetch")
-          ? "Cannot reach Supabase Edge Function. Is it deployed?"
-          : e.message,
-        id: loadingToast,
-      });
-    } finally {
-      setSyncingId(null);
-    }
-  };
+  ) =>
+    syncTerritory(t, {
+      functionsOnly,
+      schemaOnly,
+      setSyncingId,
+      onDone: () =>
+        queryClient.invalidateQueries({ queryKey: ["territories"] }),
+    });
 
   const syncAll = async () => {
     await ensureSourcesUploaded();
     for (const t of territories) {
-      await syncTerritory(t);
+      await handleSync(t);
     }
   };
 
@@ -357,83 +197,10 @@ export default function Territories() {
     }
   };
 
-  const redeploySelf = async () => {
-    const { data: thisTerritory } = await supabase
-      .from("territories")
-      .select("*")
-      .eq("project_ref", THIS_PROJECT_REF)
-      .single();
-    if (!thisTerritory?.access_token) {
-      toast.error("No access token", {
-        description: "Add a Supabase Personal Access Token first.",
-      });
-      return;
-    }
-    const sourcesOk = await ensureSourcesUploaded();
-    if (!sourcesOk) return;
-    const loadingToast = toast.loading(
-      "Updating deploy-territory function (this instance)...",
-    );
-    try {
-      const functionUrl = `${supabaseUrl}/functions/v1/deploy-territory`;
-      const res = await fetch(functionUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${supabaseAnonKey}`,
-        },
-        body: JSON.stringify({
-          territoryId: thisTerritory.id,
-          projectRef: THIS_PROJECT_REF,
-          accessToken: thisTerritory.access_token,
-          deploySchema: false,
-          deployFunctions: true,
-          functionNames: ["deploy-territory"],
-        }),
-      });
-      const text = await res.text();
-      let data: any;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        data = {};
-      }
-      if (!res.ok)
-        throw new Error(
-          data.error || `HTTP ${res.status}: ${text.substring(0, 300)}`,
-        );
-      const fnResult = data.functions?.["deploy-territory"];
-      if (fnResult?.status === "success") {
-        toast.success("deploy-territory updated!", {
-          description:
-            "New batch-sync code is live. Click Schema to push the full schema, then Sync All.",
-          id: loadingToast,
-          duration: 8000,
-        });
-        queryClient.invalidateQueries({ queryKey: ["territories"] });
-      } else if (fnResult?.status === "skipped") {
-        toast.warning("Function was skipped", {
-          description:
-            fnResult.note || "Add an access token to enable self-redeploy.",
-          id: loadingToast,
-        });
-      } else {
-        toast.error("Failed to update deploy-territory", {
-          description: fnResult?.error || "Unknown error",
-          id: loadingToast,
-          duration: 10000,
-        });
-      }
-    } catch (e: any) {
-      toast.error("Failed to update deploy-territory", {
-        description: e.message.includes("fetch")
-          ? "Cannot reach the edge function. Try Manual Deploy instead."
-          : e.message,
-        id: loadingToast,
-        duration: 10000,
-      });
-    }
-  };
+  const redeploySelf = () => redeploySelfFn(ensureSourcesUploaded);
+
+  const handleRedeployAndSyncAll = () =>
+    redeploySelfAndSyncAll(ensureSourcesUploaded, syncAll, setSelfRedeploying);
 
   const rescueTerritoriesTable = async () => {
     setIsRecovering(true);
@@ -569,7 +336,7 @@ export default function Territories() {
             Push schema & edge functions to all Veydra instances.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={uploadSources}>
             <Upload className="mr-2 h-4 w-4" />
             Upload Sources + SQL
@@ -584,8 +351,27 @@ export default function Territories() {
           </Button>
           <Button
             variant="outline"
+            onClick={handleRedeployAndSyncAll}
+            disabled={
+              territories.length === 0 || !!syncingId || selfRedeploying
+            }
+            title="Redeploy deploy-territory with the latest dynamic function list, then sync all territories. Fixes functions being silently skipped."
+          >
+            {selfRedeploying ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Zap className="mr-2 h-4 w-4" />
+            )}
+            {selfRedeploying
+              ? "Redeploying + Syncing..."
+              : "Redeploy & Sync All"}
+          </Button>
+          <Button
+            variant="outline"
             onClick={syncAll}
-            disabled={territories.length === 0 || !!syncingId}
+            disabled={
+              territories.length === 0 || !!syncingId || selfRedeploying
+            }
           >
             {syncingId ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -613,6 +399,8 @@ export default function Territories() {
 
       <StripeSetupGuide />
       <SyncGuide />
+
+      {isSuperAdmin && <NewAreaSetupChecklistWithSettings />}
 
       {territories.length > 0 &&
         territories.some(
@@ -644,9 +432,10 @@ export default function Territories() {
             Each territory has its own Supabase project. Click{" "}
             <strong>Upload Sources</strong> first to push the latest edge
             function code to the database, then click <strong>Sync</strong> to
-            deploy schema + functions. The main instance needs a Supabase
-            Personal Access Token (click "Set Token") to redeploy its own edge
-            functions.
+            deploy schema + functions. Use <strong>Redeploy & Sync All</strong>{" "}
+            after a code update — it pushes the latest deploy-territory (with
+            the dynamic function list) to this instance first, then syncs every
+            territory so nothing is silently skipped.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -695,7 +484,7 @@ export default function Territories() {
             <TerritoriesTable
               territories={territories}
               syncingId={syncingId}
-              onSync={syncTerritory}
+              onSync={handleSync}
               onUpdateToken={updateAccessToken}
               onDelete={(id) => deleteTerritoryMutation.mutate(id)}
               onRedeploySelf={redeploySelf}
@@ -722,4 +511,14 @@ export default function Territories() {
       />
     </div>
   );
+}
+
+/** Fetches portal settings (for the timezone auto-check) and renders the checklist. */
+function NewAreaSetupChecklistWithSettings() {
+  const { data: settings } = useQuery({
+    queryKey: ["portal-settings-section"],
+    queryFn: () => api.getPortalSettings(),
+    staleTime: 60_000,
+  });
+  return <NewAreaSetupChecklist settings={settings} />;
 }

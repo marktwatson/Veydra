@@ -213,6 +213,14 @@ Deno.serve(async (req) => {
           // chunk (one implicit transaction), so on chunk failure we fall
           // back to running just that chunk's statements one-by-one to
           // isolate the error and let the idempotent ones still apply.
+          // lock_timeout: if a DDL statement (ALTER TABLE / CREATE INDEX) can't
+          // acquire its AccessExclusiveLock within 5s (because the app or
+          // another connection is using the table), abort it fast instead of
+          // waiting until Postgres detects a deadlock and kills the whole
+          // chunk transaction. All our DDL is idempotent (IF NOT EXISTS), so a
+          // lock-timeout statement simply retries on the next sync.
+          const LOCK_TIMEOUT = "SET lock_timeout = '5s'; SET statement_timeout = '30s';";
+          const TRANSIENT = ["already exists", "duplicate", "already", "Throttler", "lock timeout", "canceling statement due to lock timeout", "deadlock detected"];
           const SCHEMA_CHUNK = 100;
           for (let ci = 0; ci < statements.length; ci += SCHEMA_CHUNK) {
             const chunk = statements.slice(ci, ci + SCHEMA_CHUNK).filter((s) => s.trim());
@@ -220,7 +228,7 @@ Deno.serve(async (req) => {
             const chunkRes = await fetch(`${managementApiBase}/database/query`, {
               method: "POST",
               headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" },
-              body: JSON.stringify({ query: chunk.join(";\n") }),
+              body: JSON.stringify({ query: `${LOCK_TIMEOUT}\n${chunk.join(";\n")}` }),
             });
             if (chunkRes.ok) continue;
             const chunkErr = await chunkRes.text();
@@ -232,11 +240,11 @@ Deno.serve(async (req) => {
               const sqlRes = await fetch(`${managementApiBase}/database/query`, {
                 method: "POST",
                 headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" },
-                body: JSON.stringify({ query: stmt }),
+                body: JSON.stringify({ query: `${LOCK_TIMEOUT}\n${stmt}` }),
               });
               if (!sqlRes.ok) {
                 const errText = await sqlRes.text();
-                if (!errText.includes("already exists") && !errText.includes("duplicate") && !errText.includes("already") && !errText.includes("Throttler")) {
+                if (!TRANSIENT.some((t) => errText.includes(t))) {
                   failedCount++;
                   if (schemaErrors.length < 10) schemaErrors.push(`Stmt ${ci + si + 1}: ${errText.substring(0, 150)}`);
                 }
@@ -257,9 +265,11 @@ Deno.serve(async (req) => {
             const errText = await batchFnRes.text();
             throw new Error(`Cannot create exec_sql_batch (exec_sql may not exist). Add a Supabase access token to use the Management API instead. Error: ${errText.substring(0, 200)}`);
           }
+          // Prepend lock_timeout to each statement so DDL that can't get a lock
+          // fails fast instead of deadlocking the batch transaction.
           const CHUNK = 100;
           for (let ci = 0; ci < statements.length; ci += CHUNK) {
-            const chunk = statements.slice(ci, ci + CHUNK);
+            const chunk = statements.slice(ci, ci + CHUNK).map((s) => `SET lock_timeout = '5s'; SET statement_timeout = '30s'; ${s}`);
             const batchRes = await fetch(`${selfSu}/rest/v1/rpc/exec_sql_batch`, {
               method: "POST",
               headers: { "apikey": selfSk, "Authorization": `Bearer ${selfSk}`, "Content-Type": "application/json" },
@@ -267,8 +277,10 @@ Deno.serve(async (req) => {
             });
             if (!batchRes.ok) {
               const errText = await batchRes.text();
-              failedCount += chunk.length;
-              if (schemaErrors.length < 10) schemaErrors.push(`Batch chunk ${ci}: ${errText.substring(0, 150)}`);
+              if (!errText.includes("lock timeout") && !errText.includes("deadlock") && !errText.includes("Throttler")) {
+                failedCount += chunk.length;
+                if (schemaErrors.length < 10) schemaErrors.push(`Batch chunk ${ci}: ${errText.substring(0, 150)}`);
+              }
             }
           }
         }
@@ -299,32 +311,47 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Deploy Edge Functions — including self-deploy when an access token is provided
-    const targetFunctions = functionNames || ["daily-reminders", "stripe-checkout", "stripe-invoices", "stripe-payout", "stripe-portal", "stripe-onboard", "stripe-webhook", "stripe-status", "crm-webhook", "process-notifications", "deploy-territory", "geocode", "royalty-processor", "royalty-summary", "royalty-stripe-keys", "payment-plan-approve", "stripe-cancel-subscription", "send-push", "daily-digest", "scheduler"];
+    // Deploy Edge Functions — including self-deploy when an access token is provided.
+    // The function list is derived DYNAMICALLY from the edge_function_sources
+    // table (any row whose name is a function slug, not a *_sql/*_schema row).
+    // This way, adding a new function to the sources table automatically deploys
+    // it on the next sync — no need to update a hardcoded list here (which was
+    // the bug: a stale deployed deploy-territory had an old list missing
+    // "scheduler", so sync silently skipped it).
+    const SQL_META_KEYS = new Set(["master_sql", "scheduled_jobs_schema", "push_schema"]);
+    const dbFunctionNames = Object.keys(FN_SOURCES).filter(
+      (k) => !SQL_META_KEYS.has(k) && FN_SOURCES[k] && FN_SOURCES[k].length > 50,
+    );
+    const targetFunctions = functionNames && functionNames.length > 0
+      ? functionNames
+      : dbFunctionNames;
 
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-    // Deploy one function with retry/backoff on rate-limit (429 / Throttler)
-    // responses from the Management API — these were silently dropping
-    // functions from the results (they just came back "failed" once, no retry).
-    async function deployOneFunction(fnName: string) {
+    // Deploy one function with aggressive retry/backoff on rate-limit (429 /
+    // Throttler) responses from the Management API. Rate-limiting was the #1
+    // cause of randomly-dropped functions: concurrent batch deploys trigger
+    // throttling, and the old 3-attempt limit gave up too early. Now: 6
+    // attempts with exponential backoff up to ~30s, and deploys run SERIALLY
+    // (no concurrency) so we never trigger the concurrent-deploy throttle.
+    async function deployOneFunction(fnName: string): Promise<boolean> {
       if (fnName === "deploy-territory" && isSelfDeploy && !accessToken) {
         results.functions[fnName] = { status: "skipped", note: "Self-deploy without token — add an access token to redeploy this function." };
-        return;
+        return false;
       }
       const source = FN_SOURCES[fnName];
       if (!source) {
         results.functions[fnName] = { status: "failed", error: "Source code not found in DB. Click 'Upload Sources' in Territories UI first." };
         results.errors.push(`${fnName}: Source missing`);
-        return;
+        return false;
       }
       if (source.length < 50) {
         results.functions[fnName] = { status: "failed", error: "Source too short (corrupted?)" };
         results.errors.push(`${fnName}: Source appears corrupted (${source.length} chars)`);
-        return;
+        return false;
       }
 
-      const MAX_ATTEMPTS = 3;
+      const MAX_ATTEMPTS = 6;
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         try {
           console.log(`[Fleet] Deploying ${fnName} to ${projectRef} (attempt ${attempt}/${MAX_ATTEMPTS}, ${source.length} chars)...`);
@@ -350,9 +377,14 @@ Deno.serve(async (req) => {
           console.log(`[Fleet] ${fnName} deploy response: HTTP ${deployRes.status}, body: ${responseText.substring(0, 300)}`);
           if (!deployRes.ok) {
             const isRateLimited = deployRes.status === 429 || /throttl/i.test(responseText);
-            if (isRateLimited && attempt < MAX_ATTEMPTS) {
-              await sleep(1000 * attempt * 2);
-              continue; // retry
+            const isTransient = deployRes.status >= 500 || isRateLimited;
+            if (isTransient && attempt < MAX_ATTEMPTS) {
+              // Exponential backoff: 2s, 4s, 8s, 16s, 32s — gives the Management
+              // API rate-limiter time to reset between retries.
+              const backoff = 1000 * Math.pow(2, attempt);
+              console.log(`[Fleet] ${fnName} rate-limited/transient (HTTP ${deployRes.status}), retrying in ${backoff}ms...`);
+              await sleep(backoff);
+              continue;
             }
             let errDetail = responseText.substring(0, 500);
             try {
@@ -361,32 +393,41 @@ Deno.serve(async (req) => {
             } catch { /* keep raw text */ }
             results.functions[fnName] = { status: "failed", error: errDetail, httpStatus: deployRes.status };
             results.errors.push(`${fnName}: HTTP ${deployRes.status} — ${errDetail.substring(0, 150)}`);
-            return;
+            return false;
           }
           let deployData;
           try { deployData = JSON.parse(responseText); } catch { deployData = { raw: responseText.substring(0, 200) }; }
           results.functions[fnName] = { status: "success", id: deployData?.id, size: source.length };
           console.log(`[Fleet] ✓ ${fnName} deployed OK`);
-          return;
+          return true;
         } catch (e: any) {
-          if (attempt < MAX_ATTEMPTS) { await sleep(1000 * attempt); continue; }
+          if (attempt < MAX_ATTEMPTS) {
+            const backoff = 1000 * Math.pow(2, attempt);
+            console.log(`[Fleet] ${fnName} network error, retrying in ${backoff}ms: ${e.message}`);
+            await sleep(backoff);
+            continue;
+          }
           results.functions[fnName] = { status: "failed", error: e.message };
           results.errors.push(`${fnName}: ${e.message}`);
           console.error(`[Fleet] ✗ ${fnName} failed after ${MAX_ATTEMPTS} attempts:`, e.message);
-          return;
+          return false;
         }
       }
+      return false;
     }
 
     if (deployFunctions !== false && (!isSelfDeploy || accessToken)) {
-      // Deploy functions in small serial-ish batches with a short pause between
-      // batches — the Management API rate-limits concurrent function deploys,
-      // which was silently dropping functions from a full Sync with no retry.
-      const BATCH_SIZE = 3;
-      for (let i = 0; i < targetFunctions.length; i += BATCH_SIZE) {
-        const batch = targetFunctions.slice(i, i + BATCH_SIZE);
-        await Promise.all(batch.map((fnName) => deployOneFunction(fnName)));
-        if (i + BATCH_SIZE < targetFunctions.length) await sleep(400);
+      // Deploy functions SERIALLY (one at a time) with a short pause between
+      // each deploy. The Management API rate-limits CONCURRENT function deploys,
+      // which was the #1 cause of randomly-dropped functions: a batch of 3
+      // concurrent deploys would trigger throttling, and after 3 retries the
+      // function was silently marked failed. Serial deploys with backoff
+      // eliminate the concurrent-throttle entirely.
+      for (let i = 0; i < targetFunctions.length; i++) {
+        await deployOneFunction(targetFunctions[i]);
+        // Brief pause between deploys to stay under the rate-limiter's
+        // per-minute window. Only pause if more functions remain.
+        if (i + 1 < targetFunctions.length) await sleep(800);
       }
       // Verify every requested function landed in results — if the loop above
       // ever skipped one (defensive), mark it failed instead of it vanishing.
@@ -399,6 +440,78 @@ Deno.serve(async (req) => {
     } else if (isSelfDeploy && !accessToken) {
       for (const fnName of targetFunctions) {
         results.functions[fnName] = { status: "skipped", note: "Self-deploy without token — functions not redeployed. Add an access token to enable." };
+      }
+    }
+
+    // ── Verification + auto-retry pass ────────────────────────────────────
+    // List functions on the target project and confirm every requested
+    // function actually exists there. If any are missing OR failed due to
+    // rate-limiting, AUTOMATICALLY retry them (up to 2 more rounds) instead
+    // of just flagging them and making the user manually re-sync. This is
+    // what makes sync reliable: a transient throttle no longer means a
+    // function is permanently missing until the next manual sync.
+    if (accessToken && deployFunctions !== false) {
+      const MAX_VERIFY_ROUNDS = 3;
+      for (let round = 1; round <= MAX_VERIFY_ROUNDS; round++) {
+        let deployedSlugs = new Set<string>();
+        try {
+          const listRes = await fetch(`${managementApiBase}/functions`, {
+            headers: { "Authorization": `Bearer ${accessToken}` },
+          });
+          if (listRes.ok) {
+            const fnsJson = await listRes.json();
+            if (Array.isArray(fnsJson)) {
+              for (const f of fnsJson) {
+                if (f.slug) deployedSlugs.add(f.slug);
+                else if (f.name) deployedSlugs.add(f.name);
+              }
+            }
+          }
+        } catch (verifyErr: any) {
+          console.warn(`[Fleet] Verification round ${round} failed (non-fatal): ${verifyErr.message}`);
+        }
+
+        // Find functions that are missing on target OR failed (and thus need retry)
+        const needRetry = targetFunctions.filter((fn) => {
+          const st = results.functions[fn]?.status;
+          return st === "failed" || (st === "success" && !deployedSlugs.has(fn)) || !results.functions[fn];
+        });
+
+        if (needRetry.length === 0) {
+          results.verification = { missing: [], deployedCount: deployedSlugs.size, ok: true, rounds: round };
+          console.log(`[Fleet] Verification round ${round}: all ${targetFunctions.length} functions present on target ✓`);
+          break;
+        }
+
+        console.log(`[Fleet] Verification round ${round}: ${needRetry.length} function(s) missing/failed, retrying: ${needRetry.join(", ")}`);
+        if (round < MAX_VERIFY_ROUNDS) {
+          // Reset their status so the retry can re-evaluate
+          for (const fn of needRetry) {
+            delete results.functions[fn];
+            // Remove from errors list
+            results.errors = results.errors.filter((e: string) => !e.startsWith(`${fn}:`));
+          }
+          // Retry serially with a pause before the round
+          await sleep(2000);
+          for (let i = 0; i < needRetry.length; i++) {
+            await deployOneFunction(needRetry[i]);
+            if (i + 1 < needRetry.length) await sleep(1000);
+          }
+        } else {
+          // Final round — record what's still missing
+          const stillMissing = needRetry.filter((fn) => {
+            const st = results.functions[fn]?.status;
+            return st !== "success" || !deployedSlugs.has(fn);
+          });
+          for (const fn of stillMissing) {
+            if (!results.functions[fn] || results.functions[fn]?.status !== "success") {
+              results.functions[fn] = { status: "failed", error: results.functions[fn]?.error || "Not present on target after 3 deploy rounds." };
+              results.errors.push(`${fn}: not present on target after sync + retries`);
+            }
+          }
+          results.verification = { missing: stillMissing, deployedCount: deployedSlugs.size, rounds: round };
+          console.log(`[Fleet] Verification final: ${deployedSlugs.size} on target, ${stillMissing.length} still missing`);
+        }
       }
     }
 

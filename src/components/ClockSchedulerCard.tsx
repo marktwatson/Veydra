@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Clock, Play } from "lucide-react";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
 import {
   resolveTimezone,
@@ -50,12 +51,25 @@ export function ClockSchedulerCard({ settings }: { settings?: any }) {
   const runNow = async () => {
     setRunning(true);
     try {
-      await api.runSchedulerNow();
+      const res: any = await api.runSchedulerNow();
+      if (res?.error) {
+        toast.error("Scheduler run failed", {
+          description: res.error,
+          duration: 10000,
+        });
+      } else {
+        toast.success("Scheduler ran", {
+          description: `Claimed ${res?.claimed ?? 0} · Sent ${res?.sent ?? 0} · Backfilled ${res?.backfilled ?? 0}`,
+        });
+      }
       setTick((t) => t + 1);
       queryClient.invalidateQueries({ queryKey: ["scheduler-status"] });
       queryClient.invalidateQueries({ queryKey: ["scheduler-heartbeat"] });
     } catch (e: any) {
-      console.warn("Run scheduler failed:", e);
+      toast.error("Scheduler run failed", {
+        description: e?.message || "Could not reach the scheduler function.",
+        duration: 10000,
+      });
     } finally {
       setRunning(false);
     }
@@ -170,4 +184,19 @@ export function ClockSchedulerCard({ settings }: { settings?: any }) {
       </CardContent>
     </Card>
   );
+}
+
+/**
+ * Wrapper that renders the Clock & Scheduler card followed by the New Area
+ * Setup Checklist. Rendered by Settings → Notifications tab.
+ */
+export function ClockSchedulerSection({ settings }: { settings?: any }) {
+  const { data: fetchedSettings } = useQuery({
+    queryKey: ["portal-settings-section"],
+    queryFn: () => api.getPortalSettings(),
+    staleTime: 60_000,
+    enabled: !settings,
+  });
+  const effectiveSettings = settings || fetchedSettings;
+  return <ClockSchedulerCard settings={effectiveSettings} />;
 }

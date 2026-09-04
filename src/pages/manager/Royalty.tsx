@@ -63,17 +63,8 @@ import {
   useElements,
 } from "@stripe/react-stripe-js";
 
-// NOTE: Royalty collections use a SEPARATE Stripe account from bride booking
-// payments. The publishable key for the royalty account is fetched dynamically
-// from the edge function (stored in royalty_settings by Super Admin), so we
-// do NOT hardcode a publishable key here. The Stripe instance is created
-// lazily inside the bank-setup dialog once the key is known.
-
-// This instance manages royalty for ONE territory only.
-// The "territories" table row with is_primary = true is this instance's own territory.
-// Super Admins configure royalty %, payback %, purchase price, remaining balance.
-// Owners see their own dashboard at /owner/royalty.
-// Managers see nothing.
+import { RoyaltyNextPullCard } from "@/components/RoyaltyNextPullCard";
+// Royalty uses a separate Stripe account. One primary territory per instance.
 
 export default function RoyaltyManagement() {
   const { user } = useAuth();
@@ -456,16 +447,19 @@ export default function RoyaltyManagement() {
   windowStart.setDate(windowStart.getDate() - 7);
   const windowStartStr = windowStart.toISOString().split("T")[0];
   const todayStr = today.toISOString().split("T")[0];
-  const upcomingSales = (allSales as any[]).filter(
-    (s) =>
-      s.sale_date >= windowStartStr &&
-      s.sale_date <= todayStr &&
-      !s.processed_period_id &&
-      !s.is_refund &&
-      !s.is_test &&
-      (!!s.stripe_charge_id ||
-        !/backfill|seed test|manual charge/i.test(s.description || "")),
-  );
+  // sale_date may be "YYYY-MM-DD" or a full timestamptz. Compare date-only
+  // so today's charges (e.g. 2026-09-02T00:07:15Z) are not dropped.
+  const saleDay = (s: any) => String(s.sale_date || "").slice(0, 10);
+  const upcomingSales = (allSales as any[]).filter((s) => {
+    const day = saleDay(s);
+    if (day < windowStartStr || day > todayStr) return false;
+    if (s.processed_period_id) return false;
+    if (s.is_refund || s.is_test) return false;
+    const desc = s.description || "";
+    const isJunk = /backfill|seed test|manual charge/i.test(desc);
+    if (isJunk && !s.stripe_charge_id) return false;
+    return true; // keep legacy webhook rows with null stripe_charge_id
+  });
   const upcomingGross = upcomingSales.reduce(
     (sum, s) => sum + Number(s.sale_amount),
     0,
@@ -633,6 +627,11 @@ export default function RoyaltyManagement() {
           </div>
         </CardContent>
       </Card>
+
+      <RoyaltyNextPullCard
+        settings={settings}
+        onEditSchedule={() => setActiveTab("settings")}
+      />
 
       {/* Upcoming / Projected Royalty Breakdown */}
       <Card className="shadow-sm border-border/40 rounded-2xl bg-card">

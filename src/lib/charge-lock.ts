@@ -37,6 +37,16 @@ function isUniqueViolation(err: any): boolean {
   );
 }
 
+// Table not synced to this instance's DB yet (schema migration ran in code
+// but hasn't been pushed/synced to this Supabase project). Detect it so we
+// can degrade gracefully instead of blocking every charge.
+function isMissingTable(err: any): boolean {
+  return (
+    err?.code === "PGRST205" ||
+    /could not find the table/i.test(err?.message || "")
+  );
+}
+
 export function buildDedupeKey(
   weddingId: string,
   scheduleIndex?: number,
@@ -112,7 +122,7 @@ export async function chargeSavedCardWithLock({
   );
 
   // 1. Look up an existing pending/running lock for this installment.
-  const { data: existing } = await supabase
+  const { data: existing, error: lookupErr } = await supabase
     .from("payment_charges")
     .select("id, status, created_at, charged_by")
     .eq("dedupe_key", dedupeKey)
@@ -120,6 +130,16 @@ export async function chargeSavedCardWithLock({
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  // The payment_charges table hasn't been synced to this Supabase project
+  // yet. Don't block the charge on a missing safety table — charge directly
+  // and warn so staff know to sync the schema for duplicate-charge protection.
+  if (lookupErr && isMissingTable(lookupErr)) {
+    console.warn(
+      "payment_charges table not found — charging without duplicate-lock protection. Sync your database schema (Territories → Sync) to enable it.",
+    );
+    return await api.chargeSavedCard({ weddingId, amount, description });
+  }
 
   if (existing) {
     const ageMs = Date.now() - new Date(existing.created_at).getTime();
@@ -168,7 +188,15 @@ export async function chargeSavedCardWithLock({
         "This payment is already being processed by another team member. Refresh the audit list to see the updated status.",
       );
     }
-    // Any other error (missing table, RLS, etc.) — show the real message.
+    if (isMissingTable(e)) {
+      // Table not synced to this instance yet — charge directly rather than
+      // blocking the payment on a missing safety table.
+      console.warn(
+        "payment_charges table not found — charging without duplicate-lock protection. Sync your database schema (Territories → Sync) to enable it.",
+      );
+      return await api.chargeSavedCard({ weddingId, amount, description });
+    }
+    // Any other error (RLS, etc.) — show the real message.
     throw new Error(
       `Could not lock this payment for processing: ${e?.message || e}. Check that the payment_charges table exists and RLS allows inserts.`,
     );

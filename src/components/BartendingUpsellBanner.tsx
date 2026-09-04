@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useBartendingModule } from "@/hooks/use-bartending-module";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +31,7 @@ interface BartendingAddon {
 
 export default function BartendingUpsellBanner({ wedding, settings }: Props) {
   const { toast } = useToast();
+  const bartendingModuleOn = useBartendingModule();
   const [open, setOpen] = useState(false);
   const [purchasing, setPurchasing] = useState<string | null>(null);
 
@@ -55,7 +57,7 @@ export default function BartendingUpsellBanner({ wedding, settings }: Props) {
     },
   });
 
-  if (!settings?.upsell_bartending_enabled) return null;
+  if (!bartendingModuleOn || !settings?.upsell_bartending_enabled) return null;
   if (!packages || packages.length === 0) return null;
 
   // Only show to active (non-cancelled) weddings

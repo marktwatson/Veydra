@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, Navigate } from "react-router-dom";
 import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
+import { saveContractSnapshotOnSign } from "@/lib/contract-snapshot";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -442,7 +443,7 @@ export default function ProposalReview() {
     }
     if (paymentPlan === "custom" && proposal.custom_payment_plan?.enabled)
       return proposal.custom_payment_plan.deposit || 0;
-    if (paymentPlan === "full") return proposal.total_amount * 0.95; // 5% off
+    if (paymentPlan === "full") return proposal.total_amount; // pay in full, no discount
     if (paymentPlan === "fifty_fifty") return proposal.total_amount / 2;
     if (paymentPlan === "quarterly") return proposal.total_amount / 4;
     return 99; // deposit
@@ -464,6 +465,11 @@ export default function ProposalReview() {
 
     setIsSubmitting(true);
     try {
+      // Capture a frozen snapshot of the rendered contract HTML at the moment
+      // of signing, so the signed agreement is preserved even if the template
+      // or Settings change later.
+      await saveContractSnapshotOnSign(proposal.id);
+
       // Save signature to database
       const { error: updateError } = await supabase
         .from("proposals")
@@ -493,9 +499,7 @@ export default function ProposalReview() {
             amount: Math.round(calculatePaymentAmount() * 100), // Convert to cents
             totalPrice: proposal.is_upgrade
               ? calculatePaymentAmount()
-              : paymentPlan === "full"
-                ? proposal.total_amount * 0.95
-                : proposal.total_amount,
+              : proposal.total_amount,
             weddingDate: proposal.wedding_date,
             customerEmail: proposal.client_email,
             customerName: proposal.client_name,
@@ -1363,10 +1367,7 @@ export default function ProposalReview() {
                         <div className="flex items-center space-x-3 mt-1">
                           <RadioGroupItem value="full" id="full" />
                           <span className="text-xl font-serif font-semibold">
-                            Pay in Full{" "}
-                            <span className="text-sm text-green-600 bg-green-50 px-2 py-1 rounded-full ml-2">
-                              -5% OFF
-                            </span>
+                            Pay in Full
                           </span>
                         </div>
                         <div className="text-right">
@@ -1375,17 +1376,14 @@ export default function ProposalReview() {
                           </span>
                           <div className="flex flex-col items-end">
                             <span className="text-2xl font-serif font-bold text-primary">
-                              ${(proposal.total_amount * 0.95).toLocaleString()}
-                            </span>
-                            <span className="text-sm text-muted-foreground line-through">
                               ${proposal.total_amount.toLocaleString()}
                             </span>
                           </div>
                         </div>
                       </div>
                       <p className="text-muted-foreground font-sans ml-7 leading-relaxed">
-                        Take care of the entire investment today and receive a
-                        5% discount. No future payments to worry about.
+                        Take care of the entire investment today. No future
+                        payments to worry about.
                       </p>
                       {paymentPlan === "full" && (
                         <div className="mt-6 space-y-4 border-t border-stone-200 dark:border-stone-800 pt-5 ml-7">
@@ -1394,7 +1392,7 @@ export default function ProposalReview() {
                               Due Today (Paid in Full)
                             </span>
                             <span className="font-bold text-primary text-lg">
-                              ${(proposal.total_amount * 0.95).toLocaleString()}
+                              ${proposal.total_amount.toLocaleString()}
                             </span>
                           </div>
                         </div>
@@ -1924,10 +1922,7 @@ export default function ProposalReview() {
                             status: "pending",
                             payment_plan: paymentPlan,
                             custom_payment_plan: proposal.custom_payment_plan,
-                            total_amount:
-                              paymentPlan === "full"
-                                ? proposal.total_amount * 0.95
-                                : proposal.total_amount,
+                            total_amount: proposal.total_amount,
                             paid_amount: amountPaid,
                             stripe_customer_id: stripeIds.customerId || null,
                             stripe_subscription_id:

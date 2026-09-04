@@ -73,7 +73,7 @@ const parseLocalDate = (dateStr: string): Date => {
 };
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { BookingCalendar } from "@/components/BookingCalendar";
+import { ContractorInterviewSection } from "@/components/ContractorInterviewSection";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -952,20 +952,7 @@ const ApplicantDashboard = ({
       </Card>
 
       {currentIndex === 1 && (
-        <Card className="shadow-sm border-border/50">
-          <CardHeader className="bg-muted/10 border-b pb-6">
-            <CardTitle>Schedule Your Interview</CardTitle>
-            <CardDescription>
-              Select a time below to complete your intro call with our team.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pt-8 pb-10">
-            <BookingCalendar
-              calendarId="XFbKwnR3PtbdQoZPMAFi"
-              contractor={contractor}
-            />
-          </CardContent>
-        </Card>
+        <ContractorInterviewSection contractor={contractor} />
       )}
 
       {currentIndex === 2 && (

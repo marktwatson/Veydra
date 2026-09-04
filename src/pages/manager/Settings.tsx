@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
-import { ClockSchedulerCard } from "@/components/ClockSchedulerCard";
+import { ClockSchedulerSection } from "@/components/ClockSchedulerCard";
 import {
   Card,
   CardContent,
@@ -76,6 +76,10 @@ import { AppIconUploader } from "@/components/AppIconUploader";
 import EmailPreviewModal from "@/components/EmailPreviewModal";
 import MarginCalculator from "@/components/MarginCalculator";
 import BartendingUpsellCard from "@/components/BartendingUpsellCard";
+import BartendingModuleToggle from "@/components/BartendingModuleToggle";
+import { BartendingContractTemplateCard } from "@/components/BartendingContractTemplateCard";
+import { useBartendingModule } from "@/hooks/use-bartending-module";
+import { useAuth } from "@/contexts/AuthContext";
 
 const getPreviewHtml = (html: string) => {
   const logoUrl =
@@ -477,6 +481,9 @@ const getBaseEmailTemplate = (
 
 export default function ManagerSettings() {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === "super_admin";
+  const bartendingModuleOn = useBartendingModule();
   const [hlApiKey, setHlApiKey] = useState("");
   const [hlLocationId, setHlLocationId] = useState("");
   const [fbAccessToken, setFbAccessToken] = useState("");
@@ -3923,7 +3930,9 @@ export default function ManagerSettings() {
             <>
               <MarginCalculator packages={pricingPackages} />
 
-              <BartendingUpsellCard />
+              {isSuperAdmin && <BartendingModuleToggle />}
+
+              {bartendingModuleOn && <BartendingUpsellCard />}
 
               <div className="flex items-center justify-between">
                 <div>
@@ -4076,7 +4085,7 @@ export default function ManagerSettings() {
                             {addon.isHourly && (
                               <Badge variant="outline">Hourly</Badge>
                             )}
-                            {addon.isBartending && (
+                            {bartendingModuleOn && addon.isBartending && (
                               <Badge
                                 variant="outline"
                                 className="border-[#c9a96e]/50 text-[#c9a96e]"
@@ -4651,7 +4660,7 @@ export default function ManagerSettings() {
         </TabsContent>
 
         <TabsContent value="notifications" className="space-y-6">
-          <ClockSchedulerCard />
+          <ClockSchedulerSection />
           <div className="grid gap-6 md:grid-cols-2">
             <Card className="md:col-span-2 max-w-3xl">
               <CardHeader className="flex flex-row items-start justify-between">
@@ -7917,6 +7926,9 @@ export default function ManagerSettings() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Bartending Services Agreement */}
+            {bartendingModuleOn && <BartendingContractTemplateCard />}
           </div>
         </TabsContent>
 
@@ -8495,6 +8507,7 @@ function AddonEditor({
   onCancel: () => void;
   isSaving: boolean;
 }) {
+  const bartendingModuleOn = useBartendingModule();
   const [name, setName] = useState(addon.name || "");
   const [price, setPrice] = useState(addon.price || 0);
   const [isHourly, setIsHourly] = useState(addon.isHourly || false);
@@ -8548,12 +8561,14 @@ function AddonEditor({
         <Switch checked={isArchived} onCheckedChange={setIsArchived} />
         <Label className="cursor-pointer">Archived</Label>
       </div>
-      <div className="flex items-center gap-2">
-        <Switch checked={isBartending} onCheckedChange={setIsBartending} />
-        <Label className="cursor-pointer">
-          Bartending upsell (show in bride portal)
-        </Label>
-      </div>
+      {bartendingModuleOn && (
+        <div className="flex items-center gap-2">
+          <Switch checked={isBartending} onCheckedChange={setIsBartending} />
+          <Label className="cursor-pointer">
+            Bartending upsell (show in bride portal)
+          </Label>
+        </div>
+      )}
       {isBartending && (
         <>
           <div className="grid gap-2">

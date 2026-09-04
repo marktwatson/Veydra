@@ -889,7 +889,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             )}
           </div>
           <div className="flex items-center gap-1 sm:gap-2">
-            <HeaderClock />
+            {role === "super_admin" && <HeaderClock />}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

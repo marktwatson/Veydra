@@ -2,15 +2,12 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 // HMR force reload comment
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { Layout } from "@/components/Layout";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/components/ThemeProvider";
-
-import { Navigate, useLocation } from "react-router-dom";
-import { useAuth, UserRole } from "@/contexts/AuthContext";
-import { DEFAULT_LOGO_URL } from "@/lib/utils";
+import { queryClient } from "@/lib/query-client";
+import { ProtectedRoute, Mgr, MgrOwner } from "@/components/ProtectedRoute";
 
 import Dashboard from "@/pages/Dashboard";
 import Opportunities from "@/pages/Opportunities";
@@ -32,6 +29,7 @@ import Book from "@/pages/Book";
 import GiftWedding from "@/pages/GiftWedding";
 import ProposalReview from "@/pages/ProposalReview";
 import PaymentPlanApproval from "@/pages/PaymentPlanApproval";
+import BartendingContract from "@/pages/BartendingContract";
 
 import ManagerDashboard from "@/pages/manager/Dashboard";
 import ManagerWeddings from "@/pages/manager/Weddings";
@@ -65,105 +63,6 @@ import RoyaltyWithSync from "@/components/RoyaltyWithSync";
 import OwnerRoyaltyWithSync from "@/components/OwnerRoyaltyWithSync";
 import StripePayoutSetup from "@/pages/manager/StripePayoutSetup";
 
-const PageLoader = () => (
-  <div className="min-h-screen flex flex-col items-center justify-center bg-muted/30 p-4">
-    <div className="relative flex items-center justify-center mb-6">
-      <div className="absolute inset-0 rounded-full bg-primary/10 animate-ping"></div>
-      <img
-        src={DEFAULT_LOGO_URL}
-        alt="Loading..."
-        className="w-24 h-auto object-contain animate-pulse relative z-10"
-        onError={(e) => {
-          (e.target as HTMLImageElement).src = DEFAULT_LOGO_URL;
-        }}
-      />
-    </div>
-  </div>
-);
-
-const ProtectedRoute = ({
-  children,
-  requireRole,
-  restrictRoles,
-  superAdminOnly,
-}: {
-  children: React.ReactNode;
-  requireRole?:
-    | "super_admin"
-    | "owner"
-    | "owner_readonly"
-    | "manager"
-    | "contractor"
-    | "editor";
-  restrictRoles?: UserRole[];
-  superAdminOnly?: boolean;
-}) => {
-  const { user, isAuthenticated } = useAuth();
-  const location = useLocation();
-
-  if (window.location.hash.includes("type=recovery")) {
-    return <Navigate to={`/reset-password${window.location.hash}`} replace />;
-  }
-
-  if (!isAuthenticated || !user) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
-  }
-
-  if (superAdminOnly && user.role !== "super_admin") {
-    return <Navigate to="/manager" replace />;
-  }
-
-  if (restrictRoles && restrictRoles.includes(user.role)) {
-    return <Navigate to="/manager" replace />;
-  }
-
-  if (requireRole && user.role !== requireRole) {
-    // Manager routes are accessible by super_admin, owner, owner_readonly, and manager
-    if (
-      requireRole === "manager" &&
-      ["super_admin", "owner", "owner_readonly", "manager"].includes(user.role)
-    ) {
-      return <Layout>{children}</Layout>;
-    }
-
-    // Owner routes are also accessible by owner_readonly (view-only)
-    if (requireRole === "owner" && user.role === "owner_readonly") {
-      return <Layout>{children}</Layout>;
-    }
-
-    if (
-      ["super_admin", "owner", "owner_readonly", "manager"].includes(user.role)
-    )
-      return <Navigate to="/manager" replace />;
-    if (user.role === "editor") return <Navigate to="/editor" replace />;
-    return <Navigate to="/" replace />;
-  }
-
-  return <Layout>{children}</Layout>;
-};
-
-// Initialize query client
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 1 * 60 * 1000, // 1 minute
-      gcTime: 10 * 60 * 1000, // 10 minutes
-      refetchOnWindowFocus: false,
-      refetchOnMount: true,
-      retry: 1,
-    },
-  },
-});
-
-const Mgr = ({ children }: { children: React.ReactNode }) => (
-  <ProtectedRoute requireRole="manager">{children}</ProtectedRoute>
-);
-const MgrOwner = ({ children }: { children: React.ReactNode }) => (
-  <ProtectedRoute requireRole="manager" restrictRoles={["manager"]}>
-    {children}
-  </ProtectedRoute>
-);
-
 const App = () => {
   return (
     <ThemeProvider defaultTheme="system" storageKey="veydra-theme">
@@ -189,6 +88,10 @@ const App = () => {
                 <Route
                   path="/payment-plan/:token"
                   element={<PaymentPlanApproval />}
+                />
+                <Route
+                  path="/bartending-contract/:id"
+                  element={<BartendingContract />}
                 />
 
                 {/* Contractor Routes */}

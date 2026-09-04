@@ -124,6 +124,11 @@ export function BookingCalendar({
         .update({ interview_date: selectedSlot })
         .eq("id", contractor.id);
 
+      // Invalidate queries so contractor dashboard and manager views update immediately
+      const { queryClient } = await import("@/lib/query-client");
+      queryClient.invalidateQueries({ queryKey: ["contractor"] });
+      queryClient.invalidateQueries({ queryKey: ["contractors"] });
+
       setBooked(true);
       toast.success("Interview scheduled successfully!");
       if (onBookingComplete) onBookingComplete();

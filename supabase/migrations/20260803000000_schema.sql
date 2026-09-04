@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS public.portal_settings (
   email_colors JSONB,
   contract_template TEXT,
   wedding_contract_template TEXT,
+  bartending_contract_template TEXT,
   notify_on_failed_autocharge BOOLEAN DEFAULT false,
   email_payment_failed_enabled BOOLEAN DEFAULT false,
   last_heartbeat_date TEXT,
@@ -127,10 +128,12 @@ ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS email_delivery_metho
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS email_colors JSONB;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS contract_template TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS wedding_contract_template TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS bartending_contract_template TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS notify_on_failed_autocharge BOOLEAN DEFAULT false;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS email_payment_failed_enabled BOOLEAN DEFAULT false;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS last_heartbeat_date TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS last_digest_date TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS last_payment_alert_date TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS upload_account_email TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS upload_account_password TEXT;
@@ -138,6 +141,11 @@ ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS upload_instructions 
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS portal_theme JSONB;
 
 -- Bartending Upsell (add-on service marketed to already-booked brides)
+-- Master toggle: super admin only. When off, ALL bartending UI is hidden
+-- across the entire app (Settings cards, addon tagging, portal banner,
+-- wedding actions). The per-instance upsell_bartending_enabled is a sub-toggle
+-- that only takes effect when the master is on.
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS bartending_module_enabled BOOLEAN DEFAULT false;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS upsell_bartending_enabled BOOLEAN DEFAULT false;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS upsell_bartending_headline TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS upsell_bartending_subtext TEXT;
@@ -164,6 +172,17 @@ CREATE TABLE IF NOT EXISTS public.upsell_purchases (
 ALTER TABLE public.upsell_purchases ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access upsell_purchases" ON public.upsell_purchases;
 CREATE POLICY "Public full access upsell_purchases" ON public.upsell_purchases FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.upsell_purchases ADD COLUMN IF NOT EXISTS list_price NUMERIC DEFAULT 0;
+ALTER TABLE public.upsell_purchases ADD COLUMN IF NOT EXISTS discount_amount NUMERIC DEFAULT 0;
+ALTER TABLE public.upsell_purchases ADD COLUMN IF NOT EXISTS deposit_amount NUMERIC DEFAULT 0;
+ALTER TABLE public.upsell_purchases ADD COLUMN IF NOT EXISTS stripe_charge_id TEXT;
+ALTER TABLE public.upsell_purchases ADD COLUMN IF NOT EXISTS contract_status TEXT;
+ALTER TABLE public.upsell_purchases ADD COLUMN IF NOT EXISTS signed_at TIMESTAMPTZ;
+ALTER TABLE public.upsell_purchases ADD COLUMN IF NOT EXISTS signed_by_name TEXT;
+ALTER TABLE public.upsell_purchases ADD COLUMN IF NOT EXISTS package_details JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE public.upsell_purchases ADD COLUMN IF NOT EXISTS payment_schedule JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.upsell_purchases ADD COLUMN IF NOT EXISTS contract_snapshot TEXT;
 
 -- Email/SMS Template Columns (Contractor)
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS email_invite_enabled BOOLEAN DEFAULT false;
@@ -1643,21 +1662,6 @@ CREATE POLICY "Public full access scheduler_heartbeats" ON public.scheduler_hear
 -- service-role key. See the "Clock & Scheduler" card in Settings for the
 -- per-project setup steps.
 
-
-DO $$
-DECLARE
-  t TEXT;
-  business_tables TEXT[] := ARRAY[
-    'portal_settings','managers','editors','contractors','weddings','jobs',
-    'applications','assignments','notifications','blackout_dates','expenses',
-    'activity_logs','sms_logs','api_logs','proposals','messages','coupons',
-    'notification_queue','territories','edge_function_sources','royalty_settings',
-    'royalty_secrets','royalty_periods','royalty_audit_log','royalty_sales',
-    'payment_plan_change_requests','push_settings','push_subscriptions',
-    'push_preferences','venue_geocodes','pricing_packages','pricing_addons',
-    'upsell_purchases','scheduled_jobs','scheduler_heartbeats','payment_refunds','payment_charges'
-  ];
-
 -- Refunds log (idempotent: one row per Stripe charge id)
 CREATE TABLE IF NOT EXISTS public.payment_refunds (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1699,6 +1703,19 @@ CREATE POLICY IF NOT EXISTS "Staff read charges" ON public.payment_charges FOR S
 CREATE POLICY IF NOT EXISTS "Staff insert charges" ON public.payment_charges FOR INSERT TO authenticated WITH CHECK (true);
 CREATE POLICY IF NOT EXISTS "Staff update charges" ON public.payment_charges FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
 
+DO $$
+DECLARE
+  t TEXT;
+  business_tables TEXT[] := ARRAY[
+    'portal_settings','managers','editors','contractors','weddings','jobs',
+    'applications','assignments','notifications','blackout_dates','expenses',
+    'activity_logs','sms_logs','api_logs','proposals','messages','coupons',
+    'notification_queue','territories','edge_function_sources','royalty_settings',
+    'royalty_secrets','royalty_periods','royalty_audit_log','royalty_sales',
+    'payment_plan_change_requests','push_settings','push_subscriptions',
+    'push_preferences','venue_geocodes','pricing_packages','pricing_addons',
+    'upsell_purchases','scheduled_jobs','scheduler_heartbeats','payment_refunds','payment_charges'
+  ];
 BEGIN
   FOREACH t IN ARRAY business_tables LOOP
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t) THEN

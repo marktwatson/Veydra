@@ -17,7 +17,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
@@ -269,7 +268,7 @@ function CheckoutForm({
               </span>
               <span className="font-medium">
                 $
-                {(totalPrice * 0.95).toLocaleString(undefined, {
+                {totalPrice.toLocaleString(undefined, {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
                 })}
@@ -297,7 +296,7 @@ function CheckoutForm({
         ) : null}
         {isSubmitting
           ? "Processing..."
-          : `Pay ${paymentOption === "full" ? "$" + (totalPrice * 0.95).toLocaleString() : paymentOption === "half" ? "$" + (totalPrice / 2).toLocaleString() : "$99"} & Secure Date`}
+          : `Pay ${paymentOption === "full" ? "$" + totalPrice.toLocaleString() : paymentOption === "half" ? "$" + (totalPrice / 2).toLocaleString() : "$99"} & Secure Date`}
       </Button>
     </form>
   );
@@ -582,8 +581,8 @@ export default function Book() {
     : 0;
   const totalPrice = Math.max(0, baseTotalPrice - discountAmount);
 
-  const payInFullDiscount = totalPrice * 0.05;
-  const discountedPrice = totalPrice - payInFullDiscount;
+  const payInFullDiscount = 0;
+  const discountedPrice = totalPrice;
   const halfDepositPrice = totalPrice / 2;
 
   const isWithin90Days = useMemo(() => {
@@ -1787,16 +1786,10 @@ export default function Book() {
                             className="font-serif text-lg cursor-pointer text-stone-900 dark:text-stone-50 flex items-center flex-wrap gap-2 sm:gap-3"
                           >
                             Pay in Full (${discountedPrice.toLocaleString()})
-                            <Badge
-                              variant="secondary"
-                              className="bg-stone-200 text-stone-800 hover:bg-stone-200 border-none font-sans font-medium text-xs"
-                            >
-                              Save 5%
-                            </Badge>
                           </Label>
                           <p className="text-sm font-light text-stone-500 dark:text-stone-400 mt-2 leading-relaxed">
-                            Save ${payInFullDiscount.toLocaleString()} by paying
-                            today. Klarna available at checkout.
+                            Pay the entire balance today. Klarna available at
+                            checkout.
                           </p>
                         </div>
                       </div>
@@ -2081,12 +2074,6 @@ export default function Book() {
                           ${totalPrice.toLocaleString()}
                         </span>
                       </div>
-                      {formData.paymentOption === "full" && (
-                        <div className="flex justify-between text-green-600 dark:text-green-500 text-sm italic">
-                          <span>Pay in Full Discount (5%)</span>
-                          <span>-${payInFullDiscount.toLocaleString()}</span>
-                        </div>
-                      )}
                       <div className="pt-6 border-t border-stone-100 dark:border-stone-800 space-y-3">
                         <div className="flex justify-between items-center">
                           <span className="text-stone-900 dark:text-stone-50 font-medium">

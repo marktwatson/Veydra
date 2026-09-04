@@ -42,7 +42,10 @@ function formatInTz(date: Date, tz: string): string {
 }
 
 // ─── Self-heal tables on old snapshot DBs ─────────────────────────────────
-async function selfHealTables(sb: any) {
+// NOTE: the exec_sql RPC parameter is named `sql_text` (see master schema),
+// NOT `sql`. Passing { sql } silently fails on PostgREST, which is why
+// self-heal never created the tables on fresh snapshots.
+async function selfHealTables(sb: any): Promise<boolean> {
   const stmts = [
     `CREATE TABLE IF NOT EXISTS public.scheduled_jobs (
        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -72,17 +75,33 @@ async function selfHealTables(sb: any) {
        last_result JSONB,
        created_at TIMESTAMPTZ DEFAULT now()
      );`,
+    `ALTER TABLE public.scheduler_heartbeats ENABLE ROW LEVEL SECURITY;`,
+    `DROP POLICY IF EXISTS "Public full access scheduler_heartbeats" ON public.scheduler_heartbeats;`,
+    `CREATE POLICY "Public full access scheduler_heartbeats" ON public.scheduler_heartbeats FOR ALL USING (true) WITH CHECK (true);`,
+    `ALTER TABLE public.scheduled_jobs ENABLE ROW LEVEL SECURITY;`,
+    `DROP POLICY IF EXISTS "Public full access scheduled_jobs" ON public.scheduled_jobs;`,
+    `CREATE POLICY "Public full access scheduled_jobs" ON public.scheduled_jobs FOR ALL USING (true) WITH CHECK (true);`,
   ];
+  let ok = true;
   for (const sql of stmts) {
     try {
-      await sb.rpc("exec_sql", { sql }).catch(() => {});
-    } catch {}
+      const { error } = await sb.rpc("exec_sql", { sql_text: sql });
+      if (error) {
+        // exec_sql returns {success:false,error:...} on failure — not a throw.
+        console.warn("[selfHeal] stmt failed:", error.message || JSON.stringify(error));
+        ok = false;
+      }
+    } catch (e: any) {
+      console.warn("[selfHeal] rpc error:", e?.message || e);
+      ok = false;
+    }
   }
+  return ok;
 }
 
-async function writeHeartbeat(sb: any, source: string, result: any) {
+async function writeHeartbeat(sb: any, source: string, result: any): Promise<boolean> {
   try {
-    await sb.from("scheduler_heartbeats").upsert(
+    const { error } = await sb.from("scheduler_heartbeats").upsert(
       {
         id: "default",
         last_seen_at: new Date().toISOString(),
@@ -91,7 +110,15 @@ async function writeHeartbeat(sb: any, source: string, result: any) {
       },
       { onConflict: "id" },
     );
-  } catch {}
+    if (error) {
+      console.warn("[heartbeat] write failed:", error.message);
+      return false;
+    }
+    return true;
+  } catch (e: any) {
+    console.warn("[heartbeat] write error:", e?.message || e);
+    return false;
+  }
 }
 
 // ─── Ovanta SMS/Email (same path as daily-reminders) ──────────────────────
@@ -267,11 +294,22 @@ serve(async (req) => {
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
   if (!supabaseUrl || !supabaseKey) return jsonResp({ error: "Missing Supabase configuration" }, 500);
   const sb = createClient(supabaseUrl, supabaseKey);
-  await selfHealTables(sb);
+  const healOk = await selfHealTables(sb);
   const { data: settings } = await sb.from("portal_settings").select("*").limit(1).maybeSingle();
   if (!settings) { await writeHeartbeat(sb, source, { error: "no portal_settings" }); return jsonResp({ error: "No portal settings" }, 500); }
   const tz = settings.timezone || settings.company_timezone || "America/New_York";
-  await writeHeartbeat(sb, source, { ok: true });
+  // Write heartbeat AFTER self-heal so the table exists. If the write fails
+  // (RLS / table still missing), report it so the caller sees the real reason
+  // instead of an empty green dot that never turns red.
+  const hbOk = await writeHeartbeat(sb, source, { ok: true, self_heal: healOk });
+  if (!hbOk) {
+    return jsonResp({
+      error: "Heartbeat write failed — scheduler_heartbeats table may be missing or blocked by RLS. Re-sync the schema (Territories → Schema).",
+      self_heal: healOk,
+      server_time: new Date().toISOString(),
+      portal_tz: tz,
+    }, 500);
+  }
   const { claimed, sent, failed } = await processJobs(sb, settings);
   const backfilled = await backfillJobs(sb, settings, tz);
   // Auto-trigger the royalty processor on its configured day/time (portal TZ).
@@ -287,7 +325,7 @@ serve(async (req) => {
     });
     if (r.ok) { const rd = await r.json(); royaltyTriggered = !rd.skipped; }
   } catch (e) { console.warn("royalty-processor trigger failed:", (e as any)?.message); }
-  return jsonResp({ claimed, sent, failed, backfilled, royalty_triggered: royaltyTriggered, server_time: new Date().toISOString(), portal_tz: tz, portal_time_label: formatInTz(new Date(), tz) });
+  return jsonResp({ claimed, sent, failed, backfilled, royalty_triggered: royaltyTriggered, self_heal: healOk, server_time: new Date().toISOString(), portal_tz: tz, portal_time_label: formatInTz(new Date(), tz) });
 });
 
 // ─── Job processing ──────────────────────────────────────────────────────

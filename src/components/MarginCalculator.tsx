@@ -41,14 +41,14 @@ export default function MarginCalculator({ packages }: MarginCalculatorProps) {
   });
 
   // ── Global cost inputs (ad-hoc — reset on page reload) ──────────────────
-  const [contractorRate, setContractorRate] = useState(60);
+  const [contractorRate, setContractorRate] = useState(50);
   const [stripeFeePct, setStripeFeePct] = useState(3);
   const [advertising, setAdvertising] = useState(200);
   const [travel, setTravel] = useState(0);
   const [edits, setEdits] = useState(200);
   const [opex, setOpex] = useState(20);
-  const [commissionPct, setCommissionPct] = useState(15);
-  const [targetMargin, setTargetMargin] = useState(35);
+  const [commissionPct, setCommissionPct] = useState(5);
+  const [targetMargin, setTargetMargin] = useState(30);
 
   // ── Royalty & Payback — auto from territory, override for what-if ───────
   const territoryRoyaltyPct = Number(territory?.royalty_percentage || 0);

@@ -1,4 +1,5 @@
 import { supabase, supabaseUrl, supabaseAnonKey } from "./supabase";
+import { updatePortalSettingsRow } from "./portal-settings-update";
 import {
   formatDisplayDate,
   DEFAULT_LOGO_URL,
@@ -452,6 +453,7 @@ export interface DbPortalSettings {
   upload_account_password?: string | null;
   upload_instructions?: string | null;
   portal_theme?: any | null;
+  bartending_module_enabled?: boolean | null;
   upsell_bartending_enabled?: boolean | null;
   upsell_bartending_headline?: string | null;
   upsell_bartending_subtext?: string | null;
@@ -2842,60 +2844,7 @@ export const api = {
 
     const task = async () => {
       try {
-        const { data: existingRows, error: selectError } = await supabase
-          .from("portal_settings")
-          .select("id")
-          .limit(1);
-        if (selectError)
-          console.warn("Select error in updatePortalSettings:", selectError);
-
-        const existing = existingRows?.[0];
-        const updatedAt = { ...settings, updated_at: new Date().toISOString() };
-
-        let result;
-        if (existing) {
-          const { data, error } = await supabase
-            .from("portal_settings")
-            .update(updatedAt)
-            .eq("id", existing.id)
-            .select();
-          if (error) {
-            // If bulk update fails (e.g. missing columns on a fresh territory), retry field-by-field
-            // so that fields which DO exist still save successfully.
-            console.warn(
-              "Bulk settings update failed, retrying field-by-field:",
-              error.message,
-            );
-            const savedFields: Record<string, any> = {
-              updated_at: new Date().toISOString(),
-            };
-            for (const [key, value] of Object.entries(settings)) {
-              try {
-                const { error: fieldError } = await supabase
-                  .from("portal_settings")
-                  .update({
-                    [key]: value,
-                    updated_at: new Date().toISOString(),
-                  })
-                  .eq("id", existing.id);
-                if (!fieldError) savedFields[key] = value;
-              } catch (e) {
-                // Skip fields that don't exist in the schema
-              }
-            }
-            result = savedFields as any;
-          } else {
-            result = data?.[0] as DbPortalSettings;
-          }
-        } else {
-          const { data, error } = await supabase
-            .from("portal_settings")
-            .insert(settings)
-            .select();
-          if (error) throw error;
-          result = data?.[0] as DbPortalSettings;
-        }
-
+        const result = await updatePortalSettingsRow(settings);
         this.logAdminActivity(
           "Updated Settings",
           "Updated portal settings",
