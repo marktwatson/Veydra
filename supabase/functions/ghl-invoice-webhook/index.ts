@@ -607,21 +607,25 @@ Deno.serve(async (req) => {
 
     let booked = false;
     const isCancelled = wedding.status === "cancelled";
+    // Do NOT change wedding status (no pending → upcoming/booked activation).
+    // Only strip the [UNPAID_DRAFT] tag from notes and flag for staff review.
     if (newPaid > 0 && !isCancelled) {
-      const needsBooking =
-        wedding.status === "pending" ||
-        (wedding.notes || "").includes("[UNPAID_DRAFT]");
-      if (needsBooking) {
-        const up: any = { status: "upcoming" };
-        if ((wedding.notes || "").includes("[UNPAID_DRAFT]")) {
-          up.notes = (wedding.notes || "")
-            .replace("[UNPAID_DRAFT]\n", "")
-            .replace("[UNPAID_DRAFT]", "");
-          up.contract_date = new Date().toISOString();
-        }
+      const hadDraftTag = (wedding.notes || "").includes("[UNPAID_DRAFT]");
+      const cleanedNotes = (wedding.notes || "")
+        .replace("[UNPAID_DRAFT]\n", "")
+        .replace("[UNPAID_DRAFT]", "")
+        .trim();
+      const reviewTag = "GHL deposit posted — review before activating";
+      const notesHasReview = cleanedNotes.includes(reviewTag);
+      if (hadDraftTag || !notesHasReview) {
+        const up: any = {
+          notes: notesHasReview
+            ? cleanedNotes
+            : `${cleanedNotes}${cleanedNotes ? " " : ""}${reviewTag}`,
+        };
         await db.from("weddings").update(up).eq("id", weddingId);
-        booked = true;
       }
+      booked = false; // status left untouched; staff activates manually
     }
 
     try {
