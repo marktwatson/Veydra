@@ -475,13 +475,36 @@ Deno.serve(async (req) => {
       hasMultiPlan = false;
     }
 
-    // ── CRM API helpers ──
+    // ── GHL API helper ──
+    // plain = true  → no paymentSchedule, no discount (single payable line).
+    // plain = false → paymentSchedule { type: "fixed", schedules: [{dueDate,value}] }
+    //                 with real dollar rows; items.amount MUST equal their sum.
+    // Never uses type "amount" or invented percentages. Never calls /invoices/schedule.
+    const money = (n: number) => Number(Number(n).toFixed(2));
+
+    async function postInvoice(payload: any): Promise<{ ok: boolean; status: number; data: any; body: string }> {
+      const res = await fetch("https://services.leadconnectorhq.com/invoices/", {
+        method: "POST", headers: { ...crmHeaders, Version: "2021-07-28" }, body: JSON.stringify(payload),
+      });
+      const text = await res.text();
+      let data: any = null;
+      try { data = JSON.parse(text); } catch (_e) {}
+      return { ok: res.ok, status: res.status, data, body: text };
+    }
+
     async function createInvoice(
       lineAmount: number,
       sched?: PlanRow[],
-      shape: "amount" | "fixed" | "percentage" = "amount",
+      plain = false,
     ): Promise<{ ok: boolean; status: number; data: any; body: string }> {
-      const payload: any = {
+      // When a multi-row schedule is present, the invoice dueDate MUST be the
+      // latest schedule row date (GHL rejects schedules past the due date).
+      // issueDate stays today.
+      const latestDue = sched && sched.length > 1
+        ? sched.reduce((latest, r) => (r.date > latest ? r.date : latest), sched[0].date)
+        : ymd(7);
+
+      const basePayload: any = {
         altId: locationId,
         altType: "location",
         name: invoiceTitle,
@@ -489,41 +512,35 @@ Deno.serve(async (req) => {
         currency: "USD",
         liveMode: true,
         issueDate: ymd(0),
-        dueDate: ymd(7),
+        dueDate: latestDue,
         sentTo: { email: [email], phone: phoneE164 ? [phoneE164] : [] },
         businessDetails,
         contactDetails,
-        discount: { type: "percentage", value: 0 },
-        items: [{ name: label || "Wedding Payment", qty: 1, amount: lineAmount, currency: "USD" }],
+        items: [{ name: label || "Wedding Payment", qty: 1, amount: money(lineAmount), currency: "USD" }],
       };
-      if (sched && sched.length > 1) {
-        if (shape === "amount") {
-          payload.paymentSchedule = {
-            type: "amount",
-            schedules: sched.map((r) => ({ dueDate: r.date, amount: r.amount })),
-          };
-        } else if (shape === "fixed") {
-          payload.paymentSchedule = {
-            type: "fixed",
-            schedules: sched.map((r) => ({ dueDate: r.date, amount: r.amount })),
-          };
-        } else {
-          const pct = Math.round(10000 / sched.length) / 100;
-          payload.paymentSchedule = {
-            type: "percentage",
-            schedules: sched.map((r) => ({ dueDate: r.date, value: pct })),
-          };
-        }
+
+      // Plain (single payable line) — no paymentSchedule.
+      if (plain || !sched || sched.length <= 1) {
+        console.log(`[ghl-invoice] create invoice (plain=${plain}) payload:`, JSON.stringify(basePayload, null, 2));
+        const r = await postInvoice(basePayload);
+        console.log("[ghl-invoice] create status:", r.status, "body:", r.body.slice(0, 800));
+        return r;
       }
-      console.log(`[ghl-invoice] create invoice (shape=${shape}) payload:`, JSON.stringify(payload, null, 2));
-      const res = await fetch("https://services.leadconnectorhq.com/invoices/", {
-        method: "POST", headers: { ...crmHeaders, Version: "v3" }, body: JSON.stringify(payload),
-      });
-      const text = await res.text();
-      let data: any = null;
-      try { data = JSON.parse(text); } catch (_e) {}
-      console.log("[ghl-invoice] invoice create status:", res.status, "keys:", data ? Object.keys(data) : "n/a");
-      return { ok: res.ok, status: res.status, data, body: text };
+
+      // Multi-row schedule: items.amount = sum of rows (2dp), value as NUMBER.
+      const sumAmt = money(sched.reduce((s, r) => s + r.amount, 0));
+      const payload = {
+        ...basePayload,
+        items: [{ name: label || "Wedding Payment", qty: 1, amount: sumAmt, currency: "USD" }],
+        paymentSchedule: {
+          type: "fixed",
+          schedules: sched.map((r) => ({ dueDate: r.date, value: money(r.amount) })),
+        },
+      };
+      console.log("[ghl-invoice] create invoice (fixed schedule) payload:", JSON.stringify(payload, null, 2));
+      const res = await postInvoice(payload);
+      console.log("[ghl-invoice] create status:", res.status, "body:", res.body.slice(0, 800));
+      return res;
     }
 
     // Self-heal: add ghl_schedule_id column if missing so we can persist it.
@@ -539,44 +556,57 @@ Deno.serve(async (req) => {
     let path: "schedule" | "invoice+paymentSchedule" = "invoice+paymentSchedule";
     let invoiceTotal = numAmount;
     let autoPayBody = "";
+    let scheduleError = "";
 
     if (hasMultiPlan) {
-      // ONE invoice = full remaining balance + paymentSchedule object.
+      // ONE invoice = full remaining balance + paymentSchedule (fixed, real $ rows).
       // items[0].amount MUST equal the sum of the schedule rows.
-      // We never call /invoices/schedule (that is for RRULE recurring invoices).
+      // Try exactly once with the fixed schedule shape.
       invoiceTotal = planRows.reduce((s, r) => s + r.amount, 0);
-      let invRes = await createInvoice(invoiceTotal, planRows, "amount");
-      let lastShape = "amount";
-      if (!invRes.ok) {
-        console.log("[ghl-invoice] amount schedule failed, retrying fixed shape...");
-        lastShape = "fixed";
-        invRes = await createInvoice(invoiceTotal, planRows, "fixed");
-      }
-      if (!invRes.ok) {
-        console.log("[ghl-invoice] fixed schedule failed, retrying percentage shape...");
-        lastShape = "percentage";
-        invRes = await createInvoice(invoiceTotal, planRows, "percentage");
-      }
+      const invRes = await createInvoice(invoiceTotal, planRows, false);
 
       if (invRes.ok) {
         path = "invoice+paymentSchedule";
         invoiceId = invRes.data?._id || invRes.data?.invoice?._id || invRes.data?.id || null;
       } else {
-        return jsonResp({
-          error: `Failed to create GHL invoice (${invRes.status})`,
-          path,
-          shape: lastShape,
-          ghlStatus: invRes.status,
-          ghlBodyPreview: invRes.body.slice(0, 800),
-          ghlFull: invRes.body,
-        }, 500);
+        // Schedule create failed — capture GHL's real message, then fall back to
+        // a PLAIN invoice for the first due amount only so Sign & Pay still
+        // opens a payable link.
+        const ghlMessage =
+          (invRes.data && (invRes.data.message || (Array.isArray(invRes.data.errors) ? invRes.data.errors.join("; ") : invRes.data.error))) ||
+          invRes.body.slice(0, 500);
+        console.log("[ghl-invoice] schedule invoice failed, falling back to plain first-due. error:", ghlMessage);
+        scheduleError = String(ghlMessage);
+
+        const firstDue = planRows[0]?.amount || numAmount;
+        const plainRes = await createInvoice(firstDue, planRows, true);
+        if (plainRes.ok) {
+          invoiceId = plainRes.data?._id || plainRes.data?.invoice?._id || plainRes.data?.id || null;
+          invoiceTotal = firstDue;
+          path = "plain-firstDue";
+        } else {
+          const plainMsg =
+            (plainRes.data && (plainRes.data.message || (Array.isArray(plainRes.data.errors) ? plainRes.data.errors.join("; ") : plainRes.data.error))) ||
+            plainRes.body.slice(0, 500);
+          return jsonResp({
+            error: `Failed to create GHL invoice (${plainRes.status}): ${plainMsg}`,
+            path,
+            ghlStatus: plainRes.status,
+            ghlBodyPreview: plainRes.body.slice(0, 800),
+            ghlFull: plainRes.body,
+            scheduleAttempt: { status: invRes.status, message: ghlMessage },
+          }, 500);
+        }
       }
     } else {
       invoiceTotal = numAmount;
       const invRes = await createInvoice(invoiceTotal);
       if (!invRes.ok) {
+        const msg =
+          (invRes.data && (invRes.data.message || (Array.isArray(invRes.data.errors) ? invRes.data.errors.join("; ") : invRes.data.error))) ||
+          invRes.body.slice(0, 500);
         return jsonResp({
-          error: `Failed to create GHL invoice (${invRes.status}): ${invRes.body}`,
+          error: `Failed to create GHL invoice (${invRes.status}): ${msg}`,
           path, ghlStatus: invRes.status, ghlBodyPreview: invRes.body.slice(0, 800), ghlFull: invRes.body,
         }, 500);
       }
@@ -646,6 +676,7 @@ Deno.serve(async (req) => {
       savedBaseUrl: savedBaseUrl,
       statusAfter,
       autoPayBodyPreview: autoPayBody || undefined,
+      scheduleError: scheduleError || undefined,
     });
   } catch (err: any) {
     console.error("[ghl-invoice] unhandled:", err);
