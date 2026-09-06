@@ -24,6 +24,7 @@ export const ALL_FUNCTION_NAMES = [
   "stripe-portal",
   "stripe-onboard",
   "stripe-webhook",
+  "stripe-royalty-webhook",
   "stripe-status",
   "stripe-cancel-subscription",
   "crm-webhook",
@@ -37,4 +38,6 @@ export const ALL_FUNCTION_NAMES = [
   "daily-digest",
   "send-push",
   "scheduler",
+  "ghl-invoice",
+  "ghl-invoice-webhook",
 ];

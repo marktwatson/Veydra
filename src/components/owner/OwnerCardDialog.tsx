@@ -7,54 +7,52 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { CreditCard, Landmark, Loader2 } from "lucide-react";
+import { CreditCard, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { api } from "@/lib/api";
 import {
   Elements,
   PaymentElement,
   useStripe,
   useElements,
 } from "@stripe/react-stripe-js";
+import { api } from "@/lib/api";
 
-interface OwnerBankDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  setupClientSecret: string | null;
-  publishableKey: string | null;
-  stripeInstance: any;
-  onDone: () => void;
-}
-
-export function OwnerBankDialog({
+/**
+ * Backup card dialog for the owner Royalty dashboard.
+ * Card-only SetupIntent. Saves to territories.backup_payment_method_id.
+ * Only available after a bank (ACH) is connected as primary.
+ */
+export function OwnerCardDialog({
   open,
   onOpenChange,
   setupClientSecret,
-  publishableKey,
   stripeInstance,
   onDone,
-}: OwnerBankDialogProps) {
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  setupClientSecret: string | null;
+  stripeInstance: any;
+  onDone: () => void;
+}) {
   return (
     <Dialog
       open={open}
       onOpenChange={(o) => {
-        if (!o) {
-          onOpenChange(false);
-        }
+        if (!o) onOpenChange(false);
       }}
     >
       <DialogContent className="sm:max-w-[480px] rounded-3xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <CreditCard className="h-5 w-5" /> Connect Bank Account
+            <CreditCard className="h-5 w-5" /> Add Backup Card
           </DialogTitle>
           <DialogDescription>
-            Securely add a bank account (ACH preferred) or credit card for
-            automatic weekly royalty collection. This uses Veydra's dedicated
-            royalty account.
+            This card is only used if the primary bank (ACH) charge fails. A 3%
+            fee applies on the charged amount when this card is used.
           </DialogDescription>
         </DialogHeader>
-        {setupClientSecret && publishableKey && stripeInstance && (
+        {setupClientSecret && stripeInstance ? (
           <Elements
             stripe={stripeInstance}
             options={{
@@ -62,13 +60,12 @@ export function OwnerBankDialog({
               appearance: { theme: "stripe" },
             }}
           >
-            <OwnerBankSetupForm onDone={onDone} />
+            <OwnerCardForm onDone={onDone} />
           </Elements>
-        )}
-        {!publishableKey && setupClientSecret && (
-          <div className="flex items-center justify-center py-8 text-amber-600 text-sm">
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Loading royalty
-            Stripe account...
+        ) : (
+          <div className="flex items-center justify-center py-8 text-muted-foreground text-sm gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" /> Preparing secure card
+            form...
           </div>
         )}
       </DialogContent>
@@ -76,70 +73,57 @@ export function OwnerBankDialog({
   );
 }
 
-// ─── Owner Bank Account Setup Form (inside Elements provider) ───
-function OwnerBankSetupForm({ onDone }: { onDone: () => void }) {
+function OwnerCardForm({ onDone }: { onDone: () => void }) {
   const stripe = useStripe();
   const elements = useElements();
   const { toast } = useToast();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Track whether the Payment Element has fully mounted and is ready for submissions
   const [elementsReady, setElementsReady] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-
     if (!stripe || !elements) {
       setError("Stripe has not loaded yet. Please wait a moment.");
       return;
     }
-
-    // Guard: don't submit until PaymentElement is mounted and ready
     if (!elementsReady) {
       setError("Payment form is still loading. Please wait...");
       return;
     }
-
     setSubmitting(true);
-
     try {
-      // Use "if_required" so we stay in-page instead of redirecting the frame.
-      // In the preview iframe, top-frame navigation is blocked, which would
-      // throw "Failed to set a named property 'href' on 'Location'".
       const { setupIntent, error: confirmError } = await stripe.confirmSetup({
         elements,
         redirect: "if_required",
         confirmParams: {
-          return_url: window.location.origin + "/owner/royalty?setup=complete",
+          return_url: window.location.origin + "/owner/royalty?card=complete",
         },
       });
-
       if (confirmError) {
-        setError(confirmError.message || "Failed to connect bank account.");
+        setError(confirmError.message || "Failed to add card.");
         return;
       }
-
-      // Success — attach the payment method to the territory customer so the
-      // processor can charge it later. FATAL: if persisting fails, the UI would
-      // keep showing "No payment method" even though Stripe confirmed.
       if (setupIntent?.payment_method) {
         try {
           await api.connectTerritoryStripe(setupIntent.payment_method);
         } catch (attachErr: any) {
           setError(
             attachErr?.message ||
-              "Bank authorized, but we couldn't save it to your territory. Please redeploy the royalty-processor edge function and try again.",
+              "Card authorized, but it couldn't be saved to your territory.",
           );
           return;
         }
       }
+      toast({
+        title: "Backup Card Added",
+        description:
+          "Your backup card is on file. A 3% fee applies if this card is used.",
+      });
       onDone();
     } catch (err: any) {
-      setError(
-        err?.message || "An unexpected error occurred. Please try again.",
-      );
+      setError(err?.message || "An unexpected error occurred.");
     } finally {
       setSubmitting(false);
     }
@@ -150,15 +134,12 @@ function OwnerBankSetupForm({ onDone }: { onDone: () => void }) {
       <PaymentElement
         options={{
           layout: { type: "accordion", defaultCollapsed: false },
-          paymentMethodOrder: ["us_bank_account"],
+          paymentMethodOrder: ["card"],
         }}
         onReady={() => setElementsReady(true)}
         onChange={(e: any) => {
-          if (e.error) {
-            setError(e.error.message);
-          } else {
-            setError(null);
-          }
+          if (e.error) setError(e.error.message);
+          else setError(null);
         }}
       />
       {error && (
@@ -173,21 +154,20 @@ function OwnerBankSetupForm({ onDone }: { onDone: () => void }) {
       >
         {submitting ? (
           <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Connecting...
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Adding...
           </>
         ) : !elementsReady ? (
           <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading secure
-            form...
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading form...
           </>
         ) : (
           <>
-            <Landmark className="mr-2 h-4 w-4" /> Connect Bank Account
+            <CreditCard className="mr-2 h-4 w-4" /> Add Backup Card
           </>
         )}
       </Button>
       <p className="text-center text-xs text-muted-foreground">
-        Your bank details are encrypted by Stripe and never stored on our
+        Your card details are encrypted by Stripe and never stored on our
         servers.
       </p>
     </form>

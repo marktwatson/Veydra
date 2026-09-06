@@ -11,6 +11,7 @@ import stripePayout from "../../supabase/functions/stripe-payout/index.ts?raw";
 import stripePortal from "../../supabase/functions/stripe-portal/index.ts?raw";
 import stripeOnboard from "../../supabase/functions/stripe-onboard/index.ts?raw";
 import stripeWebhook from "../../supabase/functions/stripe-webhook/index.ts?raw";
+import stripeRoyaltyWebhook from "../../supabase/functions/stripe-royalty-webhook/index.ts?raw";
 import stripeCancelSubscription from "../../supabase/functions/stripe-cancel-subscription/index.ts?raw";
 import crmWebhook from "../../supabase/functions/crm-webhook/index.ts?raw";
 import processNotifications from "../../supabase/functions/process-notifications/index.ts?raw";
@@ -24,6 +25,8 @@ import paymentPlanApprove from "../../supabase/functions/payment-plan-approve/in
 import dailyDigest from "../../supabase/functions/daily-digest/index.ts?raw";
 import sendPush from "../../supabase/functions/send-push/index.ts?raw";
 import scheduler from "../../supabase/functions/scheduler/index.ts?raw";
+import ghlInvoice from "../../supabase/functions/ghl-invoice/index.ts?raw";
+import ghlInvoiceWebhook from "../../supabase/functions/ghl-invoice-webhook/index.ts?raw";
 import scheduledJobsSchema from "../../supabase/migrations/20260901000000_scheduled_jobs.sql?raw";
 import pushSchema from "../../supabase/migrations/20260829000001_push_subscriptions.sql?raw";
 import masterSql from "../../supabase/migrations/20260803000000_schema.sql?raw";
@@ -36,6 +39,7 @@ export const EDGE_FUNCTION_SOURCES: Record<string, string> = {
   "stripe-portal": stripePortal,
   "stripe-onboard": stripeOnboard,
   "stripe-webhook": stripeWebhook,
+  "stripe-royalty-webhook": stripeRoyaltyWebhook,
   "stripe-cancel-subscription": stripeCancelSubscription,
   "stripe-status": stripeStatus,
   "crm-webhook": crmWebhook,
@@ -49,6 +53,8 @@ export const EDGE_FUNCTION_SOURCES: Record<string, string> = {
   "daily-digest": dailyDigest,
   "send-push": sendPush,
   scheduler: scheduler,
+  "ghl-invoice": ghlInvoice,
+  "ghl-invoice-webhook": ghlInvoiceWebhook,
   master_sql: masterSql,
   scheduled_jobs_schema: scheduledJobsSchema,
   push_schema: pushSchema,

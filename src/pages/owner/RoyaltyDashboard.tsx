@@ -26,6 +26,8 @@ import {
   OwnerRoyaltyStatusBadge,
 } from "@/components/owner/OwnerRoyaltyBody";
 import { OwnerBankDialog } from "@/components/owner/OwnerBankDialog";
+import { OwnerCardDialog } from "@/components/owner/OwnerCardDialog";
+import { createRoyaltyCardSetupIntent } from "@/lib/royalty-card-setup";
 
 export default function OwnerRoyaltyDashboard() {
   const { user } = useAuth();
@@ -40,9 +42,10 @@ export default function OwnerRoyaltyDashboard() {
   const [royaltyPublishableKey, setRoyaltyPublishableKey] = useState<
     string | null
   >(null);
-  // Loaded Stripe instance for the royalty account (async — loadStripe returns
-  // a Promise, so we store it in state once resolved before rendering Elements)
   const [royaltyStripe, setRoyaltyStripe] = useState<any>(null);
+  const [cardDialogOpen, setCardDialogOpen] = useState(false);
+  const [cardSetupSecret, setCardSetupSecret] = useState<string | null>(null);
+  const [cardStripe, setCardStripe] = useState<any>(null);
 
   const connectBankMutation = useMutation({
     mutationFn: async () => {
@@ -84,6 +87,42 @@ export default function OwnerRoyaltyDashboard() {
       toast({
         variant: "destructive",
         title: "Connection Failed",
+        description: err.message,
+      }),
+  });
+
+  // Backup card setup (card-only SetupIntent, after bank is connected)
+  const connectCardMutation = useMutation({
+    mutationFn: async () => {
+      return await createRoyaltyCardSetupIntent();
+    },
+    onSuccess: async (data: any) => {
+      if (data.client_secret) {
+        setCardSetupSecret(data.client_secret);
+        let pk = data.publishable_key;
+        if (!pk) {
+          try {
+            const r = await api.getRoyaltyPublishableKey();
+            pk = r.publishable_key;
+          } catch {}
+        }
+        if (pk) {
+          const instance = await loadStripe(pk);
+          setCardStripe(instance);
+          setCardDialogOpen(true);
+        } else {
+          toast({
+            variant: "destructive",
+            title: "Setup Failed",
+            description: "No royalty Stripe publishable key configured.",
+          });
+        }
+      }
+    },
+    onError: (err: any) =>
+      toast({
+        variant: "destructive",
+        title: "Card Setup Failed",
         description: err.message,
       }),
   });
@@ -393,6 +432,8 @@ export default function OwnerRoyaltyDashboard() {
         remainingBalance={remainingBalance}
         onConnectBank={() => connectBankMutation.mutate()}
         connectPending={connectBankMutation.isPending}
+        onAddBackupCard={() => connectCardMutation.mutate()}
+        backupCardPending={connectCardMutation.isPending}
       />
 
       {/* Connect / Update Bank Account Dialog (Stripe Elements) */}
@@ -411,6 +452,27 @@ export default function OwnerRoyaltyDashboard() {
           setBankDialogOpen(false);
           setSetupClientSecret(null);
           setRoyaltyStripe(null);
+          queryClient.invalidateQueries({
+            queryKey: ["owner-territory", user?.id],
+          });
+        }}
+      />
+
+      {/* Backup Card Dialog (Stripe Elements — card only) */}
+      <OwnerCardDialog
+        open={cardDialogOpen}
+        onOpenChange={(o) => {
+          if (!o) {
+            setCardDialogOpen(false);
+            setCardSetupSecret(null);
+          }
+        }}
+        setupClientSecret={cardSetupSecret}
+        stripeInstance={cardStripe}
+        onDone={() => {
+          setCardDialogOpen(false);
+          setCardSetupSecret(null);
+          setCardStripe(null);
           queryClient.invalidateQueries({
             queryKey: ["owner-territory", user?.id],
           });

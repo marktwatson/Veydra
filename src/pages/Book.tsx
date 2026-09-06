@@ -28,23 +28,19 @@ import {
   Loader2,
   ExternalLink,
 } from "lucide-react";
-import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
 import { api } from "@/lib/api";
+import { createGhlInvoice } from "@/lib/ghl-invoice-api";
+import {
+  calculateFirstDue,
+  bookingInvoiceLabel,
+} from "@/lib/booking-payment-amount";
+import { FALLBACK_PACKAGES, FALLBACK_ADDONS } from "@/lib/booking-fallbacks";
 import {
   DEFAULT_LOGO_URL,
   formatDisplayDate,
   generatePaymentSchedule,
-  generateHTMLReceipt,
 } from "@/lib/utils";
-import {
-  Elements,
-  PaymentElement,
-  useStripe,
-  useElements,
-} from "@stripe/react-stripe-js";
-import confetti from "canvas-confetti";
-import { loadBookingStripe } from "@/lib/stripe-booking";
-const stripePromise = loadBookingStripe();
 
 function TypewriterText({
   text,
@@ -85,373 +81,6 @@ function TypewriterText({
   );
 }
 
-function CheckoutForm({
-  clientSecret,
-  clientName,
-  onSuccess,
-  isSubmitting,
-  setIsSubmitting,
-  companyName,
-  weddingDate,
-  totalPrice,
-  paymentOption,
-  createdWeddingId,
-}: {
-  clientSecret: string;
-  clientName: string;
-  onSuccess: () => void;
-  isSubmitting: boolean;
-  setIsSubmitting: (v: boolean) => void;
-  companyName: string;
-  weddingDate: string;
-  totalPrice: number;
-  paymentOption: string;
-  createdWeddingId: string;
-}) {
-  const stripe = useStripe();
-  const elements = useElements();
-  const { toast } = useToast();
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!stripe || !elements) return;
-
-    setIsSubmitting(true);
-    try {
-      const isSetupIntent = clientSecret.startsWith("seti_");
-
-      const confirmResult = isSetupIntent
-        ? await stripe.confirmSetup({
-            elements,
-            confirmParams: {
-              return_url:
-                window.location.origin +
-                "/book?success=true&wedding_id=" +
-                createdWeddingId,
-            },
-            redirect: "if_required",
-          })
-        : await stripe.confirmPayment({
-            elements,
-            confirmParams: {
-              return_url:
-                window.location.origin +
-                "/book?success=true&wedding_id=" +
-                createdWeddingId,
-            },
-            redirect: "if_required",
-          });
-
-      const { error } = confirmResult;
-
-      if (error) {
-        api.logAdminActivity(
-          "Direct Booking Payment Failed",
-          `Payment failed for ${clientName}: ${error.message}`,
-          true,
-        );
-        toast({
-          title: "Payment Failed",
-          description: error.message,
-          variant: "destructive",
-        });
-        setIsSubmitting(false);
-      } else {
-        onSuccess();
-      }
-    } catch (err: any) {
-      console.error("Stripe confirmation error:", err);
-      api.logAdminActivity(
-        "Direct Booking Payment Error",
-        `Unexpected error during checkout for ${clientName}: ${err?.message}`,
-        true,
-      );
-      toast({
-        title: "Payment Error",
-        description:
-          err?.message || "An unexpected error occurred during checkout.",
-        variant: "destructive",
-      });
-      setIsSubmitting(false);
-    }
-  };
-
-  const isIframe = window !== window.top;
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      {isIframe && (
-        <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-lg text-sm">
-          <strong>⚠️ Preview Mode Detected:</strong> Stripe security prevents
-          payments from being processed inside this preview window. Please click
-          the <strong>"Open in New Tab"</strong> icon in the top right corner of
-          your screen to test the payment.
-        </div>
-      )}
-      <div className="bg-muted/30 border rounded-lg p-5 space-y-3 text-sm">
-        <h4 className="font-semibold text-base mb-2">Payment Summary</h4>
-        {paymentOption === "deposit" || paymentOption === "quarterly" ? (
-          <>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">
-                Due Today (Retainer)
-              </span>
-              <span className="font-medium">$99.00</span>
-            </div>
-            {generatePaymentSchedule(
-              totalPrice,
-              paymentOption,
-              weddingDate,
-              new Date().toISOString(),
-              0,
-              null,
-            ).map((payment, i) => (
-              <div
-                key={i}
-                className="flex justify-between text-muted-foreground"
-              >
-                <span>
-                  {payment.label} ({payment.date})
-                </span>
-                <span>
-                  $
-                  {payment.amount.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </span>
-              </div>
-            ))}
-            <div className="pt-3 mt-3 border-t text-xs text-muted-foreground leading-relaxed">
-              By completing this payment, you authorize {companyName} to
-              securely save this payment method on file and automatically
-              process future scheduled payments towards your total balance of $
-              {totalPrice.toLocaleString()}.
-            </div>
-          </>
-        ) : paymentOption === "half" ? (
-          <>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">
-                Due Today (50% Deposit)
-              </span>
-              <span className="font-medium">
-                $
-                {(totalPrice / 2).toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </span>
-            </div>
-            <div className="flex justify-between text-muted-foreground">
-              <span>Final Balance (due 10 days before wedding)</span>
-              <span>
-                $
-                {(totalPrice / 2).toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </span>
-            </div>
-            <div className="pt-3 mt-3 border-t text-xs text-muted-foreground leading-relaxed">
-              By completing this payment, you authorize {companyName} to
-              securely save this payment method on file and automatically
-              process the remaining 50% balance 10 days before your wedding
-              date.
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">
-                Due Today (Paid in Full)
-              </span>
-              <span className="font-medium">
-                $
-                {totalPrice.toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Remaining Balance</span>
-              <span className="font-medium">$0.00</span>
-            </div>
-          </>
-        )}
-      </div>
-
-      <div className="min-h-[200px] relative">
-        <PaymentElement onReady={() => console.log("PaymentElement ready")} />
-      </div>
-      <Button
-        type="submit"
-        className="w-full"
-        disabled={!stripe || isSubmitting}
-        size="lg"
-      >
-        {isSubmitting ? (
-          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-        ) : null}
-        {isSubmitting
-          ? "Processing..."
-          : `Pay ${paymentOption === "full" ? "$" + totalPrice.toLocaleString() : paymentOption === "half" ? "$" + (totalPrice / 2).toLocaleString() : "$99"} & Secure Date`}
-      </Button>
-    </form>
-  );
-}
-
-// Fallbacks used while DB data loads or if DB is unreachable
-const FALLBACK_PACKAGES = [
-  {
-    id: "pearl",
-    name: "Pearl",
-    desc: "4 hours",
-    priceBoth: 1950,
-    priceSingle: 1150,
-    photoFeatures: [
-      "4 hours ~ 1 Photographer",
-      "300+ fully edited photos",
-      "Personalized Digital Gallery",
-      "Printing Rights",
-    ],
-    videoFeatures: [
-      "4 hours ~ 1 Videographer",
-      "6+ minute highlight video",
-      "Audio of Vows & Speeches",
-      "Shareable Digital Portfolio Link",
-      "RAW Video Footage",
-    ],
-    isArchived: true,
-  },
-  {
-    id: "emerald",
-    name: "Emerald",
-    desc: "6 hours",
-    priceBoth: 2550,
-    priceSingle: 1450,
-    photoFeatures: [
-      "6 hours ~ 1 Photographer",
-      "450+ fully edited photos",
-      "Personalized Digital Gallery",
-      "Printing Rights",
-    ],
-    videoFeatures: [
-      "6 hours ~ 1 Videographer",
-      "8+ minute highlight video",
-      "Audio of Vows & Speeches",
-      "Shareable Digital Portfolio Link",
-      "RAW Video Footage",
-    ],
-    isArchived: true,
-  },
-  {
-    id: "diamond",
-    name: "Diamond Special",
-    desc: "8 hours",
-    priceBoth: 3150,
-    priceSingle: 1750,
-    photoFeatures: [
-      "8 hours ~ 1 Photographer",
-      "600+ fully edited photos",
-      "Personalized Digital Gallery",
-      "Printing Rights",
-    ],
-    videoFeatures: [
-      "8 hours ~ 1 Videographer",
-      "10+ minute highlight video",
-      "Audio of Vows & Speeches",
-      "Shareable Digital Portfolio Link",
-      "RAW Video Footage",
-    ],
-    isArchived: true,
-  },
-  {
-    id: "platinum",
-    name: "Platinum",
-    desc: "10 hours",
-    priceBoth: 3750,
-    priceSingle: 2050,
-    photoFeatures: [
-      "10 hours ~ 1 Photographer",
-      "750+ fully edited photos",
-      "Personalized Digital Gallery",
-      "Printing Rights",
-    ],
-    videoFeatures: [
-      "10 hours ~ 1 Videographer",
-      "12+ minute highlight video",
-      "Audio of Vows & Speeches",
-      "Shareable Digital Portfolio Link",
-      "RAW Video Footage",
-    ],
-    isArchived: true,
-  },
-  {
-    id: "all_in_bride",
-    name: "All-In Bride",
-    desc: "10 hours",
-    priceBoth: 1950,
-    priceSingle: 1150,
-    photoFeatures: [
-      "10 hours ~ 1 Photographer",
-      "750+ fully edited photos & RAW photos",
-      "Personalized Digital Gallery & Printing Rights",
-      "Shareable Digital Portfolio Link",
-    ],
-    videoFeatures: [
-      "10 hours ~ 1 Videographer",
-      "6+ minute highlight video & RAW Video Footage",
-      "Audio of Vows & Speeches",
-      "Shareable Digital Portfolio Link",
-    ],
-  },
-];
-
-const FALLBACK_ADDONS = [
-  {
-    id: "audio",
-    name: "Audio of Vows & Speeches",
-    price: 125,
-    isArchived: true,
-  },
-  { id: "drone", name: "Aerial Drone Footage", price: 250, isArchived: true },
-  {
-    id: "second_shooter",
-    name: "2nd Shooter",
-    price: 200,
-    isHourly: true,
-    minHours: 3,
-    isArchived: true,
-  },
-  { id: "raw", name: "4K RAW Footage Delivery", price: 200, isArchived: true },
-  {
-    id: "highlight_30",
-    name: "30-Min Highlight Video",
-    price: 350,
-    isArchived: true,
-  },
-  {
-    id: "highlight_60",
-    name: "60-Min Highlight Video",
-    price: 500,
-    isArchived: true,
-  },
-  {
-    id: "extra_session",
-    name: "Extra Session (Engagement/Bridals)",
-    price: 450,
-    isArchived: true,
-  },
-  { id: "drone_new", name: "Aerial Drone Footage", price: 300 },
-  {
-    id: "second_shooter_new",
-    name: "2nd Shooter (up to 10 hours)",
-    price: 750,
-  },
-];
-
 export default function Book() {
   const [PACKAGES, setPackages] = useState<any[]>(FALLBACK_PACKAGES);
   const [ADDONS, setAddons] = useState<any[]>(FALLBACK_ADDONS);
@@ -491,11 +120,7 @@ export default function Book() {
   const [formStep, setFormStep] = useState(0);
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [clientSecret, setClientSecret] = useState("");
-  const [stripeIds, setStripeIds] = useState({
-    customerId: "",
-    subscriptionId: "",
-  });
+  const [invoiceUrl, setInvoiceUrl] = useState("");
   const [createdWeddingId, setCreatedWeddingId] = useState("");
   const [isSuccess, setIsSuccess] = useState(
     new URLSearchParams(window.location.search).get("success") === "true",
@@ -503,11 +128,6 @@ export default function Book() {
   const [settings, setSettings] = useState<any>(null);
   const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
   const [isValidatingCoupon, setIsValidatingCoupon] = useState(false);
-
-  const stripeOptions = useMemo(
-    () => ({ clientSecret, appearance: { theme: "stripe" as const } }),
-    [clientSecret],
-  );
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -537,8 +157,6 @@ export default function Book() {
         api
           .fulfillDirectBookingPayment(wId, {
             paid_amount: amountPaid,
-            stripe_customer_id: stripeIds.customerId || null,
-            stripe_subscription_id: stripeIds.subscriptionId || null,
           })
           .catch(console.error);
       }
@@ -819,75 +437,48 @@ export default function Book() {
           await api.updateWedding(weddingId, weddingPayload);
         }
 
-        const response = await fetch(
-          `${supabaseUrl}/functions/v1/stripe-checkout`,
+        // Create a GHL invoice for the first amount due only.
+        // Remaining dates go on the invoice's paymentSchedule (handled by the
+        // edge function). No Stripe PaymentIntent / Checkout / off-session
+        // charge is created on this path.
+        let paidSoFar = 0;
+        try {
+          const { data: w } = await supabase
+            .from("weddings")
+            .select("paid_amount")
+            .eq("id", weddingId)
+            .maybeSingle();
+          paidSoFar = Number(w?.paid_amount || 0);
+        } catch {}
+
+        const firstDue = calculateFirstDue(
           {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${supabaseAnonKey}`,
-              apikey: supabaseAnonKey,
-            },
-            body: JSON.stringify({
-              amount: Math.round(
-                formData.paymentOption === "full"
-                  ? discountedPrice * 100
-                  : formData.paymentOption === "half"
-                    ? halfDepositPrice * 100
-                    : 9900,
-              ),
-              paymentOption: formData.paymentOption,
-              customerEmail: formData.email,
-              customerName: `${formData.firstName} ${formData.lastName}`.trim(),
-              description:
-                formData.paymentOption === "full"
-                  ? `Wedding Payment in Full for ${formData.firstName} ${formData.lastName}`
-                  : formData.paymentOption === "half"
-                    ? `Wedding 50% Deposit for ${formData.firstName} ${formData.lastName}`
-                    : `Wedding Deposit for ${formData.firstName} ${formData.lastName}`,
-              totalPrice:
-                formData.paymentOption === "full"
-                  ? discountedPrice
-                  : totalPrice,
-              weddingDate: formData.weddingDate,
-              couponId: appliedCoupon?.id || null,
-              weddingId: weddingId,
-            }),
+            paymentOption: formData.paymentOption,
+            totalPrice,
+            discountedPrice,
+            halfDepositPrice,
           },
+          paidSoFar,
         );
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error("Stripe Edge Function Error:", errorText);
-          throw new Error(
-            `Payment server error (${response.status}): ${errorText || "Function not found or failed"}`,
-          );
+        if (firstDue <= 0) {
+          // Nothing left to invoice — booking is already paid in full.
+          setIsSuccess(true);
+          return;
         }
 
-        const data = await response.json();
+        const label = bookingInvoiceLabel(
+          formData.paymentOption,
+          `${formData.firstName} ${formData.lastName}`,
+        );
 
-        if (!data?.clientSecret) {
-          console.error("No client secret returned:", data);
-          throw new Error(
-            data?.error || "Invalid response from payment server",
-          );
-        }
+        const invoice = await createGhlInvoice({
+          weddingId: weddingId,
+          amount: firstDue,
+          label,
+        });
 
-        setClientSecret(data.clientSecret);
-        if (data.customerId || data.subscriptionId) {
-          setStripeIds({
-            customerId: data.customerId || "",
-            subscriptionId: data.subscriptionId || "",
-          });
-          if (weddingId) {
-            api
-              .updateWedding(weddingId, {
-                stripe_customer_id: data.customerId || null,
-                stripe_subscription_id: data.subscriptionId || null,
-              })
-              .catch(console.error);
-          }
-        }
+        setInvoiceUrl(invoice.invoiceUrl);
         setStep(4);
       } catch (err: any) {
         console.error("Checkout initialization failed:", err);
@@ -2122,129 +1713,53 @@ export default function Book() {
             </div>
           )}
 
-          {step === 4 && clientSecret && (
+          {step === 4 && invoiceUrl && (
             <div className="animate-in fade-in slide-in-from-bottom-4 duration-700 max-w-xl mx-auto">
               <div className="mb-12 text-center">
                 <h2 className="text-3xl md:text-4xl font-serif text-stone-900 dark:text-stone-50 mb-3">
-                  <TypewriterText text="Secure your date." />
+                  <TypewriterText text="Almost done." />
                 </h2>
                 <p className="text-stone-500 dark:text-stone-400 font-light text-lg">
-                  Finalize your booking with a secure payment.
+                  You're almost done — pay the invoice to confirm. This page
+                  will update when payment posts.
                 </p>
               </div>
 
-              <Elements stripe={stripePromise} options={stripeOptions}>
-                <CheckoutForm
-                  clientSecret={clientSecret}
-                  clientName={`${formData.firstName} ${formData.lastName}`}
-                  companyName={companyName}
-                  weddingDate={formData.weddingDate}
-                  totalPrice={
-                    formData.paymentOption === "full"
+              <div className="bg-white dark:bg-stone-900/30 border border-stone-200 dark:border-stone-800 rounded-2xl p-8 space-y-6 shadow-sm">
+                <p className="text-sm text-stone-600 dark:text-stone-300">
+                  An invoice for{" "}
+                  <strong>
+                    $
+                    {(formData.paymentOption === "full"
                       ? discountedPrice
-                      : totalPrice
-                  }
-                  paymentOption={formData.paymentOption}
-                  setIsSubmitting={setIsSubmitting}
-                  isSubmitting={isSubmitting}
-                  createdWeddingId={createdWeddingId}
-                  onSuccess={async () => {
-                    setIsSuccess(true);
-                    confetti({
-                      particleCount: 100,
-                      spread: 70,
-                      origin: { y: 0.6 },
-                    });
-                    toast({
-                      title: "Booking Successful",
-                      description: "Your wedding has been secured!",
-                    });
-
-                    const amountPaid =
-                      formData.paymentOption === "full"
-                        ? discountedPrice
-                        : formData.paymentOption === "half"
-                          ? totalPrice / 2
-                          : 99;
-
-                    if (createdWeddingId) {
-                      try {
-                        await api.updateWedding(createdWeddingId, {
-                          paid_amount: amountPaid,
-                          status: "pending",
-                          contract_date: new Date().toISOString(),
-                          notes: (formData.notes || "")
-                            .replace("[UNPAID_DRAFT]\n", "")
-                            .replace("[UNPAID_DRAFT]", ""),
-                          stripe_customer_id: stripeIds.customerId || null,
-                          stripe_subscription_id:
-                            stripeIds.subscriptionId || null,
-                        } as any);
-                      } catch (e) {
-                        console.error(
-                          "Failed to update wedding status on success:",
-                          e,
-                        );
-                      }
-                    }
-
-                    const pkgName = selectedPackage?.name || "Custom Package";
-                    const addonsList = selectedAddons.map(
-                      (id) => ADDONS.find((a) => a.id === id.id)?.name || id.id,
-                    );
-                    const receiptHtml = generateHTMLReceipt(
-                      companyName,
-                      `${formData.firstName} ${formData.lastName}`,
-                      amountPaid,
-                      formData.paymentOption,
-                      pkgName,
-                      addonsList,
-                      totalPrice,
-                    );
-
-                    try {
-                      await api.sendOvantaEmail(
-                        formData.email,
-                        `Payment Receipt - ${companyName}`,
-                        receiptHtml,
-                        `${formData.firstName} ${formData.lastName}`,
-                        true,
-                      );
-                    } catch (err) {
-                      console.error("Failed to send receipt:", err);
-                    }
-                  }}
-                />
-              </Elements>
-
-              <div className="mt-12 pt-8 border-t border-stone-100 dark:border-stone-800 text-center">
-                <p className="text-xs text-stone-400 flex items-center justify-center gap-2 uppercase tracking-widest">
-                  <Shield className="w-3 h-3" /> Secure SSL Encrypted Checkout
+                      : formData.paymentOption === "half"
+                        ? halfDepositPrice
+                        : 99
+                    ).toLocaleString()}
+                  </strong>{" "}
+                  has been created. Open it to complete your payment securely.
                 </p>
+                <Button
+                  size="lg"
+                  className="w-full"
+                  onClick={() => window.open(invoiceUrl, "_blank")}
+                >
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  Open invoice
+                </Button>
+                <a
+                  href={invoiceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block text-center text-sm text-stone-700 dark:text-stone-300 underline underline-offset-4 hover:opacity-80"
+                >
+                  Open invoice
+                </a>
               </div>
             </div>
           )}
         </div>
       </div>
     </div>
-  );
-}
-
-function Shield({ className }: { className?: string }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-    </svg>
   );
 }

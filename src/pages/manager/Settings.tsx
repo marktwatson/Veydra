@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
 import { ClockSchedulerSection } from "@/components/ClockSchedulerCard";
+import { InvoiceLinkDomainCard } from "@/components/InvoiceLinkDomainCard";
 import {
   Card,
   CardContent,
@@ -486,6 +487,9 @@ export default function ManagerSettings() {
   const bartendingModuleOn = useBartendingModule();
   const [hlApiKey, setHlApiKey] = useState("");
   const [hlLocationId, setHlLocationId] = useState("");
+  const [hlUserId, setHlUserId] = useState("");
+  const [hlInvoiceBaseUrl, setHlInvoiceBaseUrl] = useState("");
+  const [ghlWebhookSecret, setGhlWebhookSecret] = useState("");
   const [fbAccessToken, setFbAccessToken] = useState("");
   const [fbAdAccountId, setFbAdAccountId] = useState("");
   const [isTestingApi, setIsTestingApi] = useState(false);
@@ -1973,6 +1977,11 @@ export default function ManagerSettings() {
 
           if (settings.hl_api_key) setHlApiKey(settings.hl_api_key);
           if (settings.hl_location_id) setHlLocationId(settings.hl_location_id);
+          if (settings.hl_user_id) setHlUserId(settings.hl_user_id);
+          if (settings.ghl_invoice_base_url)
+            setHlInvoiceBaseUrl(settings.ghl_invoice_base_url);
+          if (settings.ghl_webhook_secret)
+            setGhlWebhookSecret(settings.ghl_webhook_secret);
           if (settings.fb_access_token)
             setFbAccessToken(settings.fb_access_token);
           if (settings.fb_ad_account_id)
@@ -2502,7 +2511,9 @@ export default function ManagerSettings() {
         company_name: companyName || null,
         hl_api_key: hlApiKey || null,
         hl_location_id: hlLocationId || null,
+        hl_user_id: hlUserId || null,
         fb_access_token: fbAccessToken || null,
+        ghl_invoice_base_url: hlInvoiceBaseUrl || null,
         fb_ad_account_id: fbAdAccountId || null,
         sms_invite_enabled: smsInviteEnabled,
         sms_invite_template: smsInviteTemplate || null,
@@ -4211,6 +4222,20 @@ export default function ManagerSettings() {
                   />
                 </div>
 
+                <div className="grid gap-2 pt-4 border-t mt-2">
+                  <Label htmlFor="hl-user-id">Ovanta User ID</Label>
+                  <Input
+                    id="hl-user-id"
+                    placeholder="Location user id (for invoice send)"
+                    value={hlUserId}
+                    onChange={(e) => setHlUserId(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Required to send invoices. If blank, the system will look it
+                    up automatically.
+                  </p>
+                </div>
+
                 <div className="flex gap-2 mt-4">
                   <Button
                     onClick={handleSaveIntegrations}
@@ -4259,6 +4284,11 @@ export default function ManagerSettings() {
                 </div>
               </CardContent>
             </Card>
+
+            <InvoiceLinkDomainCard
+              savedBaseUrl={hlInvoiceBaseUrl}
+              savedWebhookSecret={ghlWebhookSecret}
+            />
 
             <Card className="md:col-span-2 max-w-3xl">
               <CardHeader>

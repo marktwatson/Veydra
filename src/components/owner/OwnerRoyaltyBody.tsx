@@ -88,6 +88,8 @@ interface OwnerRoyaltyBodyProps {
   remainingBalance: number;
   onConnectBank: () => void;
   connectPending: boolean;
+  onAddBackupCard: () => void;
+  backupCardPending: boolean;
 }
 
 export function OwnerRoyaltyBody({
@@ -105,6 +107,8 @@ export function OwnerRoyaltyBody({
   remainingBalance,
   onConnectBank,
   connectPending,
+  onAddBackupCard,
+  backupCardPending,
 }: OwnerRoyaltyBodyProps) {
   return (
     <>
@@ -282,6 +286,56 @@ export function OwnerRoyaltyBody({
               </Button>
             </>
           )}
+
+          {/* Backup card (optional — only after bank is connected) */}
+          {territory.stripe_customer_id &&
+            (territory.primary_payment_method_id ||
+              territory.stripe_payment_method_id) && (
+              <div className="border-t border-border/40 pt-3 mt-1 space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Backup Card (optional)
+                </p>
+                {territory.backup_payment_method_id ? (
+                  <div className="flex items-center justify-between bg-muted/30 rounded-xl p-3">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4 text-blue-500" />
+                      <div>
+                        <p className="text-sm font-medium">Card on file</p>
+                        <p className="text-xs text-muted-foreground">
+                          3% fee if this card is used for a weekly charge
+                        </p>
+                      </div>
+                    </div>
+                    <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20 rounded-full">
+                      <CheckCircle className="h-3 w-3 mr-1" /> On File
+                    </Badge>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between bg-muted/30 rounded-xl p-3">
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="h-4 w-4 text-muted-foreground" />
+                      <p className="text-xs text-muted-foreground">
+                        Add a backup card — used only if the bank charge fails
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-full"
+                      onClick={onAddBackupCard}
+                      disabled={backupCardPending}
+                    >
+                      {backupCardPending ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <CreditCard className="h-4 w-4 mr-2" />
+                      )}
+                      Add Card
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
         </CardContent>
       </Card>
 

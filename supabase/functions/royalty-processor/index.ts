@@ -72,6 +72,8 @@ Deno.serve(async (req) => {
     `CREATE INDEX IF NOT EXISTS idx_royalty_sales_unprocessed ON public.royalty_sales(territory_id) WHERE processed_period_id IS NULL`,
     // Hard safeguard: one period per territory per week — prevents double charge.
     `CREATE UNIQUE INDEX IF NOT EXISTS royalty_periods_unique_period ON public.royalty_periods (territory_id, period_start, period_end)`,
+    // Backup card column (optional card fallback with 3% fee)
+    `ALTER TABLE public.territories ADD COLUMN IF NOT EXISTS backup_payment_method_id TEXT`,
     // Deduplicate royalty_settings: delete empty clone rows so .limit(1) reads
     // can't accidentally return an unconfigured row instead of the real one.
     `DELETE FROM public.royalty_settings WHERE stripe_royalty_configured = true AND id NOT IN (SELECT id FROM public.royalty_settings WHERE stripe_royalty_configured = true ORDER BY created_at ASC LIMIT 1)`,
@@ -226,7 +228,7 @@ Deno.serve(async (req) => {
       return jsonResponse({ success: false, message: "No payment methods found attached to customer in Stripe" });
     }
 
-    // SetupIntent (bank/card connect) — legacy + API naming.
+    // SetupIntent (BANK ONLY — ACH primary). Card is a separate backup action.
     if (body.action === "setup_intent" || body.action === "create_setup_intent") {
       if (!stripeKey) return jsonResponse({ error: "Royalty Stripe account not configured. Super Admin must add the royalty Stripe secret + publishable keys first (Settings → Royalty)." }, 400);
       if (!stripeKey.startsWith("sk_live_") && !stripeKey.startsWith("sk_test_") && !stripeKey.startsWith("rk_live_") && !stripeKey.startsWith("rk_test_")) {
@@ -250,33 +252,74 @@ Deno.serve(async (req) => {
         if (territory) await supabase.from("territories").update({ stripe_customer_id: customerId }).eq("id", territory.id);
       }
 
-      // Check if customer already has a payment method in Stripe and auto-sync
+      // Check if customer already has a bank payment method in Stripe and auto-sync
       const bankMethods = await stripe.paymentMethods.list({ customer: customerId, type: "us_bank_account" });
-      const cardMethods = await stripe.paymentMethods.list({ customer: customerId, type: "card" });
-      const existingPm = bankMethods.data[0] || cardMethods.data[0] || null;
+      const existingPm = bankMethods.data[0] || null;
       if (existingPm && territory) {
         try { await persistPaymentMethod(supabase, stripe, territory, existingPm.id); } catch (_) {}
       }
 
+      // ACH ONLY — no card option in this SetupIntent.
       const setupIntent = await stripe.setupIntents.create({
-        customer: customerId, payment_method_types: ["us_bank_account", "card"], usage: "off_session",
+        customer: customerId, payment_method_types: ["us_bank_account"], usage: "off_session",
         metadata: { territory_id: territory?.id || "" },
+      });
+      return jsonResponse({ client_secret: setupIntent.client_secret, customer_id: customerId, publishable_key: royaltyPublishableKey });
+    }
+
+    // Card SetupIntent — BACKUP card only. Only allowed after a bank (primary)
+    // is connected. Saves to territories.backup_payment_method_id, never replaces primary.
+    if (body.action === "create_card_setup_intent") {
+      if (!stripeKey) return jsonResponse({ error: "Royalty Stripe account not configured." }, 400);
+      const stripe = new Stripe(stripeKey, { apiVersion: "2023-10-16", httpClient: Stripe.createFetchHttpClient() });
+      const territory = await getOwnTerritory(supabase);
+      if (!territory) return jsonResponse({ error: "No territory found for this instance" }, 400);
+      if (!territory.primary_payment_method_id) {
+        return jsonResponse({ error: "Connect a bank account (ACH) first — a backup card can only be added after your primary bank is on file." }, 400);
+      }
+      let customerId = territory.stripe_customer_id;
+      if (!customerId) return jsonResponse({ error: "No Stripe customer on this territory." }, 400);
+      const setupIntent = await stripe.setupIntents.create({
+        customer: customerId, payment_method_types: ["card"], usage: "off_session",
+        metadata: { territory_id: territory.id, backup_card: "true" },
       });
       return jsonResponse({ client_secret: setupIntent.client_secret, customer_id: customerId, publishable_key: royaltyPublishableKey });
     }
 
     // Attach + persist payment method (hardened path). Called by the client
     // after stripe.confirmSetup succeeds. Verifies the DB write landed.
+    // For bank: saves as primary_payment_method_id. For card: saves as backup.
     if (body.action === "attach_payment_method" && body.payment_method_id) {
       if (!stripeKey) return jsonResponse({ error: "Stripe not configured" }, 400);
       const stripe = new Stripe(stripeKey, { apiVersion: "2023-10-16", httpClient: Stripe.createFetchHttpClient() });
       const territory = await getOwnTerritory(supabase);
       if (!territory) return jsonResponse({ error: "No territory found for this instance" }, 400);
-      try {
-        const result = await persistPaymentMethod(supabase, stripe, territory, body.payment_method_id as string);
-        return jsonResponse({ success: true, payment_method_id: result.payment_method_id, configured: true });
-      } catch (err: any) {
-        return jsonResponse({ error: err.message || "Failed to persist payment method" }, 500);
+      const pmId = body.payment_method_id as string;
+      if (!pmId || !pmId.startsWith("pm_")) return jsonResponse({ error: "Invalid payment method id" }, 400);
+
+      // Determine if this is a bank or card PM
+      let pmType = "card";
+      try { const pm = await stripe.paymentMethods.retrieve(pmId); pmType = pm.type; } catch (_) {}
+
+      let customerId = territory.stripe_customer_id;
+      if (!customerId) {
+        const c = await stripe.customers.create({ name: territory.name || "Royalty Territory", metadata: { territory_id: territory.id, project_ref: SELF_PROJECT_REF } });
+        customerId = c.id;
+      }
+      try { await stripe.paymentMethods.attach(pmId, { customer: customerId }); } catch (e: any) { const m = (e?.message || "").toLowerCase(); if (!m.includes("already attached") && !m.includes("is already attached")) throw new Error(`Attach payment method failed: ${e?.message || e}`); }
+
+      if (pmType === "us_bank_account") {
+        try { await stripe.customers.update(customerId, { invoice_settings: { default_payment_method: pmId } }); } catch (_) {}
+        const { data: updated, error: updErr } = await supabase.from("territories").update({ primary_payment_method_id: pmId, stripe_payment_method_id: pmId, stripe_customer_id: customerId, stripe_royalty_configured: true, stripe_connected: true }).eq("id", territory.id).select("id").maybeSingle();
+        if (updErr) throw new Error(`Territory payment method save failed: ${updErr.message}`);
+        if (!updated) throw new Error("Bank authorized in Stripe, but it was not saved to the territory. Do not close this dialog.");
+        return jsonResponse({ success: true, payment_method_id: pmId, configured: true, type: "us_bank_account" });
+      } else {
+        // Card → backup only. Never replace primary bank.
+        const { data: updated, error: updErr } = await supabase.from("territories").update({ backup_payment_method_id: pmId, stripe_customer_id: customerId }).eq("id", territory.id).select("id").maybeSingle();
+        if (updErr) throw new Error(`Territory backup card save failed: ${updErr.message}`);
+        if (!updated) throw new Error("Card authorized in Stripe, but it was not saved to the territory. Do not close this dialog.");
+        return jsonResponse({ success: true, payment_method_id: pmId, configured: true, type: "card", backup: true });
       }
     }
 
@@ -451,44 +494,85 @@ Deno.serve(async (req) => {
     let stripeCustomerId = territory.stripe_customer_id;
     if (!stripeCustomerId) return { territory_id: territory.id, territory_name: territory.name, status: "failed", gross_sales: grossSales, total_due: totalDue, error: "No Stripe customer ID on territory" };
 
-    const paymentMethods = await stripe.paymentMethods.list({ customer: stripeCustomerId, type: "us_bank_account" });
-    let paymentMethodId = territory.primary_payment_method_id;
-    if (!paymentMethodId || paymentMethods.data.length === 0) {
-      const cardMethods = await stripe.paymentMethods.list({ customer: stripeCustomerId, type: "card" });
-      if (cardMethods.data.length > 0) paymentMethodId = cardMethods.data[0].id;
-    } else {
-      const bankMatch = paymentMethods.data.find((pm: any) => pm.id === paymentMethodId);
-      if (!bankMatch && paymentMethods.data.length > 0) paymentMethodId = paymentMethods.data[0].id;
-    }
-    if (paymentMethodId && paymentMethodId !== territory.primary_payment_method_id && paymentMethodId !== territory.stripe_payment_method_id) {
-      try { await supabase.from("territories").update({ primary_payment_method_id: paymentMethodId, stripe_payment_method_id: paymentMethodId, stripe_royalty_configured: true, stripe_connected: true }).eq("id", territory.id); } catch (e) { console.warn("[royalty] auto-sync pm failed:", (e as any)?.message); }
+    // ─── Payment method selection: ACH primary preferred, card backup ───
+    // 1. Try primary_payment_method_id (must be a usable bank account).
+    // 2. If no usable bank PM, fall back to backup_payment_method_id (card)
+    //    and apply a 3% fee on the CHARGED amount (not on gross sales).
+    let paymentMethodId: string | null = null;
+    let pmType: "us_bank_account" | "card" = "card";
+    let chargedVia = "none";
+    let chargeAmount = totalDue;
+    let cardFeeAmount = 0;
+
+    const primaryPmId = territory.primary_payment_method_id;
+    if (primaryPmId) {
+      try {
+        const pm = await stripe.paymentMethods.retrieve(primaryPmId);
+        if (pm && pm.type === "us_bank_account") {
+          paymentMethodId = primaryPmId;
+          pmType = "us_bank_account";
+          chargedVia = "ach";
+        }
+      } catch (e: any) { console.warn("[royalty] primary PM retrieve failed:", e?.message); }
     }
 
     if (!paymentMethodId) {
-      await supabase.from("royalty_periods").update({ status: "failed", notes: "No valid payment method on file" }).eq("id", period.id);
+      // No usable bank. Try backup card with 3% fee on the charged amount.
+      const backupPmId = territory.backup_payment_method_id;
+      if (backupPmId) {
+        try {
+          const pm = await stripe.paymentMethods.retrieve(backupPmId);
+          if (pm && pm.type === "card") {
+            cardFeeAmount = Math.round(totalDue * 0.03 * 100) / 100;
+            chargeAmount = Math.round((totalDue + cardFeeAmount) * 100) / 100;
+            paymentMethodId = backupPmId;
+            pmType = "card";
+            chargedVia = "card_backup";
+          }
+        } catch (e: any) { console.warn("[royalty] backup PM retrieve failed:", e?.message); }
+      }
+    }
+
+    if (!paymentMethodId) {
+      await supabase.from("royalty_periods").update({ status: "failed", notes: "No valid payment method on file (connect a bank account or backup card)" }).eq("id", period.id);
       await pushRoyaltyAlert("failed", territory, totalDue, "No valid payment method on file", null);
       return { territory_id: territory.id, territory_name: territory.name, status: "failed", gross_sales: grossSales, total_due: totalDue, error: "No valid payment method" };
     }
 
     try {
       const paymentIntent = await stripe.paymentIntents.create({
-        amount: Math.round(totalDue * 100), currency: "usd", customer: stripeCustomerId,
-        payment_method: paymentMethodId, off_session: true, confirm: true,
+        amount: Math.round(chargeAmount * 100), currency: "usd", customer: stripeCustomerId,
+        payment_method: paymentMethodId, payment_method_types: [pmType],
+        off_session: true, confirm: true,
         description: `Royalty + Payback for ${territory.name} — Period ${periodStart.toISOString().split("T")[0]} to ${periodEnd.toISOString().split("T")[0]}`,
-        metadata: { territory_id: territory.id, royalty_period_id: period.id, royalty_amount: royaltyDue.toFixed(2), payback_amount: paybackDue.toFixed(2), gross_sales: grossSales.toFixed(2) },
+        metadata: {
+          territory_id: territory.id, royalty_period_id: period.id,
+          royalty_amount: royaltyDue.toFixed(2), payback_amount: paybackDue.toFixed(2), gross_sales: grossSales.toFixed(2),
+          charged_via: chargedVia, base_amount: totalDue.toFixed(2), card_fee_amount: cardFeeAmount.toFixed(2),
+        },
       });
 
+      // ACH (us_bank_account) charges return "processing" for 3–5 days, not
+      // "succeeded". Treat both as submitted; only apply payback reduction
+      // once the charge actually succeeds.
       if (paymentIntent.status === "succeeded") {
         const newRemainingBalance = Math.max(0, remainingBalance - paybackDue);
         await supabase.from("territories").update({ remaining_balance: newRemainingBalance, last_calculated_at: new Date().toISOString() }).eq("id", territory.id);
         await supabase.from("royalty_periods").update({ status: "paid", paid_at: new Date().toISOString(), stripe_payment_intent_id: paymentIntent.id }).eq("id", period.id);
         await pushRoyaltyAlert("paid", territory, totalDue, null, newRemainingBalance);
         return { territory_id: territory.id, territory_name: territory.name, status: "paid", gross_sales: grossSales, royalty_due: royaltyDue, payback_due: paybackDue, total_due: totalDue, new_remaining_balance: newRemainingBalance, stripe_pi_id: paymentIntent.id };
-      } else {
-        await supabase.from("royalty_periods").update({ status: "failed", stripe_payment_intent_id: paymentIntent.id, notes: `Payment status: ${paymentIntent.status}` }).eq("id", period.id);
-        await pushRoyaltyAlert("failed", territory, totalDue, `Payment status: ${paymentIntent.status}`, null);
-        return { territory_id: territory.id, territory_name: territory.name, status: "failed", gross_sales: grossSales, total_due: totalDue, error: `Payment status: ${paymentIntent.status}` };
       }
+
+      if (paymentIntent.status === "processing") {
+        await supabase.from("royalty_periods").update({ status: "processing", stripe_payment_intent_id: paymentIntent.id, notes: "ACH submitted — waiting on bank (3–5 days)" }).eq("id", period.id);
+        await pushRoyaltyAlert("processing", territory, totalDue, "ACH submitted — waiting on bank (3–5 days)", null);
+        return { territory_id: territory.id, territory_name: territory.name, status: "processing", gross_sales: grossSales, royalty_due: royaltyDue, payback_due: paybackDue, total_due: totalDue, stripe_pi_id: paymentIntent.id, note: "ACH submitted — waiting on bank (3–5 days)" };
+      }
+
+      // requires_action, requires_payment_method, canceled, etc. → failed
+      await supabase.from("royalty_periods").update({ status: "failed", stripe_payment_intent_id: paymentIntent.id, notes: `Payment status: ${paymentIntent.status}` }).eq("id", period.id);
+      await pushRoyaltyAlert("failed", territory, totalDue, `Payment status: ${paymentIntent.status}`, null);
+      return { territory_id: territory.id, territory_name: territory.name, status: "failed", gross_sales: grossSales, total_due: totalDue, error: `Payment status: ${paymentIntent.status}` };
     } catch (chargeErr: any) {
       await supabase.from("royalty_periods").update({ status: "failed", notes: chargeErr.message }).eq("id", period.id);
       await pushRoyaltyAlert("failed", territory, totalDue, chargeErr.message, null);

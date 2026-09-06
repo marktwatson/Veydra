@@ -368,6 +368,9 @@ ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS email_doc_expiry_sub
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS email_doc_expiry_template TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS sms_doc_expiry_enabled BOOLEAN DEFAULT false;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS sms_doc_expiry_template TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS ghl_invoice_base_url TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_user_id TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS ghl_webhook_secret TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS doc_expiry_reminder_days INTEGER;
 
 -- 2. Managers / Administrators
@@ -606,6 +609,19 @@ ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS venue_geocoded_at TIMESTAMP
 
 -- Welcome & Questionnaire email guard: sent once on publish (pending -> upcoming)
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS welcome_email_sent BOOLEAN DEFAULT false;
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_id TEXT;
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_amount NUMERIC;
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_created_date TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_invoice_base_url TEXT;
+-- CRM invoice tracking (webhook + schedule). ghl_invoice_ids is an array of
+-- all invoice ids for this wedding; ghl_schedule mirrors the payment plan
+-- rows so the bride portal can show Paid / Upcoming / Due with a link.
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_contact_id TEXT;
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_ids JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_url TEXT;
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_status TEXT;
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_amount_paid NUMERIC DEFAULT 0;
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_schedule JSONB DEFAULT '[]'::jsonb;
 
 -- Venue geocode cache table — stores lat/lng for ANY location (leads, proposals, weddings)
 -- so geocoded lead locations survive page reloads even without a wedding record
@@ -1112,11 +1128,15 @@ ALTER TABLE public.territories ADD COLUMN IF NOT EXISTS down_payment NUMERIC(12,
 ALTER TABLE public.territories ADD COLUMN IF NOT EXISTS remaining_balance NUMERIC(12,2) DEFAULT 0;
 ALTER TABLE public.territories ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
 ALTER TABLE public.territories ADD COLUMN IF NOT EXISTS primary_payment_method_id TEXT;
+ALTER TABLE public.territories ADD COLUMN IF NOT EXISTS backup_payment_method_id TEXT;
 ALTER TABLE public.territories ADD COLUMN IF NOT EXISTS owner_user_id UUID;
 ALTER TABLE public.territories ADD COLUMN IF NOT EXISTS processing_day_of_week INTEGER DEFAULT 5;
 ALTER TABLE public.territories ADD COLUMN IF NOT EXISTS last_calculated_at TIMESTAMPTZ;
 ALTER TABLE public.territories ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 3;
 ALTER TABLE public.territories ADD COLUMN IF NOT EXISTS retry_delay_hours INTEGER DEFAULT 24;
+-- Backup card (optional card fallback with 3% fee on the charged amount,
+-- not on gross sales). Only used if the primary bank (ACH) charge fails.
+ALTER TABLE public.territories ADD COLUMN IF NOT EXISTS backup_payment_method_id TEXT;
 
 ALTER TABLE public.territories ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access territories" ON public.territories;
@@ -1703,6 +1723,22 @@ CREATE POLICY IF NOT EXISTS "Staff read charges" ON public.payment_charges FOR S
 CREATE POLICY IF NOT EXISTS "Staff insert charges" ON public.payment_charges FOR INSERT TO authenticated WITH CHECK (true);
 CREATE POLICY IF NOT EXISTS "Staff update charges" ON public.payment_charges FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
 
+-- Per-invoice CRM payment ledger (idempotent running totals).
+CREATE TABLE IF NOT EXISTS public.ghl_invoice_payments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  wedding_id UUID REFERENCES public.weddings(id) ON DELETE CASCADE,
+  ghl_invoice_id TEXT NOT NULL,
+  ghl_event_id TEXT UNIQUE,
+  amount NUMERIC NOT NULL DEFAULT 0,
+  amount_paid_on_invoice NUMERIC NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_ghl_invoice_payments_invoice ON public.ghl_invoice_payments(ghl_invoice_id);
+CREATE INDEX IF NOT EXISTS idx_ghl_invoice_payments_wedding ON public.ghl_invoice_payments(wedding_id);
+ALTER TABLE public.ghl_invoice_payments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public full access ghl_invoice_payments" ON public.ghl_invoice_payments;
+CREATE POLICY "Public full access ghl_invoice_payments" ON public.ghl_invoice_payments FOR ALL USING (true) WITH CHECK (true);
+
 DO $$
 DECLARE
   t TEXT;
@@ -1714,7 +1750,8 @@ DECLARE
     'royalty_secrets','royalty_periods','royalty_audit_log','royalty_sales',
     'payment_plan_change_requests','push_settings','push_subscriptions',
     'push_preferences','venue_geocodes','pricing_packages','pricing_addons',
-    'upsell_purchases','scheduled_jobs','scheduler_heartbeats','payment_refunds','payment_charges'
+    'upsell_purchases','scheduled_jobs','scheduler_heartbeats','payment_refunds','payment_charges',
+    'ghl_invoice_payments'
   ];
 BEGIN
   FOREACH t IN ARRAY business_tables LOOP

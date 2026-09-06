@@ -55,6 +55,7 @@ import {
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
+import { HighlightSongPicker } from "@/components/HighlightSongPicker";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Dialog,
@@ -77,6 +78,7 @@ import {
 } from "@/lib/utils";
 import { applyPortalTheme, parsePortalTheme } from "@/lib/portal-theme";
 import BartendingUpsellBanner from "@/components/BartendingUpsellBanner";
+import { GhlScheduleSection } from "@/components/GhlScheduleSection";
 
 const getSafeDate = (dateStr: string | null) => {
   if (!dateStr) return new Date();
@@ -509,6 +511,17 @@ export default function BridePortal() {
         special_requests: specialRequests,
         questionnaire_data: questionnaireData,
       });
+
+      // If the bride added highlight songs in the questionnaire, persist
+      // them now so they aren't lost on submit (shown for all packages).
+      if (highlightSongs.length > 0) {
+        try {
+          await api.saveHighlightSongs(id, highlightSongs);
+          setSongsSubmitted(true);
+        } catch (err) {
+          console.error("Error saving songs from questionnaire:", err);
+        }
+      }
 
       setSuccess(true);
       toast({
@@ -1184,6 +1197,27 @@ export default function BridePortal() {
                         e.target.value,
                       )
                     }
+                  />
+                </div>
+
+                <div className="space-y-4 pt-4 mt-2 border-t border-[#c9a96e]/20">
+                  <div className="flex items-center gap-2">
+                    <Music className="h-5 w-5 text-[#1a1a1a]" />
+                    <div>
+                      <p className="text-base font-semibold text-[#1a1a1a]">
+                        Highlight Video Songs
+                      </p>
+                      <p className="text-xs text-[#1a1a1a]/60">
+                        Did you book video? If so, please pick your songs here —
+                        minimum 3, recommended 5. You can also manage these
+                        later in the Songs tab.
+                      </p>
+                    </div>
+                  </div>
+                  <HighlightSongPicker
+                    songs={highlightSongs}
+                    onChange={setHighlightSongs}
+                    inline
                   />
                 </div>
               </CardContent>
@@ -3124,6 +3158,8 @@ export default function BridePortal() {
                     )}
                   </div>
 
+                  <GhlScheduleSection weddingId={id!} />
+
                   {invoicesData &&
                     invoicesData.pastInvoices &&
                     invoicesData.pastInvoices.length > 0 && (
@@ -3370,112 +3406,10 @@ export default function BridePortal() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4 pt-6">
-                {highlightSongs.length === 0 && (
-                  <div className="text-center py-8 px-4 bg-[#faf7f2] rounded-xl border border-dashed border-[#c9a96e]/40">
-                    <Music className="h-10 w-10 text-[#1a1a1a]/40 mx-auto mb-3" />
-                    <p className="text-[#1a1a1a]/60">
-                      No songs added yet. Click below to add your first song!
-                    </p>
-                  </div>
-                )}
-
-                {highlightSongs.map((song, index) => (
-                  <div
-                    key={index}
-                    className="bg-[#faf7f2] p-4 rounded-xl border border-[#c9a96e]/20 space-y-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold text-[#1a1a1a]/60">
-                        Song {index + 1}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive shrink-0"
-                        onClick={() => {
-                          const newSongs = [...highlightSongs];
-                          newSongs.splice(index, 1);
-                          setHighlightSongs(newSongs);
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label className="text-xs">Song Title *</Label>
-                        <Input
-                          placeholder="e.g., Perfect"
-                          value={song.title}
-                          onChange={(e) => {
-                            const newSongs = [...highlightSongs];
-                            newSongs[index] = {
-                              ...song,
-                              title: e.target.value,
-                            };
-                            setHighlightSongs(newSongs);
-                          }}
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-xs">Artist *</Label>
-                        <Input
-                          placeholder="e.g., Ed Sheeran"
-                          value={song.artist}
-                          onChange={(e) => {
-                            const newSongs = [...highlightSongs];
-                            newSongs[index] = {
-                              ...song,
-                              artist: e.target.value,
-                            };
-                            setHighlightSongs(newSongs);
-                          }}
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Link (optional)</Label>
-                      <Input
-                        placeholder="Paste Spotify, YouTube, or Apple Music link"
-                        value={song.link}
-                        onChange={(e) => {
-                          const newSongs = [...highlightSongs];
-                          newSongs[index] = { ...song, link: e.target.value };
-                          setHighlightSongs(newSongs);
-                        }}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">
-                        Which moment? (optional)
-                      </Label>
-                      <Input
-                        placeholder="e.g., First dance, ceremony entrance, full highlight"
-                        value={song.moment}
-                        onChange={(e) => {
-                          const newSongs = [...highlightSongs];
-                          newSongs[index] = { ...song, moment: e.target.value };
-                          setHighlightSongs(newSongs);
-                        }}
-                      />
-                    </div>
-                  </div>
-                ))}
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="border-[#1a1a1a]/30 text-[#1a1a1a] hover:bg-[#c9a96e]/15"
-                  onClick={() =>
-                    setHighlightSongs([
-                      ...highlightSongs,
-                      { title: "", artist: "", link: "", moment: "" },
-                    ])
-                  }
-                >
-                  <Plus className="h-4 w-4 mr-2" /> Add Song
-                </Button>
+                <HighlightSongPicker
+                  songs={highlightSongs}
+                  onChange={setHighlightSongs}
+                />
 
                 <div className="pt-4 border-t flex flex-col sm:flex-row gap-3">
                   <Button

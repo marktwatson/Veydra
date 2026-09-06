@@ -2214,13 +2214,13 @@ export function ManageWeddingSheet({
                                         type="date"
                                         value={inst.date}
                                         onChange={(e) => {
-                                          const newInst = [
+                                          const ni = [
                                             ...customPaymentPlan.installments,
                                           ];
-                                          newInst[idx].date = e.target.value;
+                                          ni[idx].date = e.target.value;
                                           setCustomPaymentPlan({
                                             ...customPaymentPlan,
-                                            installments: newInst,
+                                            installments: ni,
                                           });
                                         }}
                                       />
@@ -2228,14 +2228,14 @@ export function ManageWeddingSheet({
                                         type="number"
                                         value={inst.amount || ""}
                                         onChange={(e) => {
-                                          const newInst = [
+                                          const ni = [
                                             ...customPaymentPlan.installments,
                                           ];
-                                          newInst[idx].amount =
+                                          ni[idx].amount =
                                             parseFloat(e.target.value) || 0;
                                           setCustomPaymentPlan({
                                             ...customPaymentPlan,
-                                            installments: newInst,
+                                            installments: ni,
                                           });
                                         }}
                                         placeholder="Amount"
@@ -2246,13 +2246,13 @@ export function ManageWeddingSheet({
                                         size="icon"
                                         className="text-destructive hover:text-destructive hover:bg-destructive/10"
                                         onClick={() => {
-                                          const newInst =
+                                          const ni =
                                             customPaymentPlan.installments.filter(
                                               (_: any, i: number) => i !== idx,
                                             );
                                           setCustomPaymentPlan({
                                             ...customPaymentPlan,
-                                            installments: newInst,
+                                            installments: ni,
                                           });
                                         }}
                                       >
@@ -3539,7 +3539,18 @@ export function ManageWeddingSheet({
             </Button>
             <Button
               type="submit"
-              disabled={updateWeddingAndJobsMutation.isPending}
+              disabled={
+                updateWeddingAndJobsMutation.isPending ||
+                (customPaymentPlan?.enabled &&
+                  Math.abs(
+                    (Number(customPaymentPlan.deposit) || 0) +
+                      (customPaymentPlan.installments || []).reduce(
+                        (s: number, i: any) => s + (Number(i.amount) || 0),
+                        0,
+                      ) -
+                      totalAmount,
+                  ) > 0.01)
+              }
             >
               {updateWeddingAndJobsMutation.isPending && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

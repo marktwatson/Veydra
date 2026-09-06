@@ -67,7 +67,13 @@ const STEPS: Step[] = [
     key: "royalty-secrets",
     label: "Set royalty Stripe secrets",
     detail:
-      "royalty-processor function needs the royalty account secret key. Royalty bank-connect keys are saved in-app (Royalty → Settings). No royalty webhook is needed — the processor charges directly.",
+      "royalty-processor + stripe-royalty-webhook functions need STRIPE_ROYALTY_SECRET_KEY and STRIPE_ROYALTY_WEBHOOK_SECRET for the HQ royalty Stripe account (separate from booking). Royalty bank-connect publishable/secret keys are saved in-app (Royalty → Settings).",
+  },
+  {
+    key: "royalty-webhook",
+    label: "Create royalty webhook in Stripe",
+    detail:
+      "In the HQ royalty Stripe account → Developers → Webhooks → Add endpoint → https://<project>.supabase.co/functions/v1/stripe-royalty-webhook. Events: setup_intent.succeeded, payment_method.attached, payment_intent.processing, payment_intent.succeeded, payment_intent.payment_failed. Copy the whsec_ into STRIPE_ROYALTY_WEBHOOK_SECRET.",
   },
 ];
 

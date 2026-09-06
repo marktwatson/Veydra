@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams, Navigate } from "react-router-dom";
-import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
-import { saveContractSnapshotOnSign } from "@/lib/contract-snapshot";
+import { supabase } from "@/lib/supabase";
+import { signAndPayProposal } from "@/lib/proposal-sign-and-pay";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -17,267 +17,27 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Loader2,
   CheckCircle2,
-  ShieldCheck,
   ChevronRight,
   ChevronLeft,
   PenTool,
+  ExternalLink,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { loadBookingStripe } from "@/lib/stripe-booking";
-const stripePromise = loadBookingStripe();
-import {
-  Elements,
-  PaymentElement,
-  useStripe,
-  useElements,
-} from "@stripe/react-stripe-js";
 import {
   DEFAULT_LOGO_URL,
   formatDisplayDate,
   generatePaymentSchedule,
-  generateHTMLReceipt,
 } from "@/lib/utils";
 import { api } from "@/lib/api";
 import confetti from "canvas-confetti";
 
-// Fallbacks used while DB data loads or if DB is unreachable
-const FALLBACK_PACKAGES = [
-  {
-    id: "pearl",
-    name: "Pearl",
-    desc: "4 hours",
-    priceBoth: 1950,
-    priceSingle: 1150,
-    photoFeatures: [
-      "4 hours ~ 1 Photographer",
-      "300+ fully edited photos",
-      "Personalized Digital Gallery",
-      "Printing Rights",
-    ],
-    videoFeatures: [
-      "4 hours ~ 1 Videographer",
-      "6+ minute highlight video",
-      "Audio of Vows & Speeches",
-      "Shareable Digital Portfolio Link",
-      "RAW Video Footage",
-    ],
-    isArchived: true,
-  },
-  {
-    id: "emerald",
-    name: "Emerald",
-    desc: "6 hours",
-    priceBoth: 2550,
-    priceSingle: 1450,
-    photoFeatures: [
-      "6 hours ~ 1 Photographer",
-      "450+ fully edited photos",
-      "Personalized Digital Gallery",
-      "Printing Rights",
-    ],
-    videoFeatures: [
-      "6 hours ~ 1 Videographer",
-      "8+ minute highlight video",
-      "Audio of Vows & Speeches",
-      "Shareable Digital Portfolio Link",
-      "RAW Video Footage",
-    ],
-    isArchived: true,
-  },
-  {
-    id: "diamond",
-    name: "Diamond Special",
-    desc: "8 hours",
-    priceBoth: 3150,
-    priceSingle: 1750,
-    photoFeatures: [
-      "8 hours ~ 1 Photographer",
-      "600+ fully edited photos",
-      "Personalized Digital Gallery",
-      "Printing Rights",
-    ],
-    videoFeatures: [
-      "8 hours ~ 1 Videographer",
-      "10+ minute highlight video",
-      "Audio of Vows & Speeches",
-      "Shareable Digital Portfolio Link",
-      "RAW Video Footage",
-    ],
-    isArchived: true,
-  },
-  {
-    id: "platinum",
-    name: "Platinum",
-    desc: "10 hours",
-    priceBoth: 3750,
-    priceSingle: 2050,
-    photoFeatures: [
-      "10 hours ~ 1 Photographer",
-      "750+ fully edited photos",
-      "Personalized Digital Gallery",
-      "Printing Rights",
-    ],
-    videoFeatures: [
-      "10 hours ~ 1 Videographer",
-      "12+ minute highlight video",
-      "Audio of Vows & Speeches",
-      "Shareable Digital Portfolio Link",
-      "RAW Video Footage",
-    ],
-    isArchived: true,
-  },
-  {
-    id: "all_in_bride",
-    name: "All-In Bride",
-    desc: "10 hours",
-    priceBoth: 1950,
-    priceSingle: 1150,
-    photoFeatures: [
-      "10 hours ~ 1 Photographer",
-      "750+ fully edited photos & RAW photos",
-      "Personalized Digital Gallery & Printing Rights",
-      "Shareable Digital Portfolio Link",
-    ],
-    videoFeatures: [
-      "10 hours ~ 1 Videographer",
-      "6+ minute highlight video & RAW Video Footage",
-      "Audio of Vows & Speeches",
-      "Shareable Digital Portfolio Link",
-    ],
-  },
-];
-
-const FALLBACK_ADDONS = [
-  {
-    id: "audio",
-    name: "Audio of Vows & Speeches",
-    price: 125,
-    isArchived: true,
-  },
-  { id: "drone", name: "Aerial Drone Footage", price: 250, isArchived: true },
-  {
-    id: "second_shooter",
-    name: "2nd Shooter",
-    price: 200,
-    isHourly: true,
-    minHours: 3,
-    isArchived: true,
-  },
-  { id: "raw", name: "4K RAW Footage Delivery", price: 200, isArchived: true },
-  {
-    id: "highlight_30",
-    name: "30-Min Highlight Video",
-    price: 350,
-    isArchived: true,
-  },
-  {
-    id: "highlight_60",
-    name: "60-Min Highlight Video",
-    price: 500,
-    isArchived: true,
-  },
-  {
-    id: "extra_session",
-    name: "Extra Session (Engagement/Bridals)",
-    price: 450,
-    isArchived: true,
-  },
-  { id: "drone_new", name: "Aerial Drone Footage", price: 300 },
-  {
-    id: "second_shooter_new",
-    name: "2nd Shooter (up to 10 hours)",
-    price: 750,
-  },
-];
-
-function CheckoutForm({
-  clientSecret,
-  clientName,
-  onSuccess,
-}: {
-  clientSecret: string;
-  clientName: string;
-  onSuccess: () => void;
-}) {
-  const stripe = useStripe();
-  const elements = useElements();
-  const [isProcessing, setIsProcessing] = useState(false);
-  const { toast } = useToast();
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!stripe || !elements) return;
-
-    setIsProcessing(true);
-    try {
-      const isSetupIntent = clientSecret.startsWith("seti_");
-      const confirmResult = isSetupIntent
-        ? await stripe.confirmSetup({
-            elements,
-            confirmParams: {
-              return_url: window.location.href + "?success=true",
-            },
-            redirect: "if_required",
-          })
-        : await stripe.confirmPayment({
-            elements,
-            confirmParams: {
-              return_url: window.location.href + "?success=true",
-            },
-            redirect: "if_required",
-          });
-
-      if (confirmResult.error) {
-        api.logAdminActivity(
-          "Proposal Payment Failed",
-          `Payment failed for ${clientName}: ${confirmResult.error.message}`,
-          true,
-        );
-        toast({
-          title: "Payment Failed",
-          description: confirmResult.error.message,
-          variant: "destructive",
-        });
-        setIsProcessing(false);
-      } else {
-        onSuccess();
-      }
-    } catch (err: any) {
-      console.error("Stripe confirmation error:", err);
-      api.logAdminActivity(
-        "Proposal Payment Error",
-        `Unexpected error during checkout for ${clientName}: ${err?.message}`,
-        true,
-      );
-      toast({
-        title: "Payment Error",
-        description:
-          err?.message || "An unexpected error occurred during checkout.",
-        variant: "destructive",
-      });
-      setIsProcessing(false);
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      <PaymentElement />
-      <Button
-        type="submit"
-        disabled={!stripe || isProcessing}
-        className="w-full"
-        size="lg"
-      >
-        {isProcessing ? (
-          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-        ) : (
-          <ShieldCheck className="w-4 h-4 mr-2" />
-        )}
-        {isProcessing ? "Processing..." : "Complete Payment"}
-      </Button>
-    </form>
-  );
-}
+import {
+  FALLBACK_PACKAGES,
+  FALLBACK_ADDONS,
+  renderContractSnapshot,
+  CustomPlanOption,
+} from "@/lib/booking-fallbacks";
+import { CustomPlanBalanceIndicator } from "@/components/CustomPlanBalanceIndicator";
 
 export default function ProposalReview() {
   const { id } = useParams();
@@ -301,17 +61,9 @@ export default function ProposalReview() {
     "deposit" | "fifty_fifty" | "quarterly" | "full" | "custom"
   >("deposit");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [clientSecret, setClientSecret] = useState("");
-  const [stripeIds, setStripeIds] = useState({
-    customerId: "",
-    subscriptionId: "",
-  });
+  const [invoiceUrl, setInvoiceUrl] = useState("");
   const [isSuccess, setIsSuccess] = useState(
     new URLSearchParams(window.location.search).get("success") === "true",
-  );
-  const stripeOptions = useMemo(
-    () => ({ clientSecret, appearance: { theme: "stripe" as const } }),
-    [clientSecret],
   );
   const { toast } = useToast();
 
@@ -450,112 +202,36 @@ export default function ProposalReview() {
   };
 
   const handleSignAndPay = async () => {
-    if (
-      signature.trim().toLowerCase().replace(/\s+/g, "") !==
-      proposal.client_name.toLowerCase().replace(/\s+/g, "")
-    ) {
-      toast({
-        title: "Invalid Signature",
-        description:
-          "Please type your full name exactly as it appears on the proposal.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     setIsSubmitting(true);
     try {
-      // Capture a frozen snapshot of the rendered contract HTML at the moment
-      // of signing, so the signed agreement is preserved even if the template
-      // or Settings change later.
-      await saveContractSnapshotOnSign(proposal.id);
-
-      // Save signature to database
-      const { error: updateError } = await supabase
-        .from("proposals")
-        .update({
-          contract_signature: signature,
-          contract_signed_at: new Date().toISOString(),
-        })
-        .eq("id", proposal.id);
-
-      if (updateError) {
-        console.warn(
-          "Could not save signature to DB (likely RLS), but proceeding to payment...",
-          updateError,
-        );
-      }
-      const response = await fetch(
-        `${supabaseUrl}/functions/v1/stripe-checkout`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${supabaseAnonKey}`,
-            apikey: supabaseAnonKey,
-          },
-          body: JSON.stringify({
-            proposalId: proposal.id,
-            amount: Math.round(calculatePaymentAmount() * 100), // Convert to cents
-            totalPrice: proposal.is_upgrade
-              ? calculatePaymentAmount()
-              : proposal.total_amount,
-            weddingDate: proposal.wedding_date,
-            customerEmail: proposal.client_email,
-            customerName: proposal.client_name,
-            paymentPlan:
-              proposal.is_upgrade && paymentPlan !== "custom"
-                ? "full"
-                : paymentPlan === "custom"
-                  ? "custom"
-                  : paymentPlan === "deposit" || paymentPlan === "quarterly"
-                    ? paymentPlan
-                    : paymentPlan === "fifty_fifty"
-                      ? "half"
-                      : "full",
-            paymentOption:
-              proposal.is_upgrade && paymentPlan !== "custom"
-                ? "full"
-                : paymentPlan === "custom"
-                  ? "custom"
-                  : paymentPlan === "deposit" || paymentPlan === "quarterly"
-                    ? paymentPlan
-                    : paymentPlan === "fifty_fifty"
-                      ? "half"
-                      : "full",
-            description: proposal.is_upgrade
-              ? `Wedding Package Upgrade for ${proposal.client_name}`
-              : paymentPlan === "custom"
-                ? `Custom Payment Plan Deposit for ${proposal.client_name}`
-                : paymentPlan === "full"
-                  ? `Wedding Payment in Full for ${proposal.client_name}`
-                  : paymentPlan === "fifty_fifty"
-                    ? `Wedding 50% Deposit for ${proposal.client_name}`
-                    : `Wedding Deposit for ${proposal.client_name}`,
-          }),
-        },
-      );
-
-      const responseText = await response.text();
-      let result;
-      try {
-        result = JSON.parse(responseText);
-      } catch (e) {
-        throw new Error(
-          `Payment server error: ${responseText.substring(0, 100)}`,
-        );
-      }
-
-      if (!response.ok)
-        throw new Error(result.error || "Failed to initialize checkout");
-
-      setClientSecret(result.clientSecret);
-      setStripeIds({
-        customerId: result.customerId || "",
-        subscriptionId: result.subscriptionId || "",
+      const result = await signAndPayProposal({
+        proposal,
+        signature,
+        paymentPlan,
+        calculatePaymentAmount,
       });
-      setStep(4);
+
+      if (result.accepted) {
+        setIsSuccess(true);
+        return;
+      }
+
+      if (result.invoiceUrl) {
+        setInvoiceUrl(result.invoiceUrl);
+        setStep(4);
+      }
     } catch (err: any) {
+      if (
+        err.message ===
+        "Please type your full name exactly as it appears on the proposal."
+      ) {
+        toast({
+          title: "Invalid Signature",
+          description: err.message,
+          variant: "destructive",
+        });
+        return;
+      }
       console.error(err);
       api.logAdminActivity(
         "Proposal Payment Error",
@@ -999,76 +675,10 @@ export default function ProposalReview() {
                 className="grid gap-6"
               >
                 {proposal?.custom_payment_plan?.enabled ? (
-                  <Label
-                    className={`flex flex-col border-2 rounded-sm p-6 cursor-pointer transition-all duration-300 ${
-                      paymentPlan === "custom"
-                        ? "border-primary bg-primary/5 shadow-md"
-                        : "border-border hover:border-primary/50"
-                    }`}
-                  >
-                    <div className="flex justify-between items-start w-full mb-4">
-                      <div className="flex items-center space-x-3 mt-1">
-                        <RadioGroupItem value="custom" id="custom" />
-                        <span className="text-xl font-serif font-semibold">
-                          Custom Payment Plan
-                        </span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-xs uppercase tracking-widest text-muted-foreground block mb-1">
-                          Total Investment
-                        </span>
-                        <span className="text-2xl font-serif font-bold text-primary">
-                          ${proposal.total_amount.toLocaleString()}
-                        </span>
-                      </div>
-                    </div>
-                    <p className="text-muted-foreground font-sans ml-7 leading-relaxed">
-                      Pay a custom deposit today to secure your date. The
-                      remaining balance is split into a customized schedule.
-                    </p>
-                    {paymentPlan === "custom" && (
-                      <div className="mt-6 space-y-4 border-t border-stone-200 dark:border-stone-800 pt-5 ml-7">
-                        <div className="flex justify-between items-center bg-primary/10 p-3 rounded-sm border border-primary/20">
-                          <span className="font-semibold text-primary font-sans text-sm">
-                            Due Today (Deposit)
-                          </span>
-                          <span className="font-bold text-primary text-lg">
-                            $
-                            {(
-                              proposal.custom_payment_plan.deposit || 0
-                            ).toLocaleString()}
-                          </span>
-                        </div>
-                        <div className="space-y-2 pt-2">
-                          <p className="text-xs font-semibold text-stone-900 dark:text-stone-50 mb-3 uppercase tracking-wider">
-                            Upcoming Schedule
-                          </p>
-                          {generatePaymentSchedule(
-                            proposal.total_amount,
-                            "custom",
-                            proposal.wedding_date,
-                            proposal.created_at,
-                            0,
-                            proposal.custom_payment_plan,
-                          ).map((payment: any, i: number) => (
-                            <div
-                              key={i}
-                              className="flex justify-between text-sm text-stone-600 dark:text-stone-400 border-b border-border/50 pb-2 last:border-0 last:pb-0"
-                            >
-                              <span>{payment.date}</span>
-                              <span className="font-medium">
-                                $
-                                {payment.amount.toLocaleString(undefined, {
-                                  minimumFractionDigits: 2,
-                                  maximumFractionDigits: 2,
-                                })}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </Label>
+                  <CustomPlanOption
+                    proposal={proposal}
+                    selected={paymentPlan === "custom"}
+                  />
                 ) : proposal?.is_upgrade ? (
                   <Label
                     className={`flex flex-col border-2 rounded-sm p-6 cursor-pointer transition-all duration-300 border-primary bg-primary/5 shadow-md`}
@@ -1433,72 +1043,28 @@ export default function ProposalReview() {
                   <div
                     className="contract-content space-y-6 max-w-3xl mx-auto font-serif prose dark:prose-invert max-w-none text-foreground"
                     dangerouslySetInnerHTML={{
-                      __html: proposal.custom_contract_snapshot
-                        .replace(/{{company_name}}/g, companyName || "")
-                        .replace(/{{company_state}}/g, companyState || "")
-                        .replace(/{{bride_name}}/g, proposal.client_name || "")
-                        .replace(/{{client_name}}/g, proposal.client_name || "")
-                        .replace(
-                          /{{partner_name}}/g,
-                          proposal.partner_name
-                            ? `& ${proposal.partner_name}`
-                            : "",
-                        )
-                        .replace(
-                          /{{wedding_date}}/g,
-                          formatDisplayDate(proposal.wedding_date) || "",
-                        )
-                        .replace(/{{venue}}/g, proposal.venue || "")
-                        .replace(
-                          /{{venue_address}}/g,
-                          proposal.venue_address || "",
-                        )
-                        .replace(/{{city}}/g, proposal.city || "")
-                        .replace(/{{state}}/g, proposal.state || "")
-                        .replace(/{{package_name}}/g, packageString || "")
-                        .replace(
-                          /{{total_amount}}/g,
-                          proposal.total_amount
-                            ? `$${proposal.total_amount.toLocaleString()}`
-                            : "$0",
-                        )
-                        .replace(
-                          /{{retainer_amount}}/g,
-                          proposal.total_amount
-                            ? `$${(proposal.total_amount / 2).toLocaleString()}`
-                            : "$0",
-                        )
-                        .replace(
-                          /{{add_ons}}/g,
-                          (() => {
-                            const addonNames: string[] = [];
-                            if (proposal.addons?.length > 0) {
-                              proposal.addons.forEach((a: string) => {
-                                const name =
-                                  ADDONS.find((ad) => ad.id === a)?.name || a;
-                                addonNames.push(
-                                  a === "second_shooter"
-                                    ? `${name} (${proposal.second_shooter_hours} hrs - ${proposal.second_shooter_type === "video" ? "Videographer" : "Photographer"})`
-                                    : name,
-                                );
-                              });
-                            }
-                            if (proposal.custom_prices?.items?.length > 0) {
-                              proposal.custom_prices.items.forEach(
-                                (item: any) => addonNames.push(item.name),
-                              );
-                            }
-                            return addonNames.length > 0
-                              ? addonNames.join(", ")
-                              : "None";
-                          })(),
-                        )
-                        .replace(
-                          /{{date}}/g,
-                          proposal.contract_signed_at
-                            ? formatDisplayDate(proposal.contract_signed_at)
-                            : formatDisplayDate(new Date().toISOString()),
-                        ),
+                      __html: renderContractSnapshot(
+                        proposal.custom_contract_snapshot,
+                        {
+                          companyName,
+                          companyState,
+                          client_name: proposal.client_name,
+                          partner_name: proposal.partner_name,
+                          wedding_date: proposal.wedding_date,
+                          venue: proposal.venue,
+                          venue_address: proposal.venue_address,
+                          city: proposal.city,
+                          state: proposal.state,
+                          packageString,
+                          total_amount: proposal.total_amount,
+                          contract_signed_at: proposal.contract_signed_at,
+                          addons: proposal.addons,
+                          second_shooter_hours: proposal.second_shooter_hours,
+                          second_shooter_type: proposal.second_shooter_type,
+                          custom_prices: proposal.custom_prices,
+                          addonsLookup: ADDONS,
+                        },
+                      ),
                     }}
                   />
                 ) : (
@@ -1819,7 +1385,19 @@ export default function ProposalReview() {
                     !signature ||
                     signature.trim().toLowerCase().replace(/\s+/g, "") !==
                       proposal.client_name.toLowerCase().replace(/\s+/g, "") ||
-                    isSubmitting
+                    isSubmitting ||
+                    (paymentPlan === "custom" &&
+                      proposal.custom_payment_plan?.enabled &&
+                      Math.abs(
+                        (proposal.custom_payment_plan.deposit || 0) +
+                          (
+                            proposal.custom_payment_plan.installments || []
+                          ).reduce(
+                            (s: number, i: any) => s + (Number(i.amount) || 0),
+                            0,
+                          ) -
+                          proposal.total_amount,
+                      ) > 0.01)
                   }
                   size="lg"
                   className="font-sans tracking-wide"
@@ -1837,15 +1415,16 @@ export default function ProposalReview() {
             </div>
           )}
 
-          {step === 4 && clientSecret && (
+          {step === 4 && invoiceUrl && (
             <div className="p-8 md:p-12 space-y-10 animate-in fade-in slide-in-from-right-8 duration-500">
               <div className="text-center space-y-4">
-                <h2 className="text-3xl font-serif">Finalize Booking</h2>
+                <h2 className="text-3xl font-serif">
+                  Almost Done — Pay Your Invoice
+                </h2>
                 <div className="h-px w-24 bg-primary/30 mx-auto" />
                 <p className="text-muted-foreground font-sans">
-                  Complete your payment of{" "}
-                  <strong>${calculatePaymentAmount().toLocaleString()}</strong>{" "}
-                  securely via Stripe.
+                  You're almost done — pay the invoice to confirm. This page
+                  will update when payment posts.
                 </p>
               </div>
 
@@ -1879,98 +1458,28 @@ export default function ProposalReview() {
                 </div>
               )}
 
-              <div className="max-w-md mx-auto bg-white p-6 rounded-sm shadow-sm border border-border/50">
-                <Elements stripe={stripePromise} options={stripeOptions}>
-                  <CheckoutForm
-                    clientSecret={clientSecret}
-                    clientName={proposal.client_name}
-                    onSuccess={async () => {
-                      setIsSuccess(true);
-                      confetti({
-                        particleCount: 100,
-                        spread: 70,
-                        origin: { y: 0.6 },
-                      });
-
-                      const amountPaid = calculatePaymentAmount();
-
-                      try {
-                        await api.updateProposal(proposal.id, {
-                          status: "accepted",
-                          payment_plan: paymentPlan,
-                        } as any);
-
-                        if (proposal.wedding_id) {
-                          await api.updateWedding(proposal.wedding_id, {
-                            status: "pending",
-                            paid_amount: amountPaid,
-                            stripe_customer_id: stripeIds.customerId || null,
-                            stripe_subscription_id:
-                              stripeIds.subscriptionId || null,
-                            contract_date: new Date().toISOString(),
-                          } as any);
-                        } else {
-                          const newWedding = await api.createWedding({
-                            client_name: proposal.client_name,
-                            client_email: proposal.client_email,
-                            partner_name: proposal.partner_name,
-                            date: proposal.wedding_date,
-                            location:
-                              `${proposal.venue || ""} ${proposal.city || ""}, ${proposal.state || ""}`.trim(),
-                            package: packageString,
-                            addons: proposal.addons,
-                            status: "pending",
-                            payment_plan: paymentPlan,
-                            custom_payment_plan: proposal.custom_payment_plan,
-                            total_amount: proposal.total_amount,
-                            paid_amount: amountPaid,
-                            stripe_customer_id: stripeIds.customerId || null,
-                            stripe_subscription_id:
-                              stripeIds.subscriptionId || null,
-                            contract_date: new Date().toISOString(),
-                          } as any);
-
-                          if (newWedding?.id) {
-                            await api.updateProposal(proposal.id, {
-                              wedding_id: newWedding.id,
-                            } as any);
-                          }
-                        }
-                      } catch (err) {
-                        console.error(
-                          "Failed to update proposal/wedding status on success:",
-                          err,
-                        );
-                      }
-
-                      const addonsList =
-                        proposal.addons?.length > 0
-                          ? proposal.addons.join(", ")
-                          : "None";
-                      const receiptHtml = generateHTMLReceipt(
-                        companyName,
-                        proposal.client_name,
-                        amountPaid,
-                        paymentPlan,
-                        packageString,
-                        proposal.addons || [],
-                        proposal.total_amount,
-                      );
-
-                      try {
-                        await api.sendOvantaEmail(
-                          proposal.client_email,
-                          `Payment Receipt - ${companyName}`,
-                          receiptHtml,
-                          proposal.client_name,
-                          true,
-                        );
-                      } catch (err) {
-                        console.error("Failed to send receipt:", err);
-                      }
-                    }}
-                  />
-                </Elements>
+              <div className="max-w-md mx-auto bg-white p-6 rounded-sm shadow-sm border border-border/50 space-y-6">
+                <p className="text-sm text-muted-foreground font-sans">
+                  An invoice for{" "}
+                  <strong>${calculatePaymentAmount().toLocaleString()}</strong>{" "}
+                  has been created. Open it to complete your payment securely.
+                </p>
+                <Button
+                  size="lg"
+                  className="w-full"
+                  onClick={() => window.open(invoiceUrl, "_blank")}
+                >
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  Open invoice
+                </Button>
+                <a
+                  href={invoiceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block text-center text-sm text-primary underline underline-offset-4 hover:opacity-80"
+                >
+                  Open invoice
+                </a>
               </div>
             </div>
           )}

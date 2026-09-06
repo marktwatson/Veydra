@@ -11,9 +11,16 @@ import { PaymentAuditFilters } from "@/components/PaymentAuditFilters";
 import { PaymentAuditTable } from "@/components/PaymentAuditTable";
 import { buildAuditScheduleItems } from "@/lib/audit-schedule";
 import { syncPaymentsFromStripe } from "@/lib/sync-payments";
+import { syncGhlInvoices } from "@/lib/ghl-invoice-api";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, CloudDownload, FileText } from "lucide-react";
+import {
+  RefreshCw,
+  CloudDownload,
+  FileText,
+  FileSpreadsheet,
+} from "lucide-react";
 import { SyncReportDialog } from "@/components/SyncReportDialog";
+import { GhlInvoiceDialog } from "@/components/GhlInvoiceDialog";
 import { usePaymentAuditMutations } from "@/hooks/use-payment-audit-mutations";
 import { useToast } from "@/hooks/use-toast";
 
@@ -62,6 +69,7 @@ export default function ManagerPaymentAudit() {
   const [cancelPaymentModalItem, setCancelPaymentModalItem] =
     useState<AuditItem | null>(null);
   const [showSyncReport, setShowSyncReport] = useState(false);
+  const [showGhlInvoiceModal, setShowGhlInvoiceModal] = useState(false);
 
   const {
     data: weddings = [],
@@ -115,6 +123,35 @@ export default function ManagerPaymentAudit() {
         description:
           error?.message ||
           "Could not reach the sync function. Make sure daily-reminders is deployed.",
+      });
+    },
+  });
+
+  // Sync CRM invoices for a wedding (recompute paid_amount + schedule).
+  const [ghlSyncWeddingId, setGhlSyncWeddingId] = useState<string>("");
+  const ghlSyncMutation = useMutation({
+    mutationFn: (weddingId: string) => syncGhlInvoices(weddingId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["weddings"] });
+      if (data.totalPaidDelta > 0) {
+        toast({
+          title: "CRM invoices synced",
+          description: `Found ${data.invoiceCount} invoice(s) · paid amount updated by $${data.totalPaidDelta.toLocaleString()} to $${data.paid_amount.toLocaleString()}.`,
+        });
+      } else {
+        toast({
+          title: "CRM invoices synced",
+          description: `Found ${data.invoiceCount} invoice(s) · paid amount unchanged at $${data.paid_amount.toLocaleString()}.`,
+        });
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "CRM sync failed",
+        description:
+          error?.message ||
+          "Could not sync CRM invoices. Make sure ghl-invoice is deployed.",
       });
     },
   });
@@ -327,6 +364,56 @@ export default function ManagerPaymentAudit() {
           <Button
             variant="outline"
             size="sm"
+            onClick={() => setShowGhlInvoiceModal(true)}
+            className="rounded-full shadow-sm bg-primary/5 hover:bg-primary/10 border-primary/20 text-primary font-semibold"
+            title="Create a CRM invoice and get a direct payment URL"
+          >
+            <FileSpreadsheet className="h-4 w-4 mr-2" /> Send CRM Invoice
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              const opts = weddings
+                .filter(
+                  (w: any) =>
+                    w.status !== "cancelled" &&
+                    !w.notes?.includes("[UNPAID_DRAFT]"),
+                )
+                .map(
+                  (w: any) =>
+                    `${w.client_name} — Due: $${Math.max(0, (Number(w.total_amount) || 0) - (Number(w.paid_amount) || 0)).toLocaleString()}`,
+                );
+              const choice = window.prompt(
+                `Sync CRM invoices for which wedding?\n\nEnter a number (1-${opts.length}):\n${opts.map((o, i) => `${i + 1}. ${o}`).join("\n")}`,
+                "1",
+              );
+              const idx = choice ? parseInt(choice, 10) - 1 : -1;
+              const active = weddings.filter(
+                (w: any) =>
+                  w.status !== "cancelled" &&
+                  !w.notes?.includes("[UNPAID_DRAFT]"),
+              );
+              if (idx >= 0 && idx < active.length) {
+                const w = active[idx];
+                setGhlSyncWeddingId(w.id);
+                ghlSyncMutation.mutate(w.id);
+              }
+            }}
+            disabled={ghlSyncMutation.isPending}
+            className="rounded-full shadow-sm bg-primary/5 hover:bg-primary/10 border-primary/20 text-primary font-semibold"
+            title="Recompute paid amounts from CRM invoices"
+          >
+            {ghlSyncMutation.isPending ? (
+              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <FileSpreadsheet className="h-4 w-4 mr-2" />
+            )}
+            Sync GHL Invoices
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => refetch()}
             className="rounded-full shadow-sm"
           >
@@ -457,6 +544,12 @@ export default function ManagerPaymentAudit() {
         onCancelPaymentClose={() => setCancelPaymentModalItem(null)}
         onCancelPaymentConfirm={(item) => cancelPaymentMutation.mutate(item)}
         cancelPaymentPending={cancelPaymentMutation.isPending}
+      />
+
+      <GhlInvoiceDialog
+        open={showGhlInvoiceModal}
+        onOpenChange={setShowGhlInvoiceModal}
+        weddings={weddings}
       />
 
       <SyncReportDialog

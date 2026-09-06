@@ -23,101 +23,17 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
 import { api } from "@/lib/api";
+import { checkCustomPlanBalance } from "@/lib/custom-plan-balance";
+import CustomPlanBalanceIndicator from "@/components/CustomPlanBalanceIndicator";
+import ProposalShareModal from "@/components/ProposalShareModal";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import {
-  Loader2,
-  Copy,
-  CheckCircle2,
-  ChevronRight,
-  ExternalLink,
-  Save,
-} from "lucide-react";
+import { Loader2, ChevronRight, Save } from "lucide-react";
 
 // Fallbacks used while DB data loads or if DB is unreachable
-const FALLBACK_PACKAGES = [
-  {
-    id: "pearl",
-    name: "Pearl",
-    desc: "4 hours",
-    priceBoth: 1950,
-    priceSingle: 1150,
-    isArchived: true,
-  },
-  {
-    id: "emerald",
-    name: "Emerald",
-    desc: "6 hours",
-    priceBoth: 2550,
-    priceSingle: 1450,
-    isArchived: true,
-  },
-  {
-    id: "diamond",
-    name: "Diamond Special",
-    desc: "8 hours",
-    priceBoth: 3150,
-    priceSingle: 1750,
-    isArchived: true,
-  },
-  {
-    id: "platinum",
-    name: "Platinum",
-    desc: "10 hours",
-    priceBoth: 3750,
-    priceSingle: 2050,
-    isArchived: true,
-  },
-  {
-    id: "all_in_bride",
-    name: "All-In Bride",
-    desc: "10 hours",
-    priceBoth: 1950,
-    priceSingle: 1150,
-  },
-];
-
-const FALLBACK_ADDONS = [
-  {
-    id: "audio",
-    name: "Audio of Vows & Speeches",
-    price: 125,
-    isArchived: true,
-  },
-  { id: "drone", name: "Aerial Drone Footage", price: 250, isArchived: true },
-  {
-    id: "second_shooter",
-    name: "2nd Shooter",
-    price: 200,
-    isHourly: true,
-    minHours: 3,
-    isArchived: true,
-  },
-  { id: "raw", name: "4K RAW Footage Delivery", price: 200, isArchived: true },
-  {
-    id: "highlight_30",
-    name: "30-Min Highlight Video",
-    price: 350,
-    isArchived: true,
-  },
-  {
-    id: "highlight_60",
-    name: "60-Min Highlight Video",
-    price: 500,
-    isArchived: true,
-  },
-  {
-    id: "extra_session",
-    name: "Extra Session (Engagement/Bridals)",
-    price: 450,
-    isArchived: true,
-  },
-  { id: "drone_new", name: "Aerial Drone Footage", price: 300 },
-  {
-    id: "second_shooter_new",
-    name: "2nd Shooter (up to 10 hours)",
-    price: 750,
-  },
-];
+import {
+  FALLBACK_PACKAGES_SLIM as FALLBACK_PACKAGES,
+  FALLBACK_ADDONS_SLIM as FALLBACK_ADDONS,
+} from "@/lib/booking-fallbacks";
 
 export default function CreateProposal() {
   const { id } = useParams();
@@ -173,7 +89,7 @@ export default function CreateProposal() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [proposalLink, setProposalLink] = useState("");
-  const [copied, setCopied] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -332,6 +248,14 @@ export default function CreateProposal() {
 
   const totalPrice = Math.max(0, baseTotalPrice - discountAmount);
 
+  // Custom plan must sum to the contract total before it can be saved.
+  const planBalance = checkCustomPlanBalance(
+    formData.customPaymentPlan.enabled ? formData.customPaymentPlan : null,
+    totalPrice,
+  );
+  const customPlanBlocked =
+    formData.customPaymentPlan.enabled && !planBalance.balanced;
+
   const handleAddCustomItem = () => {
     if (!newCustomItem.name) return;
     setCustomItems([
@@ -359,6 +283,18 @@ export default function CreateProposal() {
         title: "Missing Fields",
         description:
           "Please fill out all required fields (name, email, phone, wedding date, city, state) and select a package or add custom items.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (customPlanBlocked) {
+      toast({
+        title: "Custom plan doesn't match total",
+        description:
+          planBalance.short > 0
+            ? `Schedule the remaining $${planBalance.short.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} before saving.`
+            : `Installments exceed the contract by $${planBalance.over.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`,
         variant: "destructive",
       });
       return;
@@ -458,6 +394,7 @@ export default function CreateProposal() {
 
         const link = `${window.location.origin}/proposal/${data.id}`;
         setProposalLink(link);
+        setShareOpen(true);
         toast({
           title: "Proposal Created",
           description: "The proposal has been successfully generated.",
@@ -483,99 +420,9 @@ export default function CreateProposal() {
     }
   };
 
-  const copyLink = () => {
-    const fallbackCopy = () => {
-      const ta = document.createElement("textarea");
-      ta.value = proposalLink;
-      document.body.appendChild(ta);
-      ta.select();
-      try {
-        document.execCommand("copy");
-      } catch {}
-      document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-      toast({
-        title: "Copied!",
-        description: "Proposal link copied to clipboard.",
-      });
-    };
-    try {
-      if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard
-          .writeText(proposalLink)
-          .then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-            toast({
-              title: "Copied!",
-              description: "Proposal link copied to clipboard.",
-            });
-          })
-          .catch(fallbackCopy);
-      } else {
-        fallbackCopy();
-      }
-    } catch {
-      fallbackCopy();
-    }
-  };
-
-  if (proposalLink) {
-    return (
-      <div className="min-h-screen bg-muted/30 p-4 md:p-8">
-        <div className="max-w-3xl mx-auto space-y-6">
-          <Card className="border-primary/20 bg-primary/5">
-            <CardHeader className="text-center pb-2">
-              <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                <CheckCircle2 className="w-8 h-8 text-primary" />
-              </div>
-              <CardTitle className="text-2xl font-serif">
-                Proposal Generated
-              </CardTitle>
-              <CardDescription>
-                Share this unique link with {formData.clientName} to review and
-                sign their contract.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6 pt-6">
-              <div className="flex items-center space-x-2">
-                <Input
-                  value={proposalLink}
-                  readOnly
-                  className="bg-white/50 dark:bg-stone-900/50"
-                />
-                <Button onClick={copyLink} variant="secondary">
-                  {copied ? (
-                    <CheckCircle2 className="w-4 h-4 mr-2" />
-                  ) : (
-                    <Copy className="w-4 h-4 mr-2" />
-                  )}
-                  {copied ? "Copied" : "Copy"}
-                </Button>
-              </div>
-              <div className="flex justify-center gap-4">
-                <Button
-                  variant="outline"
-                  onClick={() => window.open(proposalLink, "_blank")}
-                >
-                  <ExternalLink className="w-4 h-4 mr-2" />
-                  Preview Proposal
-                </Button>
-                <Button onClick={() => setProposalLink("")}>
-                  Create Another
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    );
-  }
-
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-muted/30">
+      <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
@@ -1083,82 +930,30 @@ export default function CreateProposal() {
                       </Button>
                     </div>
 
-                    {(() => {
-                      const planTotal =
-                        (formData.customPaymentPlan.deposit || 0) +
-                        formData.customPaymentPlan.installments.reduce(
-                          (sum, i) => sum + (i.amount || 0),
-                          0,
-                        );
-                      const remaining = totalPrice - planTotal;
-                      const isBalanced = Math.abs(remaining) < 0.01;
-                      return (
-                        <div className="pt-4 border-t space-y-3">
-                          <div className="flex justify-between items-center text-sm">
-                            <span className="text-muted-foreground">
-                              Proposal Total
-                            </span>
-                            <span className="font-medium">
-                              ${totalPrice.toLocaleString()}
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center text-sm">
-                            <span className="text-muted-foreground">
-                              Deposit
-                            </span>
-                            <span className="font-medium">
-                              $
-                              {(
-                                formData.customPaymentPlan.deposit || 0
-                              ).toLocaleString()}
-                            </span>
-                          </div>
-                          {formData.customPaymentPlan.installments.map(
-                            (inst, idx) => (
-                              <div
-                                key={idx}
-                                className="flex justify-between items-center text-sm"
-                              >
-                                <span className="text-muted-foreground">
-                                  Installment {idx + 1}
-                                  {inst.date
-                                    ? ` (${new Date(inst.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })})`
-                                    : ""}
-                                </span>
-                                <span className="font-medium">
-                                  ${(inst.amount || 0).toLocaleString()}
-                                </span>
-                              </div>
-                            ),
-                          )}
+                    <div className="pt-4 border-t space-y-3">
+                      <CustomPlanBalanceIndicator
+                        plan={formData.customPaymentPlan}
+                        total={totalPrice}
+                      />
+                      {formData.customPaymentPlan.installments.map(
+                        (inst, idx) => (
                           <div
-                            className={`flex justify-between items-center pt-3 border-t font-semibold text-sm ${isBalanced ? "text-emerald-600 dark:text-emerald-400" : remaining > 0 ? "text-destructive" : "text-orange-600 dark:text-orange-400"}`}
+                            key={idx}
+                            className="flex justify-between items-center text-sm"
                           >
-                            <span>
-                              {isBalanced
-                                ? "Fully Covered ✓"
-                                : remaining > 0
-                                  ? "Remaining to Assign"
-                                  : "Over by"}
+                            <span className="text-muted-foreground">
+                              Installment {idx + 1}
+                              {inst.date
+                                ? ` (${new Date(inst.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })})`
+                                : ""}
                             </span>
-                            <span>
-                              {isBalanced
-                                ? "All $" +
-                                  totalPrice.toLocaleString() +
-                                  " covered"
-                                : `$${Math.abs(remaining).toLocaleString()}`}
+                            <span className="font-medium">
+                              ${(inst.amount || 0).toLocaleString()}
                             </span>
                           </div>
-                          {!isBalanced && (
-                            <p className="text-xs text-muted-foreground">
-                              {remaining > 0
-                                ? `Add $${remaining.toLocaleString()} more in installments to cover the full amount.`
-                                : `Plan exceeds the total by $${Math.abs(remaining).toLocaleString()}.`}
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })()}
+                        ),
+                      )}
+                    </div>
                   </div>
                 )}
               </CardContent>
@@ -1281,7 +1076,8 @@ export default function CreateProposal() {
                     isSubmitting ||
                     !formData.clientName ||
                     !formData.weddingDate ||
-                    (!formData.packageId && customItems.length === 0)
+                    (!formData.packageId && customItems.length === 0) ||
+                    customPlanBlocked
                   }
                 >
                   {isSubmitting ? (
@@ -1304,6 +1100,11 @@ export default function CreateProposal() {
           </div>
         </div>
       </div>
+      <ProposalShareModal
+        link={proposalLink}
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+      />{" "}
     </div>
   );
 }
