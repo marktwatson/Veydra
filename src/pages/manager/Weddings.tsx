@@ -126,6 +126,7 @@ import {
   getCompanyTimezone,
 } from "@/lib/utils";
 import PositionsTab from "./Positions";
+import WeddingBookedServices from "@/components/WeddingBookedServices";
 import { CallSheetGenerator } from "@/components/CallSheetGenerator";
 import { ContractModal } from "@/components/ContractModal";
 import { CancelWeddingModal } from "@/components/CancelWeddingModal";
@@ -754,6 +755,12 @@ function ReviewWeddingDialog({
       } else if (role.includes("video") && settings?.video_pay_rate != null) {
         newJobs[index].pay_rate =
           newJobs[index].hours * settings.video_pay_rate;
+      } else if (
+        role.includes("bartender") &&
+        settings?.bartender_pay_rate != null
+      ) {
+        newJobs[index].pay_rate =
+          newJobs[index].hours * settings.bartender_pay_rate;
       }
     }
     setJobs(newJobs);
@@ -950,6 +957,7 @@ function ReviewWeddingDialog({
                         <SelectItem value="Drone Operator">
                           Drone Operator
                         </SelectItem>
+                        <SelectItem value="Bartender">Bartender</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -3203,6 +3211,7 @@ export function ManageWeddingSheet({
 
             <TabsContent value="jobs" className="space-y-4 mt-4">
               <div className="space-y-4">
+                <WeddingBookedServices wedding={wedding} />
                 <div className="flex justify-between items-center border-b pb-2">
                   <h3 className="text-sm font-semibold">Positions (Jobs)</h3>
                   <Button
@@ -3301,6 +3310,9 @@ export function ManageWeddingSheet({
                                 </SelectItem>
                                 <SelectItem value="Drone Operator">
                                   Drone Operator
+                                </SelectItem>
+                                <SelectItem value="Bartender">
+                                  Bartender
                                 </SelectItem>
                               </SelectContent>
                             </Select>
@@ -3444,7 +3456,19 @@ export function ManageWeddingSheet({
                                 <SelectItem value="unassigned">
                                   Unassigned
                                 </SelectItem>
-                                {contractors.map((c: any) => (
+                                {(job.role?.toLowerCase().includes("bartender")
+                                  ? contractors.filter((c: any) =>
+                                      (c.specialty || "")
+                                        .toLowerCase()
+                                        .includes("bartender"),
+                                    )
+                                  : contractors.filter(
+                                      (c: any) =>
+                                        !(c.specialty || "")
+                                          .toLowerCase()
+                                          .includes("bartender"),
+                                    )
+                                ).map((c: any) => (
                                   <SelectItem key={c.id} value={c.id}>
                                     {c.first_name} {c.last_name}
                                   </SelectItem>

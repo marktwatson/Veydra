@@ -1158,7 +1158,8 @@ export default function ManagerContractors() {
       specialty,
       region: selectedRegions,
       drone_approved: false,
-      training_completed: false,
+      training_completed:
+        specialty?.toLowerCase().includes("bartender") ?? false,
       portfolio_url: portfolioUrl,
     };
 
@@ -1538,6 +1539,8 @@ export default function ManagerContractors() {
         if (!spec.includes("photo")) return false;
       } else if (specialtyFilter === "videographer") {
         if (!spec.includes("video")) return false;
+      } else if (specialtyFilter === "bartender") {
+        if (!spec.includes("bartender")) return false;
       }
     }
     if (regionFilter !== "all") {
@@ -1990,6 +1993,7 @@ export default function ManagerContractors() {
                           <SelectItem value="Photographer & Videographer">
                             Both
                           </SelectItem>
+                          <SelectItem value="Bartender">Bartender</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -2058,6 +2062,7 @@ export default function ManagerContractors() {
                   <SelectItem value="photographer">Photographer</SelectItem>
                   <SelectItem value="videographer">Videographer</SelectItem>
                   <SelectItem value="both">Both</SelectItem>
+                  <SelectItem value="bartender">Bartender</SelectItem>
                 </SelectContent>
               </Select>
               <Select value={regionFilter} onValueChange={setRegionFilter}>
@@ -2611,7 +2616,9 @@ export default function ManagerContractors() {
                               <SelectItem value="Photographer & Videographer">
                                 Both
                               </SelectItem>
-                              <SelectItem value="rejected">Rejected</SelectItem>
+                              <SelectItem value="Bartender">
+                                Bartender
+                              </SelectItem>
                             </SelectContent>
                           </Select>
                         </div>

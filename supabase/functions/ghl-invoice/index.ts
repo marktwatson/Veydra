@@ -42,6 +42,17 @@ interface PlanRow {
   amount: number;
 }
 
+/** Extract a human-readable error message from a GHL response. */
+function ghlMsg(r: { data: any; body: string }): string {
+  const d = r.data;
+  if (d) {
+    if (typeof d.message === "string" && d.message) return d.message;
+    if (Array.isArray(d.errors) && d.errors.length) return d.errors.join("; ");
+    if (typeof d.error === "string" && d.error) return d.error;
+  }
+  return r.body.slice(0, 500);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -62,10 +73,11 @@ Deno.serve(async (req) => {
       return jsonResp({ error: "Invalid JSON body" }, 400);
     }
 
-    const { weddingId, amount, label, action } = body;
+    const { weddingId, amount, label, action, kind, installments, forceNew } = body;
     if (!weddingId) {
       return jsonResp({ error: "Missing weddingId" }, 400);
     }
+    const isAddon = kind === "addon" || (Array.isArray(installments) && installments.length > 0);
     const numAmount = Number(amount);
     if (!action && (!numAmount || numAmount <= 0)) {
       return jsonResp({ error: "Amount must be a positive number" }, 400);
@@ -112,8 +124,7 @@ Deno.serve(async (req) => {
           "ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS ghl_invoice_base_url TEXT; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_user_id TEXT; NOTIFY pgrst, 'reload schema';",
       });
     } catch (_e) {
-      // exec_sql may not exist on some areas — not fatal; we still attempt
-      // the read and fall back to the default domain below.
+      // exec_sql may not exist on some areas — not fatal.
     }
 
     // Re-fetch after the (possible) schema reload so PostgREST sees the column.
@@ -320,33 +331,75 @@ Deno.serve(async (req) => {
       return null;
     }
 
-    // Compute hasMultiPlan early so idempotency can skip reuse for multi-row
-    // plans (which create a full-balance invoice, not a firstDue-only one).
+    // ── Build plan rows ──
+    // ADDON path: rows come ONLY from body.installments (ignore photo plan).
+    // PHOTO path: rows come from wedding.custom_payment_plan unpaid installments.
     const _totalAmt = Number(wedding.total_amount) || 0;
     const _paid = Number(wedding.paid_amount) || 0;
     const _remaining = Math.max(0, _totalAmt - _paid);
+
+    let planRows: PlanRow[] = [];
     let hasMultiPlan = false;
-    try {
-      const _cppRaw = wedding.custom_payment_plan || {};
-      const _cpp = typeof _cppRaw === "string" ? JSON.parse(_cppRaw) : _cppRaw;
-      const _en = _cpp.enabled === true || _cpp.enabled === "true" || _cpp.enabled === 1;
-      const _insts = Array.isArray(_cpp.installments) ? _cpp.installments : Array.isArray(_cpp) ? _cpp : [];
-      if (_en && _insts.length > 0 && _remaining > 0) {
-        const _dep = Math.min(Number(_cpp.deposit) || numAmount, _remaining);
-        let _cnt = _dep > 0 ? 1 : 0, _run = 0;
-        for (const _i of _insts) { _run += Number(_i.amount || 0); if (_run <= _paid) continue; _cnt++; }
-        hasMultiPlan = _cnt >= 2;
+
+    if (isAddon) {
+      const rawInsts: any[] = Array.isArray(installments) ? installments : [];
+      for (const inst of rawInsts) {
+        const amt = Number(inst.amount || 0);
+        const due = inst.date || inst.dueDate || "";
+        if (amt > 0 && due) planRows.push({ date: due, amount: amt });
       }
-    } catch (_e) {}
+      if (planRows.length === 0) planRows.push({ date: ymd(0), amount: numAmount });
+      hasMultiPlan = planRows.length >= 2;
+    } else {
+      try {
+        const cppRaw = wedding.custom_payment_plan || {};
+        const cpp = typeof cppRaw === "string" ? JSON.parse(cppRaw) : cppRaw;
+        const cppEnabled = cpp.enabled === true || cpp.enabled === "true" || cpp.enabled === 1;
+        const insts: any[] = Array.isArray(cpp.installments)
+          ? cpp.installments
+          : Array.isArray(cpp) ? cpp : [];
+
+        if (cppEnabled && insts.length > 0 && _remaining > 0) {
+          const installmentsSum = insts.reduce(
+            (s: number, i: any) => s + Number(i.amount || 0), 0,
+          );
+          const deposit = Math.min(Number(cpp.deposit) || 0, _remaining);
+          const rows: PlanRow[] = [];
+          const depositIncluded = installmentsSum >= _remaining - 0.01 || deposit <= 0;
+          if (!depositIncluded) {
+            rows.push({ date: ymd(0), amount: deposit });
+          }
+          let running = 0;
+          let scheduled = depositIncluded ? 0 : deposit;
+          for (const inst of insts) {
+            const amt = Number(inst.amount || 0);
+            running += amt;
+            if (running <= _paid) continue;
+            const due = inst.date || inst.dueDate || "";
+            if (!due) continue;
+            const rowAmt = Math.min(amt, Math.max(0, _remaining - scheduled));
+            if (rowAmt <= 0) break;
+            rows.push({ date: due, amount: rowAmt });
+            scheduled += rowAmt;
+          }
+          planRows = rows;
+          hasMultiPlan = rows.length >= 2;
+        }
+      } catch (_e) {
+        planRows = [];
+        hasMultiPlan = false;
+      }
+    }
 
     // 2b. Idempotency — reuse today's draft/sent invoice for same amount.
-    // Skip reuse for multi-row plans: they build a full-balance invoice, so an
-    // old firstDue-only draft (e.g. $0.50) must never be resurrected.
+    // Skip reuse for multi-row plans, addons, and forceNew (never resurrect
+    // the photography invoice or an old firstDue-only draft).
+    const skipReuse = hasMultiPlan || isAddon || forceNew;
     const today = ymd(0);
     const existingId = wedding.ghl_invoice_id;
     const existingAmount = Number(wedding.ghl_invoice_amount);
     const existingDate = wedding.ghl_invoice_created_date;
-    if (!hasMultiPlan && existingId && existingDate === today && existingAmount === numAmount) {
+    if (!skipReuse && existingId && existingDate === today && existingAmount === numAmount) {
       const reuseUrl = `${baseUrl}/invoice/${existingId}`;
       console.log("[ghl-invoice] reusing today's draft invoice:", existingId);
       const sendResult = await sendInvoice(existingId);
@@ -421,59 +474,11 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 4. Build unpaid-installment rows from the custom payment plan.
+    // 4. Shared invoice fields
     const invoiceTitle = label || `Payment for ${clientName}`;
     const businessDetails: any = { name: companyName };
     const contactDetails: any = { id: contactId, name: clientName, email };
     if (phoneE164) contactDetails.phone = phoneE164;
-
-    const totalAmount = Number(wedding.total_amount) || 0;
-    const paidSoFar = Number(wedding.paid_amount) || 0;
-    const remaining = Math.max(0, totalAmount - paidSoFar);
-
-    let planRows: PlanRow[] = [];
-    hasMultiPlan = false;
-    try {
-      const cppRaw = wedding.custom_payment_plan || {};
-      const cpp = typeof cppRaw === "string" ? JSON.parse(cppRaw) : cppRaw;
-      const cppEnabled = cpp.enabled === true || cpp.enabled === "true" || cpp.enabled === 1;
-      const installments: any[] = Array.isArray(cpp.installments)
-        ? cpp.installments
-        : Array.isArray(cpp) ? cpp : [];
-
-      if (cppEnabled && installments.length > 0 && remaining > 0) {
-        const installmentsSum = installments.reduce(
-          (s: number, i: any) => s + Number(i.amount || 0), 0,
-        );
-        const deposit = Math.min(Number(cpp.deposit) || 0, remaining);
-        const rows: PlanRow[] = [];
-        // Only add the deposit as a separate row if the installments do NOT
-        // already sum to the full remaining balance (i.e. deposit is not
-        // already included in the installment rows).
-        const depositIncluded = installmentsSum >= remaining - 0.01 || deposit <= 0;
-        if (!depositIncluded) {
-          rows.push({ date: ymd(0), amount: deposit });
-        }
-        let running = 0;
-        let scheduled = depositIncluded ? 0 : deposit;
-        for (const inst of installments) {
-          const amt = Number(inst.amount || 0);
-          running += amt;
-          if (running <= paidSoFar) continue;
-          const due = inst.date || inst.dueDate || "";
-          if (!due) continue;
-          const rowAmt = Math.min(amt, Math.max(0, remaining - scheduled));
-          if (rowAmt <= 0) break;
-          rows.push({ date: due, amount: rowAmt });
-          scheduled += rowAmt;
-        }
-        planRows = rows;
-        hasMultiPlan = rows.length >= 2;
-      }
-    } catch (_e) {
-      planRows = [];
-      hasMultiPlan = false;
-    }
 
     // ── GHL API helper ──
     // plain = true  → no paymentSchedule, no discount (single payable line).
@@ -499,7 +504,6 @@ Deno.serve(async (req) => {
     ): Promise<{ ok: boolean; status: number; data: any; body: string }> {
       // When a multi-row schedule is present, the invoice dueDate MUST be the
       // latest schedule row date (GHL rejects schedules past the due date).
-      // issueDate stays today.
       const latestDue = sched && sched.length > 1
         ? sched.reduce((latest, r) => (r.date > latest ? r.date : latest), sched[0].date)
         : ymd(7);
@@ -553,15 +557,12 @@ Deno.serve(async (req) => {
     let scheduleId: string | null = null;
     let invoiceId: string | null = null;
     let invoiceUrl = "";
-    let path: "schedule" | "invoice+paymentSchedule" = "invoice+paymentSchedule";
+    let path: "schedule" | "invoice+paymentSchedule" | "plain-firstDue" = "invoice+paymentSchedule";
     let invoiceTotal = numAmount;
-    let autoPayBody = "";
     let scheduleError = "";
 
     if (hasMultiPlan) {
-      // ONE invoice = full remaining balance + paymentSchedule (fixed, real $ rows).
-      // items[0].amount MUST equal the sum of the schedule rows.
-      // Try exactly once with the fixed schedule shape.
+      // ONE invoice = full balance + paymentSchedule (fixed, real $ rows).
       invoiceTotal = planRows.reduce((s, r) => s + r.amount, 0);
       const invRes = await createInvoice(invoiceTotal, planRows, false);
 
@@ -569,14 +570,11 @@ Deno.serve(async (req) => {
         path = "invoice+paymentSchedule";
         invoiceId = invRes.data?._id || invRes.data?.invoice?._id || invRes.data?.id || null;
       } else {
-        // Schedule create failed — capture GHL's real message, then fall back to
-        // a PLAIN invoice for the first due amount only so Sign & Pay still
-        // opens a payable link.
-        const ghlMessage =
-          (invRes.data && (invRes.data.message || (Array.isArray(invRes.data.errors) ? invRes.data.errors.join("; ") : invRes.data.error))) ||
-          invRes.body.slice(0, 500);
-        console.log("[ghl-invoice] schedule invoice failed, falling back to plain first-due. error:", ghlMessage);
-        scheduleError = String(ghlMessage);
+        // Schedule failed — capture GHL's real message, fall back to PLAIN
+        // first-due-only so Sign & Pay still opens a payable link.
+        const msg = ghlMsg(invRes);
+        console.log("[ghl-invoice] schedule invoice failed, falling back to plain first-due. error:", msg);
+        scheduleError = String(msg);
 
         const firstDue = planRows[0]?.amount || numAmount;
         const plainRes = await createInvoice(firstDue, planRows, true);
@@ -585,16 +583,14 @@ Deno.serve(async (req) => {
           invoiceTotal = firstDue;
           path = "plain-firstDue";
         } else {
-          const plainMsg =
-            (plainRes.data && (plainRes.data.message || (Array.isArray(plainRes.data.errors) ? plainRes.data.errors.join("; ") : plainRes.data.error))) ||
-            plainRes.body.slice(0, 500);
+          const plainMsg = ghlMsg(plainRes);
           return jsonResp({
             error: `Failed to create GHL invoice (${plainRes.status}): ${plainMsg}`,
             path,
             ghlStatus: plainRes.status,
             ghlBodyPreview: plainRes.body.slice(0, 800),
             ghlFull: plainRes.body,
-            scheduleAttempt: { status: invRes.status, message: ghlMessage },
+            scheduleAttempt: { status: invRes.status, message: msg },
           }, 500);
         }
       }
@@ -602,9 +598,7 @@ Deno.serve(async (req) => {
       invoiceTotal = numAmount;
       const invRes = await createInvoice(invoiceTotal);
       if (!invRes.ok) {
-        const msg =
-          (invRes.data && (invRes.data.message || (Array.isArray(invRes.data.errors) ? invRes.data.errors.join("; ") : invRes.data.error))) ||
-          invRes.body.slice(0, 500);
+        const msg = ghlMsg(invRes);
         return jsonResp({
           error: `Failed to create GHL invoice (${invRes.status}): ${msg}`,
           path, ghlStatus: invRes.status, ghlBodyPreview: invRes.body.slice(0, 800), ghlFull: invRes.body,
@@ -635,27 +629,43 @@ Deno.serve(async (req) => {
     }
 
     // 7. Persist tracking on the wedding.
+    // ADDON: do NOT overwrite ghl_invoice_id (keep the photo invoice primary),
+    // and MERGE bar rows onto ghl_schedule instead of replacing it.
     try {
       const existingIds: string[] = Array.isArray(wedding.ghl_invoice_ids) ? wedding.ghl_invoice_ids : [];
       const ids = Array.from(new Set([...existingIds, invoiceId]));
-      const scheduleRows = (hasMultiPlan && planRows.length > 0
+
+      const newRows = (hasMultiPlan && planRows.length > 0
         ? planRows
         : [{ date: ymd(0), amount: invoiceTotal }]
       ).map((r) => ({
         ...r,
         invoiceId,
+        source: isAddon ? "bartending" : "photo",
         status: r.date === ymd(0) ? (statusAfter || "sent").toLowerCase() : "upcoming",
       }));
+
+      let mergedSchedule: any[];
+      if (isAddon) {
+        const existingSched: any[] = Array.isArray(wedding.ghl_schedule) ? wedding.ghl_schedule : [];
+        mergedSchedule = [...existingSched, ...newRows];
+      } else {
+        mergedSchedule = newRows;
+      }
+
       const update: any = {
-        ghl_invoice_id: invoiceId,
         ghl_invoice_ids: ids,
         ghl_invoice_url: invoiceUrl,
         ghl_invoice_status: (statusAfter || "sent").toLowerCase(),
         ghl_contact_id: contactId,
-        ghl_schedule: scheduleRows,
+        ghl_schedule: mergedSchedule,
         ghl_invoice_amount: invoiceTotal,
         ghl_invoice_created_date: today,
       };
+      // PHOTO path keeps overwriting ghl_invoice_id (primary). ADDON does NOT.
+      if (!isAddon || !wedding.ghl_invoice_id) {
+        update.ghl_invoice_id = invoiceId;
+      }
       if (scheduleId) update.ghl_schedule_id = scheduleId;
       await db.from("weddings").update(update).eq("id", weddingId);
     } catch (e: any) {
@@ -675,8 +685,8 @@ Deno.serve(async (req) => {
       baseUrlUsed: baseUrl,
       savedBaseUrl: savedBaseUrl,
       statusAfter,
-      autoPayBodyPreview: autoPayBody || undefined,
       scheduleError: scheduleError || undefined,
+      isAddon,
     });
   } catch (err: any) {
     console.error("[ghl-invoice] unhandled:", err);

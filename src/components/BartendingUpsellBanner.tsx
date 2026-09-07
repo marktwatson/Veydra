@@ -11,9 +11,16 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Wine, Loader2, CheckCircle2, Sparkles } from "lucide-react";
-import { api, type DbWedding, type DbPortalSettings } from "@/lib/api";
+import {
+  Wine,
+  Loader2,
+  CheckCircle2,
+  Sparkles,
+  ExternalLink,
+} from "lucide-react";
+import { type DbWedding, type DbPortalSettings } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
+import { createGhlInvoice } from "@/lib/ghl-invoice-api";
 import { useToast } from "@/hooks/use-toast";
 
 interface Props {
@@ -29,14 +36,18 @@ interface BartendingAddon {
   features: string[];
 }
 
+function todayStr() {
+  return new Date().toISOString().split("T")[0];
+}
+
 export default function BartendingUpsellBanner({ wedding, settings }: Props) {
   const { toast } = useToast();
   const bartendingModuleOn = useBartendingModule();
   const [open, setOpen] = useState(false);
   const [purchasing, setPurchasing] = useState<string | null>(null);
+  const [paidInvoiceUrl, setPaidInvoiceUrl] = useState<string | null>(null);
 
   // Pull bartending packages directly from the pricing_addons table
-  // (single source of truth — managed in Settings → Packages & Addons)
   const { data: packages = [] } = useQuery<BartendingAddon[]>({
     queryKey: ["bartending-addons"],
     queryFn: async () => {
@@ -73,29 +84,32 @@ export default function BartendingUpsellBanner({ wedding, settings }: Props) {
   const handlePurchase = async (pkg: BartendingAddon) => {
     if (!wedding?.id) return;
     setPurchasing(pkg.id);
+    setPaidInvoiceUrl(null);
     try {
-      const origin = window.location.origin;
-      const data = await api.createUpsellCheckout({
+      // Create a GHL invoice (kind: addon) for the full package price.
+      // One installment = pay in full today. No Stripe.
+      const result = await createGhlInvoice({
         weddingId: wedding.id,
-        packageName: pkg.name,
         amount: pkg.price,
-        customerEmail: wedding.client_email || undefined,
-        customerName: wedding.client_name || undefined,
-        stripeCustomerId: wedding.stripe_customer_id || undefined,
-        successUrl: `${origin}/bride-portal/${wedding.id}?upsell=success`,
-        cancelUrl: `${origin}/bride-portal/${wedding.id}?upsell=cancelled`,
+        label: `Bartending — ${pkg.name}`,
+        kind: "addon",
+        forceNew: true,
+        installments: [{ date: todayStr(), amount: pkg.price }],
       });
-      if (data?.url) {
-        window.location.href = data.url;
-      } else {
-        throw new Error("No checkout URL returned");
-      }
+      setPaidInvoiceUrl(result.invoiceUrl);
+      // Open the invoice for payment.
+      window.open(result.invoiceUrl, "_blank");
+      toast({
+        title: "Bartending invoice created",
+        description: "Complete payment on the invoice to confirm your package.",
+      });
     } catch (e: any) {
       toast({
         variant: "destructive",
-        title: "Purchase failed",
-        description: e.message || "Could not start checkout. Please try again.",
+        title: "Could not create invoice",
+        description: e.message || "Please try again or contact us.",
       });
+    } finally {
       setPurchasing(null);
     }
   };
@@ -182,7 +196,7 @@ export default function BartendingUpsellBanner({ wedding, settings }: Props) {
                   {purchasing === pkg.id ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      Redirecting to checkout...
+                      Creating invoice...
                     </>
                   ) : (
                     `Add for $${pkg.price.toLocaleString()}`
@@ -191,6 +205,25 @@ export default function BartendingUpsellBanner({ wedding, settings }: Props) {
               </div>
             ))}
           </div>
+
+          {paidInvoiceUrl && (
+            <div className="rounded-lg border border-[#c9a96e]/40 bg-[#c9a96e]/10 p-3 text-sm flex items-center justify-between gap-2">
+              <span className="text-[#1a1a1a]">
+                Your bartending invoice is ready — complete payment to confirm.
+              </span>
+              <a
+                href={paidInvoiceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Button variant="outline" className="gap-2 shrink-0">
+                  <ExternalLink className="h-4 w-4" />
+                  Open invoice
+                </Button>
+              </a>
+            </div>
+          )}
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>
               Maybe later

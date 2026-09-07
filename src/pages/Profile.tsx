@@ -53,6 +53,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { parseRegions } from "@/lib/utils";
 import { BlackoutDatesManager } from "@/components/BlackoutDatesManager";
+import { useSearchParams } from "react-router-dom";
 
 export default function Profile() {
   const { toast } = useToast();
@@ -64,6 +65,12 @@ export default function Profile() {
   const [isUploading, setIsUploading] = useState(false);
   const [isConnectingStripe, setIsConnectingStripe] = useState(false);
   const [stripeCountry, setStripeCountry] = useState("US");
+  const [searchParams] = useSearchParams();
+  const profileTab = searchParams.get("tab");
+  const validTabs = ["personal", "documents", "blackout", "settings"];
+  const activeTab = validTabs.includes(profileTab || "")
+    ? profileTab
+    : "personal";
   const [formData, setFormData] = useState({
     first_name: "",
     last_name: "",
@@ -405,6 +412,7 @@ export default function Profile() {
     profile.avatar_url ||
     `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName)}&background=random`;
 
+  const isBartenderProfile = /bartender/i.test(profile.specialty || "");
   const completionItems = [
     { label: "First Name", isComplete: !!profile.first_name },
     { label: "Last Name", isComplete: !!profile.last_name },
@@ -416,9 +424,13 @@ export default function Profile() {
         Array.isArray(parseRegions(profile.region)) &&
         parseRegions(profile.region).length > 0,
     },
-    { label: "Portfolio URL", isComplete: !!profile.portfolio_url },
+    ...(isBartenderProfile
+      ? []
+      : [
+          { label: "Portfolio URL", isComplete: !!profile.portfolio_url },
+          { label: "Gear List", isComplete: !!profile.gear_list },
+        ]),
     { label: "Short Bio", isComplete: !!profile.bio },
-    { label: "Gear List", isComplete: !!profile.gear_list },
     { label: "Venmo Handle", isComplete: !!profile.venmo_handle },
     { label: "Profile Picture", isComplete: !!profile.avatar_url },
   ];
@@ -599,7 +611,7 @@ export default function Profile() {
 
         {/* Profile Content */}
         <div className="lg:col-span-2 space-y-6">
-          <Tabs defaultValue="personal" className="w-full">
+          <Tabs value={activeTab} className="w-full">
             <TabsList className="w-full grid grid-cols-4">
               <TabsTrigger value="personal">Personal Info</TabsTrigger>
               <TabsTrigger value="documents">Compliance</TabsTrigger>
@@ -613,7 +625,9 @@ export default function Profile() {
                   <div>
                     <CardTitle>Personal Information</CardTitle>
                     <CardDescription>
-                      Update your contact details and portfolio.
+                      {isBartenderProfile
+                        ? "Update your contact details."
+                        : "Update your contact details and portfolio."}
                     </CardDescription>
                   </div>
                   <Button
@@ -777,26 +791,28 @@ export default function Profile() {
                         Select all regions you are available to work in.
                       </p>
                     </div>
-                    <div className="space-y-2 sm:col-span-2">
-                      <Label htmlFor="portfolio">Portfolio URL</Label>
-                      <div className="relative">
-                        <Briefcase className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          id="portfolio"
-                          type="url"
-                          value={formData.portfolio_url}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              portfolio_url: e.target.value,
-                            })
-                          }
-                          className="pl-9"
-                          disabled={!isEditing}
-                          placeholder="https://"
-                        />
+                    {!isBartenderProfile && (
+                      <div className="space-y-2 sm:col-span-2">
+                        <Label htmlFor="portfolio">Portfolio URL</Label>
+                        <div className="relative">
+                          <Briefcase className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            id="portfolio"
+                            type="url"
+                            value={formData.portfolio_url}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                portfolio_url: e.target.value,
+                              })
+                            }
+                            className="pl-9"
+                            disabled={!isEditing}
+                            placeholder="https://"
+                          />
+                        </div>
                       </div>
-                    </div>
+                    )}
                     <div className="space-y-2 sm:col-span-2">
                       <Label htmlFor="bio">Short Bio</Label>
                       <Textarea
@@ -810,22 +826,24 @@ export default function Profile() {
                         rows={4}
                       />
                     </div>
-                    <div className="space-y-2 sm:col-span-2">
-                      <Label htmlFor="gear_list">Gear List</Label>
-                      <Textarea
-                        id="gear_list"
-                        value={formData.gear_list}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            gear_list: e.target.value,
-                          })
-                        }
-                        disabled={!isEditing}
-                        placeholder="List your camera bodies, lenses, and other equipment..."
-                        rows={4}
-                      />
-                    </div>
+                    {!isBartenderProfile && (
+                      <div className="space-y-2 sm:col-span-2">
+                        <Label htmlFor="gear_list">Gear List</Label>
+                        <Textarea
+                          id="gear_list"
+                          value={formData.gear_list}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              gear_list: e.target.value,
+                            })
+                          }
+                          disabled={!isEditing}
+                          placeholder="List your camera bodies, lenses, and other equipment..."
+                          rows={4}
+                        />
+                      </div>
+                    )}
                     <div className="space-y-2 sm:col-span-2">
                       <Label htmlFor="venmo_handle">Venmo Handle</Label>
                       <div className="relative">

@@ -121,7 +121,8 @@ export default function Apply() {
         specialty,
         region: selectedRegions,
         drone_approved: false,
-        training_completed: false,
+        // Bartenders skip Training Academy; still complete W-9.
+        training_completed: specialty?.toLowerCase().includes("bartender"),
         portfolio_url: portfolioUrl,
         gear_list: `Lead Weddings Shot: ${leadWeddings}\n\nGear:\n${gearList}`,
       };
@@ -382,6 +383,7 @@ export default function Apply() {
                     <SelectItem value="Photographer & Videographer">
                       Both (Photo & Video)
                     </SelectItem>
+                    <SelectItem value="Bartender">Bartender</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

@@ -1,13 +1,25 @@
 import { supabase, supabaseUrl, supabaseAnonKey } from "./supabase";
 
+export interface GhlAddonInstallment {
+  date: string;
+  amount: number;
+  label?: string;
+}
+
 export async function createGhlInvoice({
   weddingId,
   amount,
   label,
+  kind,
+  installments,
+  forceNew,
 }: {
   weddingId: string;
   amount: number;
   label?: string;
+  kind?: "addon";
+  installments?: GhlAddonInstallment[];
+  forceNew?: boolean;
 }) {
   const {
     data: { session },
@@ -20,7 +32,14 @@ export async function createGhlInvoice({
       Authorization: `Bearer ${session?.access_token || supabaseAnonKey}`,
       apikey: supabaseAnonKey,
     },
-    body: JSON.stringify({ weddingId, amount, label }),
+    body: JSON.stringify({
+      weddingId,
+      amount,
+      label,
+      kind,
+      installments,
+      forceNew,
+    }),
   });
   const result = await response.json();
   if (!response.ok || !result.success) {
@@ -34,6 +53,8 @@ export async function createGhlInvoice({
     clientName: string;
     amount: number;
     reused?: boolean;
+    isAddon?: boolean;
+    scheduleError?: string;
   };
 }
 

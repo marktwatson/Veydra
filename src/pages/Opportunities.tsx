@@ -26,6 +26,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { geocodeAddress, calculateDistanceMiles } from "@/lib/geocoding";
 import { parseRegions, formatDisplayDate } from "@/lib/utils";
+import { specialtyMatchesJob } from "@/lib/specialty-job-match";
 
 export default function Opportunities() {
   const { user } = useAuth();
@@ -101,17 +102,7 @@ export default function Opportunities() {
         return false;
       }
       if (currentUser?.specialty) {
-        const specialty = (currentUser.specialty || "").toLowerCase();
-        const role = (p.role || "").toLowerCase();
-
-        if (!specialty.includes("both") && !specialty.includes("&")) {
-          if (specialty.includes("video") && !role.includes("video"))
-            return false;
-          if (specialty.includes("photo") && !role.includes("photo"))
-            return false;
-          if (specialty.includes("content") && !role.includes("content"))
-            return false;
-        }
+        if (!specialtyMatchesJob(currentUser.specialty, p.role)) return false;
       }
 
       if (filterRegion && currentUser?.region) {

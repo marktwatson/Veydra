@@ -3,7 +3,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, CreditCard, Tag } from "lucide-react";
+import { Loader2, FileText, Tag } from "lucide-react";
 import { InstallmentEditor, type Installment } from "./InstallmentEditor";
 
 export interface BartendingAddon {
@@ -102,8 +102,6 @@ export function UpsellPlanStep({
   setInstallments,
   applyDiscount,
   setApplyDiscount,
-  hasCardOnFile,
-  cardLast4,
   staffNote,
   setStaffNote,
   onBack,
@@ -120,8 +118,6 @@ export function UpsellPlanStep({
   setInstallments: (v: Installment[]) => void;
   applyDiscount: boolean;
   setApplyDiscount: (v: boolean) => void;
-  hasCardOnFile: boolean;
-  cardLast4: string;
   staffNote: string;
   setStaffNote: (v: string) => void;
   onBack: () => void;
@@ -160,7 +156,9 @@ export function UpsellPlanStep({
       </div>
 
       <div className="space-y-2">
-        <Label className="text-xs">Deposit (charge card on file now)</Label>
+        <Label className="text-xs">
+          Deposit (first invoice installment due today)
+        </Label>
         <Input
           type="number"
           step="0.01"
@@ -171,24 +169,14 @@ export function UpsellPlanStep({
             setDeposit(Math.max(0, parseFloat(e.target.value) || 0))
           }
           placeholder="0.00"
-          disabled={!hasCardOnFile && totalDue > 0}
         />
-        <div className="flex items-center gap-2 text-xs">
-          {hasCardOnFile ? (
-            <Badge variant="secondary" className="gap-1">
-              <CreditCard className="h-3 w-3" /> Card on file
-              {cardLast4 && ` •••• ${cardLast4}`}
-            </Badge>
-          ) : (
-            <span className="text-amber-600 dark:text-amber-400">
-              No card on file — deposit must be $0. Bride needs a saved card
-              before you can charge.
-            </span>
-          )}
-          {deposit >= totalDue && totalDue > 0 && (
-            <Badge variant="secondary">Pay in full</Badge>
-          )}
-        </div>
+        <p className="text-xs text-muted-foreground">
+          The deposit is the first installment on the bartending invoice — it is
+          sent to the bride for payment, not charged automatically.
+        </p>
+        {deposit >= totalDue && totalDue > 0 && (
+          <Badge variant="secondary">Pay in full</Badge>
+        )}
       </div>
 
       {remainingAfterDeposit > 0.01 && (
@@ -235,9 +223,6 @@ export function UpsellReviewStep({
   deposit,
   remainingAfterDeposit,
   installments,
-  hasCardOnFile,
-  cardLast4,
-  stripeCustomerId,
   clientEmail,
   onBack,
   onSignAndPay,
@@ -249,9 +234,6 @@ export function UpsellReviewStep({
   deposit: number;
   remainingAfterDeposit: number;
   installments: Installment[];
-  hasCardOnFile: boolean;
-  cardLast4: string;
-  stripeCustomerId: string | null;
   clientEmail: string;
   onBack: () => void;
   onSignAndPay: () => void;
@@ -278,7 +260,9 @@ export function UpsellReviewStep({
           <span className="text-primary">{fmtMoney(totalDue)}</span>
         </div>
         <div className="flex justify-between text-sm">
-          <span className="text-muted-foreground">Deposit (charge now)</span>
+          <span className="text-muted-foreground">
+            Deposit (first installment)
+          </span>
           <span>{fmtMoney(deposit)}</span>
         </div>
         {remainingAfterDeposit > 0.01 && installments.length > 0 && (
@@ -296,22 +280,13 @@ export function UpsellReviewStep({
         )}
       </div>
 
-      {deposit > 0 && (
-        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm flex items-center gap-2">
-          <CreditCard className="h-4 w-4 text-primary" />
-          {hasCardOnFile ? (
-            <span>
-              Charging <strong>{fmtMoney(deposit)}</strong> to card on file
-              {cardLast4 && ` ending ${cardLast4}`}
-              {stripeCustomerId && ` (cus_…${stripeCustomerId.slice(-6)})`}
-            </span>
-          ) : (
-            <span className="text-amber-600 dark:text-amber-400">
-              No card on file — deposit must be $0
-            </span>
-          )}
-        </div>
-      )}
+      <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm flex items-center gap-2">
+        <FileText className="h-4 w-4 text-primary" />
+        <span>
+          A bartending invoice for <strong>{fmtMoney(totalDue)}</strong> will be
+          created and sent to {clientEmail || "the bride"} for payment.
+        </span>
+      </div>
 
       <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-3 text-xs text-muted-foreground">
         A separate <strong>Bartending Services Agreement (placeholder)</strong>{" "}
@@ -323,13 +298,9 @@ export function UpsellReviewStep({
         <Button variant="ghost" onClick={onBack}>
           Back
         </Button>
-        <Button
-          onClick={onSignAndPay}
-          disabled={deposit > 0 && !hasCardOnFile}
-          className="gap-2"
-        >
-          <CreditCard className="h-4 w-4" />
-          {deposit > 0 ? "Sign & Pay" : "Sign & Add"}
+        <Button onClick={onSignAndPay} className="gap-2">
+          <FileText className="h-4 w-4" />
+          Create Invoice & Sign
         </Button>
       </div>
     </div>

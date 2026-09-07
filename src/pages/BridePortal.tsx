@@ -78,6 +78,7 @@ import {
 } from "@/lib/utils";
 import { applyPortalTheme, parsePortalTheme } from "@/lib/portal-theme";
 import BartendingUpsellBanner from "@/components/BartendingUpsellBanner";
+import BrideBartendingContractCard from "@/components/BrideBartendingContractCard";
 import { GhlScheduleSection } from "@/components/GhlScheduleSection";
 
 const getSafeDate = (dateStr: string | null) => {
@@ -2968,6 +2969,7 @@ export default function BridePortal() {
                 </div>
               </CardContent>
             </Card>
+            <BrideBartendingContractCard wedding={wedding} />
           </TabsContent>
           <TabsContent value="financials" className="outline-none space-y-6">
             <Card className="rounded-2xl shadow-sm border-[#c9a96e]/30 overflow-hidden bg-white">

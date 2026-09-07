@@ -6,12 +6,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
   Loader2,
   CheckCircle2,
   FileText,
   Wine,
   Printer,
   Check,
+  ExternalLink,
 } from "lucide-react";
 import { formatDisplayDate, getCompanyTimezone } from "@/lib/utils";
 import { BartendingContractBody } from "@/components/BartendingContractBody";
@@ -50,6 +58,12 @@ export default function BartendingContract() {
   const contractRef = useRef<HTMLDivElement>(null);
   const [snapshot, setSnapshot] = useState<string | null>(null);
   const [justSigned, setJustSigned] = useState(false);
+  // Post-sign invoice modal
+  const [postSignModal, setPostSignModal] = useState<{
+    open: boolean;
+    url: string | null;
+    resolving: boolean;
+  }>({ open: false, url: null, resolving: true });
 
   useEffect(() => {
     if (!id) return;
@@ -117,6 +131,35 @@ export default function BartendingContract() {
     })();
   }, [justSigned, id]);
 
+  // Resolve the bartending invoice URL in priority order.
+  const resolveInvoiceUrl = (): string | null => {
+    const pkgDetails = purchase?.package_details || {};
+    // a) purchase.ghl_invoice_url
+    if (purchase?.ghl_invoice_url) return purchase.ghl_invoice_url;
+    // b) package_details.ghl_invoice_url / invoiceUrl
+    if (pkgDetails?.ghl_invoice_url) return pkgDetails.ghl_invoice_url;
+    if (pkgDetails?.invoiceUrl) return pkgDetails.invoiceUrl;
+    // c) wedding.ghl_schedule row with source === "bartending" that has a url
+    if (wedding?.ghl_schedule && Array.isArray(wedding.ghl_schedule)) {
+      const barRow = wedding.ghl_schedule.find(
+        (r: any) => r?.source === "bartending" && r?.url,
+      );
+      if (barRow?.url) return barRow.url;
+    }
+    // d) wedding.ghl_invoice_ids has more than the primary photo id
+    const ids: string[] = Array.isArray(wedding?.ghl_invoice_ids)
+      ? wedding.ghl_invoice_ids
+      : [];
+    const primary = wedding?.ghl_invoice_id;
+    const extra = ids.find((x) => x && x !== primary);
+    if (extra) {
+      const base =
+        settings?.ghl_invoice_base_url || "https://links.honeysucklehaus.com";
+      return `${base}/invoice/${extra}`;
+    }
+    return null;
+  };
+
   const handleSign = async () => {
     if (!signerName.trim() || !id) return;
     setSigning(true);
@@ -134,6 +177,18 @@ export default function BartendingContract() {
       setSignedBy(signerName.trim());
       setSignedDate(new Date().toISOString());
       setJustSigned(true);
+
+      // Open the post-sign modal and resolve the invoice URL.
+      setPostSignModal({ open: true, url: null, resolving: true });
+      const url = resolveInvoiceUrl();
+      if (url) {
+        setTimeout(() => {
+          window.open(url, "_blank");
+          setPostSignModal({ open: true, url, resolving: false });
+        }, 400);
+      } else {
+        setPostSignModal({ open: true, url: null, resolving: false });
+      }
     } catch {
       setError("Could not sign the agreement. Please try again.");
     } finally {
@@ -314,6 +369,16 @@ export default function BartendingContract() {
                 </p>
               </div>
             </div>
+            {(() => {
+              const url = resolveInvoiceUrl();
+              return url ? (
+                <Button asChild className="gap-2 shrink-0">
+                  <a href={url} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="h-4 w-4" /> Open Invoice
+                  </a>
+                </Button>
+              ) : null;
+            })()}
           </div>
         )}
 
@@ -425,6 +490,63 @@ export default function BartendingContract() {
           </div>
         )}
       </div>
+
+      {/* Post-sign invoice modal */}
+      <Dialog
+        open={postSignModal.open}
+        onOpenChange={(open) =>
+          !open &&
+          setPostSignModal({ open: false, url: null, resolving: false })
+        }
+      >
+        <DialogContent className="sm:max-w-[420px] text-center">
+          <DialogHeader>
+            <DialogTitle className="flex items-center justify-center gap-2">
+              {postSignModal.resolving ? (
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              ) : postSignModal.url ? (
+                <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+              ) : (
+                <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+              )}
+              {postSignModal.resolving
+                ? "Contract signed"
+                : postSignModal.url
+                  ? "Invoice opened"
+                  : "Contract signed"}
+            </DialogTitle>
+            <DialogDescription>
+              {postSignModal.resolving
+                ? "Opening your bartending invoice…"
+                : postSignModal.url
+                  ? "Your bartending invoice has opened in a new tab. Keep this page open to review your signed agreement."
+                  : "Your invoice link isn't ready yet — check your email or contact us."}
+            </DialogDescription>
+          </DialogHeader>
+          {!postSignModal.resolving && postSignModal.url && (
+            <Button asChild className="w-full gap-2">
+              <a
+                href={postSignModal.url}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ExternalLink className="h-4 w-4" /> Open Invoice Again
+              </a>
+            </Button>
+          )}
+          {!postSignModal.resolving && (
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() =>
+                setPostSignModal({ open: false, url: null, resolving: false })
+              }
+            >
+              Close
+            </Button>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

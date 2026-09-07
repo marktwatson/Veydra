@@ -250,6 +250,7 @@ export interface DbPortalSettings {
   timezone?: string | null;
   photo_pay_rate?: number | null;
   video_pay_rate?: number | null;
+  bartender_pay_rate?: number | null;
   editor_video_pricing?: any | null;
   photo_bid_min?: number | null;
   photo_bid_max?: number | null;

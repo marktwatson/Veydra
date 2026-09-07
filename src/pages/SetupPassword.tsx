@@ -41,6 +41,7 @@ export default function SetupPassword() {
   const lastNameParam = searchParams.get("last_name") || "";
   const phoneParam = searchParams.get("phone") || "";
   const specialtyParam = searchParams.get("specialty") || "";
+  const isBartenderSetup = /bartender/i.test(specialtyParam);
   const regionParam = searchParams.get("region");
   let parsedRegion: string[] = [];
   try {
@@ -256,6 +257,9 @@ export default function SetupPassword() {
                     ? parsedRegion
                     : existingContractor.region || [],
                 status: "active",
+                training_completed: /bartender/i.test(
+                  specialtyParam || existingContractor.specialty || "",
+                ),
               })
               .eq("id", existingContractor.id);
 
@@ -294,6 +298,7 @@ export default function SetupPassword() {
                 specialty: specialtyParam || null,
                 region: parsedRegion.length > 0 ? parsedRegion : [],
                 tags: ["invited-contractor"],
+                training_completed: /bartender/i.test(specialtyParam || ""),
                 status: "active",
               });
 
@@ -569,7 +574,11 @@ export default function SetupPassword() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="bio">Short Bio</Label>
+                      <Label htmlFor="bio">
+                        {isBartenderSetup
+                          ? "A sentence about yourself (optional)"
+                          : "Short Bio"}
+                      </Label>
                       <Textarea
                         id="bio"
                         placeholder="Tell us a little about yourself and your experience..."
@@ -626,26 +635,28 @@ export default function SetupPassword() {
                       </div>
                     </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="portfolioUrl">
-                        Portfolio URL{" "}
-                        <span className="text-muted-foreground font-normal">
-                          (Optional)
-                        </span>
-                      </Label>
-                      <Input
-                        id="portfolioUrl"
-                        type="url"
-                        placeholder="https://..."
-                        value={formData.portfolioUrl}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            portfolioUrl: e.target.value,
-                          })
-                        }
-                      />
-                    </div>
+                    {!isBartenderSetup && (
+                      <div className="space-y-2">
+                        <Label htmlFor="portfolioUrl">
+                          Portfolio URL{" "}
+                          <span className="text-muted-foreground font-normal">
+                            (Optional)
+                          </span>
+                        </Label>
+                        <Input
+                          id="portfolioUrl"
+                          type="url"
+                          placeholder="https://..."
+                          value={formData.portfolioUrl}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              portfolioUrl: e.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                    )}
                     <div className="space-y-2">
                       <Label htmlFor="venmoHandle">
                         Venmo Handle{" "}

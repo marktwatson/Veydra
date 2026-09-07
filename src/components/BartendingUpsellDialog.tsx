@@ -7,17 +7,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Loader2,
-  CreditCard,
   CheckCircle2,
   AlertCircle,
   Wine,
-  Tag,
+  FileText,
+  ExternalLink,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
@@ -76,10 +74,8 @@ export function BartendingUpsellDialog({
   const [installments, setInstallments] = useState<Installment[]>([]);
   const [staffNote, setStaffNote] = useState("");
   const [error, setError] = useState("");
+  const [invoiceUrl, setInvoiceUrl] = useState("");
 
-  const stripeCustomerId = wedding?.stripe_customer_id || null;
-  const hasCardOnFile = !!stripeCustomerId;
-  const cardLast4 = wedding?.stripe_card_last4 || "";
   const clientEmail =
     wedding?.client_email ||
     wedding?.questionnaire_data?.contact_info?.email ||
@@ -95,6 +91,7 @@ export function BartendingUpsellDialog({
       setInstallments([]);
       setStaffNote("");
       setSelectedAddon(null);
+      setInvoiceUrl("");
       setLoadingAddons(true);
       api
         .getAddons()
@@ -131,12 +128,6 @@ export function BartendingUpsellDialog({
   };
 
   const goToReview = () => {
-    if (deposit > 0 && !hasCardOnFile) {
-      setError(
-        "This bride doesn't have a card on file. Set deposit to $0 or add a payment method first.",
-      );
-      return;
-    }
     if (deposit < 0) {
       setError("Deposit cannot be negative.");
       return;
@@ -171,6 +162,8 @@ export function BartendingUpsellDialog({
         settings,
       });
 
+      setInvoiceUrl(upsellResult.invoiceUrl || "");
+
       if (clientEmail) {
         const companyName = settings?.company_name || "Honeysuckle Haus";
         const appUrl = (settings?.app_url || window.location.origin).replace(
@@ -187,8 +180,9 @@ export function BartendingUpsellDialog({
           <p>We've added <strong>${selectedAddon?.name}</strong> to your wedding package!</p>
           <ul><li>Package: ${selectedAddon?.name}</li><li>Total: ${fmtMoney(totalDue)}</li>
           ${discount > 0 ? `<li>HH bride discount: -${fmtMoney(discount)}</li>` : ""}
-          <li>Deposit ${deposit > 0 ? `charged: ${fmtMoney(deposit)}` : ": $0 (no charge)"}</li></ul>
+          <li>Invoice sent for payment</li></ul>
           <p>Review and sign here: <a href="${portalLink}">${portalLink}</a></p>
+          ${upsellResult.invoiceUrl ? `<p>Pay your bartending invoice: <a href="${upsellResult.invoiceUrl}">${upsellResult.invoiceUrl}</a></p>` : ""}
           <p>We're excited to serve you on your big day!</p><p>— ${companyName}</p></body></html>`;
         onEmailPreview(
           clientEmail,
@@ -207,40 +201,34 @@ export function BartendingUpsellDialog({
         );
       }
 
-      // Logging must never turn an already-saved add-on into an error state.
+      // Open the invoice in a new tab (popup blockers may block this).
+      if (upsellResult.invoiceUrl) {
+        window.open(upsellResult.invoiceUrl, "_blank");
+      }
+
       api
         .logAdminActivity(
           "Bartending Upsell Added",
-          `Added ${selectedAddon?.name} (${fmtMoney(totalDue)}) to ${wedding?.client_name}. Deposit: ${fmtMoney(deposit)}.`,
+          `Added ${selectedAddon?.name} (${fmtMoney(totalDue)}) to ${wedding?.client_name}. Invoice sent to bride.`,
         )
         .catch((logErr: any) =>
           console.warn("[BartendingUpsell] activity log failed:", logErr),
         );
 
       toast({
-        title:
-          deposit > 0
-            ? "Bartending package added & deposit collected"
-            : "Bartending package added",
-        description:
-          deposit > 0
-            ? `${fmtMoney(deposit)} charged to card on file. Contract sent to ${clientEmail}.`
-            : `No charge. Contract sent to ${clientEmail}.`,
+        title: "Bartending package added",
+        description: `Invoice sent to ${clientEmail}. Contract email sent.`,
       });
       setStep("success");
     } catch (e: any) {
-      console.error("[BartendingUpsell] Sign & Pay failed:", e);
+      console.error("[BartendingUpsell] create invoice failed:", e);
       setStep("review");
       const rawMsg = e?.message || "Something went wrong. Please try again.";
-      const friendlyMsg =
-        deposit > 0
-          ? "Payment was not successful. Please talk to your manager."
-          : rawMsg;
-      setError(friendlyMsg);
+      setError(rawMsg);
       toast({
         variant: "destructive",
         title: "Could not complete",
-        description: `${friendlyMsg} The add-on has not been attached.`,
+        description: `${rawMsg} The add-on has not been attached.`,
       });
     }
   };
@@ -252,6 +240,7 @@ export function BartendingUpsellDialog({
     setInstallments([]);
     setStaffNote("");
     setError("");
+    setInvoiceUrl("");
     onOpenChange(false);
   };
 
@@ -269,8 +258,9 @@ export function BartendingUpsellDialog({
             Add Bartending Package
           </DialogTitle>
           <DialogDescription>
-            Add a bartending add-on to {wedding?.client_name}'s wedding. Charges
-            the card on file for deposits. Does not affect the photography plan.
+            Add a bartending add-on to {wedding?.client_name}'s wedding. Creates
+            a separate invoice for the bride to pay. Does not affect the
+            photography plan.
           </DialogDescription>
         </DialogHeader>
 
@@ -304,8 +294,6 @@ export function BartendingUpsellDialog({
             setInstallments={setInstallments}
             applyDiscount={applyDiscount}
             setApplyDiscount={setApplyDiscount}
-            hasCardOnFile={hasCardOnFile}
-            cardLast4={cardLast4}
             staffNote={staffNote}
             setStaffNote={setStaffNote}
             onBack={() => setStep("select")}
@@ -322,9 +310,6 @@ export function BartendingUpsellDialog({
             deposit={deposit}
             remainingAfterDeposit={remainingAfterDeposit}
             installments={installments}
-            hasCardOnFile={hasCardOnFile}
-            cardLast4={cardLast4}
-            stripeCustomerId={stripeCustomerId}
             clientEmail={clientEmail}
             onBack={() => setStep("plan")}
             onSignAndPay={handleSignAndPay}
@@ -335,9 +320,7 @@ export function BartendingUpsellDialog({
           <div className="flex flex-col items-center justify-center py-12 gap-3">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
             <p className="text-sm text-muted-foreground">
-              {deposit > 0
-                ? "Charging card on file…"
-                : "Saving bartending package…"}
+              Creating bartending invoice…
             </p>
           </div>
         )}
@@ -348,12 +331,18 @@ export function BartendingUpsellDialog({
             <div>
               <p className="font-semibold text-lg">Bartending package added!</p>
               <p className="text-sm text-muted-foreground mt-1">
-                {deposit > 0
-                  ? `${fmtMoney(deposit)} deposit collected. `
-                  : "No charge processed. "}
-                Contract sent to {clientEmail || "the bride"}.
+                Invoice sent to {clientEmail || "the bride"}. Contract email
+                sent.
               </p>
             </div>
+            {invoiceUrl && (
+              <a href={invoiceUrl} target="_blank" rel="noopener noreferrer">
+                <Button variant="outline" className="gap-2">
+                  <ExternalLink className="h-4 w-4" />
+                  Open bartending invoice
+                </Button>
+              </a>
+            )}
             <Button onClick={reset}>Done</Button>
           </div>
         )}

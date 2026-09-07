@@ -172,6 +172,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     training_completed?: boolean;
     status?: string;
     isProfileIncomplete?: boolean;
+    specialty?: string | null;
   }>({
     queryKey: [
       user?.role === "manager" || user?.role === "super_admin"
@@ -241,20 +242,26 @@ export function Layout({ children }: { children: React.ReactNode }) {
       const { data } = await supabase
         .from("contractors")
         .select(
-          "avatar_url, training_completed, status, bio, venmo_handle, portfolio_url",
+          "avatar_url, training_completed, status, bio, venmo_handle, portfolio_url, specialty",
         )
         .ilike("email", user.email)
         .limit(1);
       const record = data?.[0];
 
-      const isProfileIncomplete =
-        record && (!record.avatar_url || !record.bio || !record.portfolio_url);
+      const isBartender = /bartender/i.test(record?.specialty || "");
+      const isProfileIncomplete = record
+        ? isBartender
+          ? !record.avatar_url
+          : !record.avatar_url || !record.bio || !record.portfolio_url
+        : false;
 
       return {
         avatar_url: record?.avatar_url || null,
-        training_completed: record?.training_completed ?? false,
+        training_completed:
+          (record?.training_completed ?? false) || isBartender,
         status: record?.status,
         isProfileIncomplete,
+        specialty: record?.specialty || null,
       };
     },
     enabled: !!user,
