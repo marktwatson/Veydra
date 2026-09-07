@@ -30,6 +30,7 @@ import ghlInvoiceWebhook from "../../supabase/functions/ghl-invoice-webhook/inde
 import scheduledJobsSchema from "../../supabase/migrations/20260901000000_scheduled_jobs.sql?raw";
 import pushSchema from "../../supabase/migrations/20260829000001_push_subscriptions.sql?raw";
 import masterSql from "../../supabase/migrations/20260803000000_schema.sql?raw";
+import ghlInvoiceSchema from "../../supabase/migrations/20260905000001_ghl_invoice_webhook.sql?raw";
 
 export const EDGE_FUNCTION_SOURCES: Record<string, string> = {
   "daily-reminders": dailyReminders,
@@ -56,6 +57,7 @@ export const EDGE_FUNCTION_SOURCES: Record<string, string> = {
   "ghl-invoice": ghlInvoice,
   "ghl-invoice-webhook": ghlInvoiceWebhook,
   master_sql: masterSql,
+  ghl_invoice_schema: ghlInvoiceSchema,
   scheduled_jobs_schema: scheduledJobsSchema,
   push_schema: pushSchema,
 };

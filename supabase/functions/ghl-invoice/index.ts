@@ -1,4 +1,5 @@
 import { createClient } from "jsr:@supabase/supabase-js";
+const SCHEMA_HEAL_SQL = "ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS wedding_id UUID; ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS original_wedding_id TEXT; ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS contract_status TEXT; ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS contract_snapshot TEXT; ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS custom_contract_snapshot TEXT; ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS contract_signed_at TEXT; ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS contract_signed_by TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_contact_id TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_id TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_ids JSONB DEFAULT '[]'::jsonb; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_url TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_status TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_amount NUMERIC; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_created_date TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_amount_paid NUMERIC DEFAULT 0; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_schedule JSONB DEFAULT '[]'::jsonb; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_schedule_id TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS client_phone TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS questionnaire_data JSONB; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS total_amount NUMERIC DEFAULT 0; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS paid_amount NUMERIC DEFAULT 0; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS payment_plan JSONB; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS custom_payment_plan JSONB; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS contract_snapshot TEXT; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS ghl_invoice_base_url TEXT; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_user_id TEXT; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS ghl_webhook_secret TEXT; CREATE TABLE IF NOT EXISTS public.ghl_invoice_payments (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), wedding_id UUID REFERENCES public.weddings(id) ON DELETE CASCADE, ghl_invoice_id TEXT NOT NULL, ghl_event_id TEXT UNIQUE, amount NUMERIC NOT NULL DEFAULT 0, amount_paid_on_invoice NUMERIC NOT NULL DEFAULT 0, created_at TIMESTAMPTZ DEFAULT now()); NOTIFY pgrst, 'reload schema';";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -83,6 +84,7 @@ Deno.serve(async (req) => {
       return jsonResp({ error: "Amount must be a positive number" }, 400);
     }
 
+    try { await db.rpc("exec_sql", { sql_text: SCHEMA_HEAL_SQL }); } catch (_e) {}
     // 1. Fetch wedding details (incl. existing invoice columns if present)
     const { data: wedding, error: weddingErr } = await db
       .from("weddings")
@@ -92,8 +94,11 @@ Deno.serve(async (req) => {
       .eq("id", weddingId)
       .maybeSingle();
 
-    if (weddingErr || !wedding) {
-      return jsonResp({ error: "Wedding not found" }, 404);
+    if (weddingErr) {
+      return jsonResp({ error: "Wedding lookup failed", detail: weddingErr.message, weddingId }, 500);
+    }
+    if (!wedding) {
+      return jsonResp({ error: "Wedding not found", weddingId }, 404);
     }
 
     const email =
@@ -116,16 +121,7 @@ Deno.serve(async (req) => {
 
     const clientName = wedding.client_name || "Client";
 
-    // 2. Self-heal: ensure the ghl_invoice_base_url column exists so the
-    //    read below doesn't silently come back empty on a freshly synced area.
-    try {
-      await db.rpc("exec_sql", {
-        sql_text:
-          "ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS ghl_invoice_base_url TEXT; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_user_id TEXT; NOTIFY pgrst, 'reload schema';",
-      });
-    } catch (_e) {
-      // exec_sql may not exist on some areas — not fatal.
-    }
+    // portal_settings columns are healed by SCHEMA_HEAL_SQL above.
 
     // Re-fetch after the (possible) schema reload so PostgREST sees the column.
     const { data: pSettings, error: settingsErr } = await db
@@ -547,12 +543,7 @@ Deno.serve(async (req) => {
       return res;
     }
 
-    // Self-heal: add ghl_schedule_id column if missing so we can persist it.
-    try {
-      await db.rpc("exec_sql", {
-        sql_text: "ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_schedule_id TEXT; NOTIFY pgrst, 'reload schema';",
-      });
-    } catch (_e) {}
+    // ghl_schedule_id is healed by SCHEMA_HEAL_SQL above.
 
     let scheduleId: string | null = null;
     let invoiceId: string | null = null;

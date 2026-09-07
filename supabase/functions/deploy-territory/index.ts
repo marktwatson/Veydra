@@ -168,6 +168,7 @@ Deno.serve(async (req) => {
     console.log(`[Fleet] edge_function_sources query: ${sourceRows?.length || 0} rows, error: ${sourceError?.message || "none"}`);
 
     let dynamicMasterSql = "";
+    let ghlInvoiceSchemaSql = "";
     if (sourceRows && sourceRows.length > 0) {
       for (const row of sourceRows) {
         if (row.source_code && row.source_code.length > 50) {
@@ -176,6 +177,10 @@ Deno.serve(async (req) => {
         if (row.name === "master_sql" && row.source_code && row.source_code.length > 50) {
           dynamicMasterSql = row.source_code;
           console.log(`[Fleet] Loaded master_sql from DB (${row.source_code.length} chars)`);
+        }
+        if (row.name === "ghl_invoice_schema" && row.source_code && row.source_code.length > 50) {
+          ghlInvoiceSchemaSql = row.source_code;
+          console.log(`[Fleet] Loaded ghl_invoice_schema from DB (${row.source_code.length} chars)`);
         }
       }
       console.log(`[Fleet] Loaded ${sourceRows.length} rows from edge_function_sources`);
@@ -194,92 +199,110 @@ Deno.serve(async (req) => {
       results.errors.push("WARNING: master_sql not found in edge_function_sources DB — used minimal fallback. Click 'Upload Sources' in the Territories UI to push the full schema.");
     }
 
-    // Push SQL Schema
+    // Ordered list of SQL sources to deploy. master_sql runs first (creates
+    // tables / exec_sql), then ghl_invoice_schema adds the per-area columns
+    // Sign & Pay + the webhook need (proposals.wedding_id, weddings.ghl_*,
+    // portal_settings, ghl_invoice_payments). This guarantees freshly-synced
+    // areas get every column even if their deployed master_sql is stale.
+    const sqlSources: { name: string; sql: string }[] = [
+      { name: "master_sql", sql: effectiveSql },
+    ];
+    if (ghlInvoiceSchemaSql) {
+      sqlSources.push({ name: "ghl_invoice_schema", sql: ghlInvoiceSchemaSql });
+    }
+
+    // Push SQL Schema — runs every SQL source in sqlSources in order
+    // (master_sql first, then ghl_invoice_schema). Each source is split into
+    // statements and chunked; failures accumulate across all sources.
     if (deploySchema !== false) {
       try {
-        const statements = splitSqlStatements(effectiveSql);
-        console.log(`[Fleet] Schema deploy: ${statements.length} statements, selfDeploy: ${isSelfDeploy}, hasToken: ${!!accessToken}`);
-
         let failedCount = 0;
         const schemaErrors: string[] = [];
+        let totalStatements = 0;
         const selfSk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 
-        if (accessToken) {
-          // ── Management API /database/query, CHUNKED ──────────────────────
-          // /database/query accepts multi-statement SQL, so batching ~100
-          // idempotent statements per call turns ~660 HTTP round-trips into
-          // ~7 — that was the real cause of full Sync timing out (HTTP 546
-          // Edge Gateway timeout). A failing statement rolls back its whole
-          // chunk (one implicit transaction), so on chunk failure we fall
-          // back to running just that chunk's statements one-by-one to
-          // isolate the error and let the idempotent ones still apply.
-          // lock_timeout: if a DDL statement (ALTER TABLE / CREATE INDEX) can't
-          // acquire its AccessExclusiveLock within 5s (because the app or
-          // another connection is using the table), abort it fast instead of
-          // waiting until Postgres detects a deadlock and kills the whole
-          // chunk transaction. All our DDL is idempotent (IF NOT EXISTS), so a
-          // lock-timeout statement simply retries on the next sync.
-          const LOCK_TIMEOUT = "SET lock_timeout = '5s'; SET statement_timeout = '30s';";
-          const TRANSIENT = ["already exists", "duplicate", "already", "Throttler", "lock timeout", "canceling statement due to lock timeout", "deadlock detected"];
-          const SCHEMA_CHUNK = 100;
-          for (let ci = 0; ci < statements.length; ci += SCHEMA_CHUNK) {
-            const chunk = statements.slice(ci, ci + SCHEMA_CHUNK).filter((s) => s.trim());
-            if (chunk.length === 0) continue;
-            const chunkRes = await fetch(`${managementApiBase}/database/query`, {
-              method: "POST",
-              headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" },
-              body: JSON.stringify({ query: `${LOCK_TIMEOUT}\n${chunk.join(";\n")}` }),
-            });
-            if (chunkRes.ok) continue;
-            const chunkErr = await chunkRes.text();
-            if (chunkErr.includes("Throttler")) continue; // rate-limited — skip, next sync retries
-            // Chunk failed as one transaction — isolate by running its statements individually.
-            for (let si = 0; si < chunk.length; si++) {
-              const stmt = chunk[si];
-              if (!stmt.trim()) continue;
-              const sqlRes = await fetch(`${managementApiBase}/database/query`, {
+        for (const src of sqlSources) {
+          const statements = splitSqlStatements(src.sql);
+          totalStatements += statements.length;
+          console.log(`[Fleet] Schema deploy [${src.name}]: ${statements.length} statements, selfDeploy: ${isSelfDeploy}, hasToken: ${!!accessToken}`);
+
+          if (accessToken) {
+            // ── Management API /database/query, CHUNKED ──────────────────────
+            // /database/query accepts multi-statement SQL, so batching ~100
+            // idempotent statements per call turns ~660 HTTP round-trips into
+            // ~7 — that was the real cause of full Sync timing out (HTTP 546
+            // Edge Gateway timeout). A failing statement rolls back its whole
+            // chunk (one implicit transaction), so on chunk failure we fall
+            // back to running just that chunk's statements one-by-one to
+            // isolate the error and let the idempotent ones still apply.
+            // lock_timeout: if a DDL statement (ALTER TABLE / CREATE INDEX) can't
+            // acquire its AccessExclusiveLock within 5s (because the app or
+            // another connection is using the table), abort it fast instead of
+            // waiting until Postgres detects a deadlock and kills the whole
+            // chunk transaction. All our DDL is idempotent (IF NOT EXISTS), so a
+            // lock-timeout statement simply retries on the next sync.
+            const LOCK_TIMEOUT = "SET lock_timeout = '5s'; SET statement_timeout = '30s';";
+            const TRANSIENT = ["already exists", "duplicate", "already", "Throttler", "lock timeout", "canceling statement due to lock timeout", "deadlock detected"];
+            const SCHEMA_CHUNK = 100;
+            for (let ci = 0; ci < statements.length; ci += SCHEMA_CHUNK) {
+              const chunk = statements.slice(ci, ci + SCHEMA_CHUNK).filter((s) => s.trim());
+              if (chunk.length === 0) continue;
+              const chunkRes = await fetch(`${managementApiBase}/database/query`, {
                 method: "POST",
                 headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" },
-                body: JSON.stringify({ query: `${LOCK_TIMEOUT}\n${stmt}` }),
+                body: JSON.stringify({ query: `${LOCK_TIMEOUT}\n${chunk.join(";\n")}` }),
               });
-              if (!sqlRes.ok) {
-                const errText = await sqlRes.text();
-                if (!TRANSIENT.some((t) => errText.includes(t))) {
-                  failedCount++;
-                  if (schemaErrors.length < 10) schemaErrors.push(`Stmt ${ci + si + 1}: ${errText.substring(0, 150)}`);
+              if (chunkRes.ok) continue;
+              const chunkErr = await chunkRes.text();
+              if (chunkErr.includes("Throttler")) continue; // rate-limited — skip, next sync retries
+              // Chunk failed as one transaction — isolate by running its statements individually.
+              for (let si = 0; si < chunk.length; si++) {
+                const stmt = chunk[si];
+                if (!stmt.trim()) continue;
+                const sqlRes = await fetch(`${managementApiBase}/database/query`, {
+                  method: "POST",
+                  headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" },
+                  body: JSON.stringify({ query: `${LOCK_TIMEOUT}\n${stmt}` }),
+                });
+                if (!sqlRes.ok) {
+                  const errText = await sqlRes.text();
+                  if (!TRANSIENT.some((t) => errText.includes(t))) {
+                    failedCount++;
+                    if (schemaErrors.length < 10) schemaErrors.push(`[${src.name}] Stmt ${ci + si + 1}: ${errText.substring(0, 150)}`);
+                  }
                 }
               }
             }
-          }
-          console.log(`[Fleet] Ran ${statements.length} statements in chunks, ${failedCount} failed`);
-        } else if (isSelfDeploy) {
-          // ── Fallback: exec_sql_batch RPC (self-deploy, no access token) ──
-          if (!selfSk) throw new Error("SUPABASE_SERVICE_ROLE_KEY not set on this instance");
-          const createBatchFn = `CREATE OR REPLACE FUNCTION public.exec_sql_batch(sql_texts TEXT[]) RETURNS void AS $$ BEGIN FOR i IN 1..array_length(sql_texts, 1) LOOP BEGIN EXECUTE sql_texts[i]; EXCEPTION WHEN OTHERS THEN IF NOT (SQLERRM LIKE '%already exists%' OR SQLERRM LIKE '%duplicate%' OR SQLERRM LIKE '%already%') THEN RAISE NOTICE 'Skip: %', SQLERRM; END IF; END; END LOOP; END; $$ LANGUAGE plpgsql SECURITY DEFINER;`;
-          const batchFnRes = await fetch(`${selfSu}/rest/v1/rpc/exec_sql`, {
-            method: "POST",
-            headers: { "apikey": selfSk, "Authorization": `Bearer ${selfSk}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ sql_text: createBatchFn }),
-          });
-          if (!batchFnRes.ok) {
-            const errText = await batchFnRes.text();
-            throw new Error(`Cannot create exec_sql_batch (exec_sql may not exist). Add a Supabase access token to use the Management API instead. Error: ${errText.substring(0, 200)}`);
-          }
-          // Prepend lock_timeout to each statement so DDL that can't get a lock
-          // fails fast instead of deadlocking the batch transaction.
-          const CHUNK = 100;
-          for (let ci = 0; ci < statements.length; ci += CHUNK) {
-            const chunk = statements.slice(ci, ci + CHUNK).map((s) => `SET lock_timeout = '5s'; SET statement_timeout = '30s'; ${s}`);
-            const batchRes = await fetch(`${selfSu}/rest/v1/rpc/exec_sql_batch`, {
+            console.log(`[Fleet] [${src.name}] ran ${statements.length} statements in chunks`);
+          } else if (isSelfDeploy) {
+            // ── Fallback: exec_sql_batch RPC (self-deploy, no access token) ──
+            if (!selfSk) throw new Error("SUPABASE_SERVICE_ROLE_KEY not set on this instance");
+            const createBatchFn = `CREATE OR REPLACE FUNCTION public.exec_sql_batch(sql_texts TEXT[]) RETURNS void AS $$ BEGIN FOR i IN 1..array_length(sql_texts, 1) LOOP BEGIN EXECUTE sql_texts[i]; EXCEPTION WHEN OTHERS THEN IF NOT (SQLERRM LIKE '%already exists%' OR SQLERRM LIKE '%duplicate%' OR SQLERRM LIKE '%already%') THEN RAISE NOTICE 'Skip: %', SQLERRM; END IF; END; END LOOP; END; $$ LANGUAGE plpgsql SECURITY DEFINER;`;
+            const batchFnRes = await fetch(`${selfSu}/rest/v1/rpc/exec_sql`, {
               method: "POST",
               headers: { "apikey": selfSk, "Authorization": `Bearer ${selfSk}`, "Content-Type": "application/json" },
-              body: JSON.stringify({ sql_texts: chunk }),
+              body: JSON.stringify({ sql_text: createBatchFn }),
             });
-            if (!batchRes.ok) {
-              const errText = await batchRes.text();
-              if (!errText.includes("lock timeout") && !errText.includes("deadlock") && !errText.includes("Throttler")) {
-                failedCount += chunk.length;
-                if (schemaErrors.length < 10) schemaErrors.push(`Batch chunk ${ci}: ${errText.substring(0, 150)}`);
+            if (!batchFnRes.ok) {
+              const errText = await batchFnRes.text();
+              throw new Error(`Cannot create exec_sql_batch (exec_sql may not exist). Add a Supabase access token to use the Management API instead. Error: ${errText.substring(0, 200)}`);
+            }
+            // Prepend lock_timeout to each statement so DDL that can't get a lock
+            // fails fast instead of deadlocking the batch transaction.
+            const CHUNK = 100;
+            for (let ci = 0; ci < statements.length; ci += CHUNK) {
+              const chunk = statements.slice(ci, ci + CHUNK).map((s) => `SET lock_timeout = '5s'; SET statement_timeout = '30s'; ${s}`);
+              const batchRes = await fetch(`${selfSu}/rest/v1/rpc/exec_sql_batch`, {
+                method: "POST",
+                headers: { "apikey": selfSk, "Authorization": `Bearer ${selfSk}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ sql_texts: chunk }),
+              });
+              if (!batchRes.ok) {
+                const errText = await batchRes.text();
+                if (!errText.includes("lock timeout") && !errText.includes("deadlock") && !errText.includes("Throttler")) {
+                  failedCount += chunk.length;
+                  if (schemaErrors.length < 10) schemaErrors.push(`[${src.name}] Batch chunk ${ci}: ${errText.substring(0, 150)}`);
+                }
               }
             }
           }
@@ -287,9 +310,9 @@ Deno.serve(async (req) => {
 
         if (failedCount > 0) {
           results.errors.push(`Schema: ${failedCount} statements/chunks failed`);
-          results.schema = { status: "failed", error: `${failedCount} of ${statements.length} statements failed`, details: schemaErrors, totalStatements: statements.length };
+          results.schema = { status: "failed", error: `${failedCount} of ${totalStatements} statements failed`, details: schemaErrors, totalStatements };
         } else {
-          results.schema = { status: "success", method: accessToken ? "management_api" : "exec_sql_batch_rpc", statements: statements.length };
+          results.schema = { status: "success", method: accessToken ? "management_api" : "exec_sql_batch_rpc", statements: totalStatements, sources: sqlSources.map((s) => s.name) };
         }
       } catch (e: any) {
         results.schema = { status: "failed", error: e.message, details: [e.message] };
@@ -318,7 +341,7 @@ Deno.serve(async (req) => {
     // it on the next sync — no need to update a hardcoded list here (which was
     // the bug: a stale deployed deploy-territory had an old list missing
     // "scheduler", so sync silently skipped it).
-    const SQL_META_KEYS = new Set(["master_sql", "scheduled_jobs_schema", "push_schema"]);
+    const SQL_META_KEYS = new Set(["master_sql", "ghl_invoice_schema", "scheduled_jobs_schema", "push_schema"]);
     const dbFunctionNames = Object.keys(FN_SOURCES).filter(
       (k) => !SQL_META_KEYS.has(k) && FN_SOURCES[k] && FN_SOURCES[k].length > 50,
     );
