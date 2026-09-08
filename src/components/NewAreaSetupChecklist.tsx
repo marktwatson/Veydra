@@ -36,7 +36,7 @@ const STEPS: Step[] = [
     key: "sync",
     label: "Sync territory schema & functions",
     detail:
-      "Run Upload Sources + Sync in Territories to create tables and deploy edge functions.",
+      "Run Upload Sources + Sync in Territories to create tables and deploy edge functions. Sync also runs ghl_invoice_schema (proposals.wedding_id + wedding ghl_* columns). If Sign & Pay returns 'Wedding not found', Upload Sources + Sync again.",
     defaultDone: true,
   },
   {
@@ -52,16 +52,16 @@ const STEPS: Step[] = [
       "Set portal_settings.timezone (e.g. America/Chicago) so all date/time math uses the correct local time.",
   },
   {
-    key: "booking-secrets",
-    label: "Set booking Stripe secrets",
+    key: "ghl-api",
+    label: "Save Ovanta/GHL API in Settings",
     detail:
-      "stripe-webhook + stripe-checkout functions need STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, and STRIPE_WEBHOOK_SECRET for this area's booking Stripe account.",
+      "Settings → Integrations → Ovanta API Connection: save hl_api_key, hl_location_id, hl_user_id, and ghl_invoice_base_url (links host only, e.g. https://links.theirbrand.com — no /invoice/ path). Set app_url to this area's live site.",
   },
   {
-    key: "booking-webhook",
-    label: "Create booking webhook in Stripe",
+    key: "ghl-deploy",
+    label: "Deploy GHL invoice functions + workflow",
     detail:
-      "Stripe → Developers → Webhooks → Add endpoint → https://<project>.supabase.co/functions/v1/stripe-webhook. Copy the whsec_ into the function secrets.",
+      "Deploy ghl-invoice and ghl-invoice-webhook on THIS project. In Ovanta, create a workflow for Invoice paid / partially paid → HTTP POST to https://<project>.supabase.co/functions/v1/ghl-invoice-webhook. Header x-webhook-secret = portal_settings.ghl_webhook_secret. Authorization: Bearer <anon key>.",
   },
   {
     key: "royalty-secrets",

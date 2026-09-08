@@ -124,10 +124,15 @@ export async function signAndPayProposal(params: {
           : `Wedding Deposit for ${proposal.client_name}`;
 
   // 6. Create the GHL invoice (no Stripe).
+  //    Upgrades invoice ONLY the unpaid delta as a SECOND GHL invoice
+  //    (kind: "addon", forceNew) so the original photo ghl_invoice_id is
+  //    never overwritten.
   const invoice = await createGhlInvoice({
     weddingId,
     amount: firstDue,
     label,
+    kind: proposal.is_upgrade ? "addon" : undefined,
+    forceNew: proposal.is_upgrade ? true : undefined,
   });
 
   return { invoiceUrl: invoice.invoiceUrl };

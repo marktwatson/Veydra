@@ -288,28 +288,32 @@ Deno.serve(async (req) => {
 
     // Helper: send an invoice by id. Tries send_manually, then "email".
     async function sendInvoice(invId: string) {
+      const autoTypes = ["customer_card", "customerCard", "Customer Card", "saved_card"];
       const actions = ["send_manually", "email"];
       for (const act of actions) {
-        const sendBody: any = {
-          altId: locationId,
-          altType: "location",
-          action: act,
-          liveMode: true,
-        };
-        if (userId) sendBody.userId = userId;
-        try {
-          const sRes = await fetch(
-            `https://services.leadconnectorhq.com/invoices/${invId}/send`,
-            { method: "POST", headers: crmHeaders, body: JSON.stringify(sendBody) },
-          );
-          const sText = await sRes.text();
-          console.log(`[ghl-invoice] send action=${act} status=${sRes.status} body=${sText.slice(0, 300)}`);
-          if (sRes.ok) return { ok: true, status: sRes.status, body: sText, action: act };
-        } catch (e: any) {
-          console.warn(`[ghl-invoice] send action=${act} failed:`, e?.message);
+        const baseBody: any = { altId: locationId, altType: "location", action: act, liveMode: true };
+        if (userId) baseBody.userId = userId;
+        // Try WITH autoPayment using different type enum values, then WITHOUT.
+        const attempts: { body: any; autoPayEnabled: boolean; autoPayType?: string }[] = [];
+        for (const t of autoTypes) {
+          attempts.push({ body: { ...baseBody, autoPayment: { enable: true, type: t } }, autoPayEnabled: true, autoPayType: t });
+        }
+        attempts.push({ body: baseBody, autoPayEnabled: false });
+        for (const att of attempts) {
+          try {
+            const sRes = await fetch(`https://services.leadconnectorhq.com/invoices/${invId}/send`, { method: "POST", headers: crmHeaders, body: JSON.stringify(att.body) });
+            const sText = await sRes.text();
+            console.log(`[ghl-invoice] send action=${act} auto=${att.autoPayEnabled} type=${att.autoPayType || "none"} status=${sRes.status} body=${sText.slice(0, 300)}`);
+            if (sRes.ok) return { ok: true, status: sRes.status, body: sText, action: act, autoPayEnabled: att.autoPayEnabled, autoPayTypeUsed: att.autoPayType || null };
+            if (sRes.status >= 400 && sRes.status < 500) continue; // try next type / fallback
+            break; // non-retryable (5xx)
+          } catch (e: any) {
+            console.warn(`[ghl-invoice] send action=${act} auto=${att.autoPayEnabled} type=${att.autoPayType || "none"} failed:`, e?.message);
+            break;
+          }
         }
       }
-      return { ok: false, status: 0, body: "all send actions failed", action: "" };
+      return { ok: false, status: 0, body: "all send actions failed", action: "", autoPayEnabled: false, autoPayTypeUsed: null };
     }
 
     // Helper: GET invoice and return its status field.
@@ -632,7 +636,7 @@ Deno.serve(async (req) => {
       ).map((r) => ({
         ...r,
         invoiceId,
-        source: isAddon ? "bartending" : "photo",
+        source: (label || "").toLowerCase().includes("upgrade") ? "upgrade" : isAddon ? "bartending" : "photo",
         status: r.date === ymd(0) ? (statusAfter || "sent").toLowerCase() : "upcoming",
       }));
 
@@ -678,6 +682,8 @@ Deno.serve(async (req) => {
       statusAfter,
       scheduleError: scheduleError || undefined,
       isAddon,
+      autoPayEnabled: sendResult.autoPayEnabled ?? false,
+      autoPayTypeUsed: sendResult.autoPayTypeUsed ?? null,
     });
   } catch (err: any) {
     console.error("[ghl-invoice] unhandled:", err);

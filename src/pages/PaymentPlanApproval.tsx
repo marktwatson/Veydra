@@ -191,8 +191,8 @@ export default function PaymentPlanApproval() {
                   <CheckCircle2 className="h-14 w-14 text-green-500 mx-auto" />
                   <h2 className="text-xl font-semibold">Plan Approved!</h2>
                   <p className="text-muted-foreground max-w-md mx-auto">
-                    Your new payment schedule is now active. Future charges will
-                    follow the dates you just approved. Thank you!
+                    Your new schedule is saved. Pay remaining amounts on your
+                    invoice. Thank you!
                   </p>
                 </>
               )}

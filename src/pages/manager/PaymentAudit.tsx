@@ -356,8 +356,7 @@ export default function ManagerPaymentAudit() {
           </h1>
           <p className="text-sm text-muted-foreground">
             Audit past, present, and custom scheduled payments across all client
-            contracts. Auto-charge saved cards or send manual payment invoices
-            instantly.
+            contracts. Send CRM invoices and sync payment status.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -442,7 +441,7 @@ export default function ManagerPaymentAudit() {
             ) : (
               <CloudDownload className="h-4 w-4 mr-2" />
             )}
-            Sync from Stripe
+            Sync legacy Stripe (refunds only)
           </Button>
         </div>
       </div>

@@ -47,6 +47,7 @@ ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS client_phone TEXT;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS questionnaire_data JSONB;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS total_amount NUMERIC DEFAULT 0;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS paid_amount NUMERIC DEFAULT 0;
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS payment_plan JSONB;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS custom_payment_plan JSONB;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS contract_snapshot TEXT;
 

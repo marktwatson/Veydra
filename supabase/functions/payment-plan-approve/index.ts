@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js";
-import Stripe from "https://esm.sh/stripe@14.14.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -145,30 +144,60 @@ serve(async (req) => {
         })
         .eq("id", wedding.id);
 
-      // ── Cancel the active $250/mo subscription so it can't double-charge ──
-      let subscriptionCancelled = false;
-      if (
-        wedding.stripe_subscription_id &&
-        wedding.stripe_subscription_status === "active"
-      ) {
-        const stripeKey =
-          Deno.env.get("STRIPE_SECRET_KEY") || "";
-        if (stripeKey) {
-          try {
-            const stripe = new Stripe(stripeKey, {
-              apiVersion: "2023-10-16",
-            });
-            await stripe.subscriptions.cancel(wedding.stripe_subscription_id, {
-              prorate: false,
-            });
-            await supabase
-              .from("weddings")
-              .update({ stripe_subscription_status: "canceled" })
-              .eq("id", wedding.id);
-            subscriptionCancelled = true;
-          } catch (e) {
-            console.error("Failed to cancel subscription:", e);
+      // ── Mark any leftover Stripe subscription canceled in DB only (no
+      // Stripe call — bride payments are GHL now) ──
+      if (wedding.stripe_subscription_id) {
+        await supabase
+          .from("weddings")
+          .update({ stripe_subscription_status: "canceled" })
+          .eq("id", wedding.id);
+      }
+
+      // ── Create a GHL invoice for the unpaid installments ──
+      const unpaidInstallments = installments.map((i) => ({
+        date: i.date,
+        amount: Number(i.amount) || 0,
+        label: i.label || undefined,
+      }));
+      const unpaidSum = unpaidInstallments.reduce(
+        (s, i) => s + i.amount,
+        0,
+      );
+      let ghlError: string | null = null;
+      if (unpaidSum > 0) {
+        try {
+          const invRes = await fetch(
+            `${supabaseUrl}/functions/v1/ghl-invoice`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${supabaseKey}`,
+              },
+              body: JSON.stringify({
+                weddingId: wedding.id,
+                kind: "addon",
+                forceNew: true,
+                amount: unpaidSum,
+                installments: unpaidInstallments,
+                label: `Updated payment plan for ${wedding.client_name}`,
+              }),
+            },
+          );
+          const invData = await invRes.json();
+          if (!invData.success && !invData.invoiceUrl) {
+            ghlError = invData.error || JSON.stringify(invData).slice(0, 500);
+            console.warn(
+              "[payment-plan-approve] ghl invoice error:",
+              ghlError,
+            );
           }
+        } catch (e: any) {
+          ghlError = e?.message || "ghl-invoice call failed";
+          console.warn(
+            "[payment-plan-approve] ghl invoice call failed:",
+            ghlError,
+          );
         }
       }
 
@@ -185,7 +214,7 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({
           success: true,
-          subscriptionCancelled,
+          ghlError,
           weddingName: wedding.client_name,
         }),
         {

@@ -294,39 +294,17 @@ export function PaymentAuditTable({
                               className="h-8 rounded-full text-xs shadow-sm text-red-600 dark:text-red-400 border-red-500/40 hover:bg-red-500/10 gap-1 font-semibold animate-pulse"
                               onClick={() => handleCancelSubscription(item)}
                               disabled={cancellingSubId === item.id}
-                              title="This wedding has a live Stripe subscription still charging. Click to cancel it and void open invoices."
+                              title="Cancel a leftover Stripe subscription still billing this wedding."
                             >
                               {cancellingSubId === item.id ? (
                                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                               ) : (
                                 <XCircle className="h-3.5 w-3.5" />
                               )}
-                              Stop Auto-Charge
+                              Cancel leftover Stripe subscription
                             </Button>
                           ) : null}
                           <div className="flex items-center justify-end gap-2">
-                            {/* Auto-charge saved card button */}
-                            <Button
-                              size="sm"
-                              variant="default"
-                              className="h-8 rounded-full text-xs shadow-sm bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
-                              onClick={() => onAutoCharge(item)}
-                            >
-                              <CreditCard className="h-3.5 w-3.5" />
-                              Pay Now
-                            </Button>
-
-                            {/* Send manual payment invoice button */}
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 rounded-full text-xs shadow-sm gap-1"
-                              onClick={() => onManualInvoice(item)}
-                            >
-                              <Send className="h-3.5 w-3.5 text-primary" />
-                              Send Invoice Link
-                            </Button>
-
                             {/* Cancel payment button */}
                             <Button
                               size="sm"

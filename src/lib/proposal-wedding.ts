@@ -45,18 +45,30 @@ export async function ensureWeddingForProposal(
     const packageString = `${packageName} (${coverageLabel})`;
 
     if (weddingId) {
-      await supabase
+      // For upgrades, don't clobber an existing custom_payment_plan — let the
+      // addon invoice carry the unpaid delta instead. Only write the plan
+      // when the wedding doesn't already have one.
+      const { data: existingWedding } = await supabase
         .from("weddings")
-        .update({
-          package: packageString,
-          addons: proposal.addons,
-          second_shooter_hours: proposal.second_shooter_hours,
-          second_shooter_type: proposal.second_shooter_type,
-          total_amount: proposal.total_amount,
-          payment_plan: resolvedPaymentPlan,
-          custom_payment_plan: customPlan,
-        })
-        .eq("id", weddingId);
+        .select("custom_payment_plan")
+        .eq("id", weddingId)
+        .maybeSingle();
+      const hasExistingPlan =
+        existingWedding?.custom_payment_plan != null &&
+        existingWedding?.custom_payment_plan !== "";
+
+      const update: any = {
+        package: packageString,
+        addons: proposal.addons,
+        second_shooter_hours: proposal.second_shooter_hours,
+        second_shooter_type: proposal.second_shooter_type,
+        total_amount: proposal.total_amount,
+        payment_plan: resolvedPaymentPlan,
+      };
+      if (!hasExistingPlan) {
+        update.custom_payment_plan = customPlan;
+      }
+      await supabase.from("weddings").update(update).eq("id", weddingId);
     } else {
       const { data: wedding, error: weddingError } = await supabase
         .from("weddings")
