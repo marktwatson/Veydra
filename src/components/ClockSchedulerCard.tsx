@@ -171,14 +171,13 @@ export function ClockSchedulerCard({ settings }: { settings?: any }) {
         )}
 
         <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 text-xs text-amber-700 dark:text-amber-400 space-y-1.5">
-          <p className="font-semibold">Manual Payments &amp; Daily Alerts</p>
+          <p className="font-semibold">Owner Notifications</p>
           <p>
-            Subscriptions and deposits are charged automatically by Stripe at
-            booking. All other payments (custom installments, final balances)
-            are <span className="font-medium">manual only</span> — no background
-            auto-charging. When payments are due today, the scheduler sends one
-            push alert to owners &amp; super admins so you can process them in
-            the Payment Audit UI.
+            A <span className="font-medium">9 AM daily owner digest</span> runs
+            on the 10-min clock (leads, bookings, outstanding items). An{" "}
+            <span className="font-medium">instant push</span> fires the moment a
+            GHL invoice payment posts. Contractor SMS &amp; email reminders
+            still run on the 10-min clock.
           </p>
         </div>
       </CardContent>

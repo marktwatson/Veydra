@@ -680,6 +680,7 @@ Deno.serve(async (req) => {
     update.final_payment_verified =
       newPaid >= (Number(wedding.total_amount) || 0) - 0.01;
     await db.from("weddings").update(update).eq("id", weddingId);
+    if (delta > 0) { try { const wf = (Number(wedding.paid_amount) || 0) <= 0; const cn = wedding.client_name || "client"; const tot = Number(wedding.total_amount) || 0; await fetch(`${su}/functions/v1/send-push`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${sk}`, apikey: sk }, body: JSON.stringify({ action: "send", roles: ["owner", "super_admin"], category: "bookings_payments", title: wf ? `New booking — ${cn}` : `Payment received — ${cn}`, body: `$${delta.toFixed(2)} posted · paid $${newPaid.toFixed(2)} of $${tot.toFixed(2)}`, url: "/manager/payments", tag: `ghl-pay-${weddingId}` }) }); } catch (e: any) { console.warn("[ghl-invoice-webhook] send-push failed:", e?.message); } }
 
     return jsonResp({
       weddingId,

@@ -65,7 +65,7 @@ export default function Profile() {
   const [isUploading, setIsUploading] = useState(false);
   const [isConnectingStripe, setIsConnectingStripe] = useState(false);
   const [stripeCountry, setStripeCountry] = useState("US");
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const profileTab = searchParams.get("tab");
   const validTabs = ["personal", "documents", "blackout", "settings"];
   const activeTab = validTabs.includes(profileTab || "")
@@ -611,7 +611,15 @@ export default function Profile() {
 
         {/* Profile Content */}
         <div className="lg:col-span-2 space-y-6">
-          <Tabs value={activeTab} className="w-full">
+          <Tabs
+            value={activeTab}
+            onValueChange={(v) => {
+              const next = new URLSearchParams(searchParams);
+              next.set("tab", v);
+              setSearchParams(next, { replace: true });
+            }}
+            className="w-full"
+          >
             <TabsList className="w-full grid grid-cols-4">
               <TabsTrigger value="personal">Personal Info</TabsTrigger>
               <TabsTrigger value="documents">Compliance</TabsTrigger>

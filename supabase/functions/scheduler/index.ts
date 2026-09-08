@@ -325,7 +325,28 @@ serve(async (req) => {
     });
     if (r.ok) { const rd = await r.json(); royaltyTriggered = !rd.skipped; }
   } catch (e) { console.warn("royalty-processor trigger failed:", (e as any)?.message); }
-  return jsonResp({ claimed, sent, failed, backfilled, royalty_triggered: royaltyTriggered, self_heal: healOk, server_time: new Date().toISOString(), portal_tz: tz, portal_time_label: formatInTz(new Date(), tz) });
+
+  // Trigger the daily owner digest at 9 AM portal time. daily-digest has its
+  // own once-per-day atomic claim (last_digest_date), so calling it every
+  // 10-min run is safe — it self-skips if already sent today or before 9 AM.
+  let digestTriggered = false;
+  try {
+    const hourStr = new Date().toLocaleString("en-US", { timeZone: tz, hour: "numeric", hour12: false });
+    const currentHour = parseInt(hourStr, 10);
+    const tzNow = new Date().toLocaleString("en-US", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" });
+    const [tm, td, ty] = tzNow.split("/");
+    const todayTz = `${ty}-${tm}-${td}`;
+    if (currentHour === 9 && (settings as any).last_digest_date !== todayTz) {
+      const d = await fetch(`${supabaseUrl}/functions/v1/daily-digest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}`, apikey: supabaseKey },
+        body: JSON.stringify({ source: "scheduler" }),
+      });
+      if (d.ok) { const dd = await d.json(); digestTriggered = !dd.skipped; }
+    }
+  } catch (e) { console.warn("daily-digest trigger failed:", (e as any)?.message); }
+
+  return jsonResp({ claimed, sent, failed, backfilled, royalty_triggered: royaltyTriggered, digest_triggered: digestTriggered, self_heal: healOk, server_time: new Date().toISOString(), portal_tz: tz, portal_time_label: formatInTz(new Date(), tz) });
 });
 
 // ─── Job processing ──────────────────────────────────────────────────────
