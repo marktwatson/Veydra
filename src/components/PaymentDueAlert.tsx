@@ -147,7 +147,10 @@ export function PaymentDueAlert() {
       if (it.status === "overdue") {
         overdue += 1;
         overdueTotal += Number(it.installmentAmount) || 0;
-      } else if (it.status === "pending" && it.parsedDate) {
+      } else if (
+        (it.status === "pending" || it.status === "partial") &&
+        it.parsedDate
+      ) {
         const sameDay =
           it.parsedDate.getFullYear() === todayDate.getFullYear() &&
           it.parsedDate.getMonth() === todayDate.getMonth() &&

@@ -3,7 +3,7 @@ import { type AuditItem } from "@/components/PaymentAuditModals";
 
 export type AuditScheduleItem = AuditItem & {
   parsedDate: Date | null;
-  status: string;
+  status: "paid" | "partial" | "overdue" | "pending";
   paymentPlan: string;
   hasCustomPlan: boolean;
   stripeSubscriptionId?: string;
@@ -11,8 +11,38 @@ export type AuditScheduleItem = AuditItem & {
 };
 
 /**
+ * Recompute a schedule row's payment status from the wedding's cumulative
+ * `paid_amount` (Stripe history + GHL invoice payments merged by the webhook /
+ * sync — never replaced).
+ *
+ * Running-total model: a row is Paid when paid_amount covers the sum of that
+ * row and every earlier row. Partial when paid_amount lands between the row's
+ * running start and its running end (but does not fully cover it). Otherwise
+ * Pending, or Overdue if past due and not pending-only.
+ *
+ * `runningStart` = cumulative amount of all rows before this one.
+ * `runningEnd`   = runningStart + this row's amount.
+ */
+function rowStatusFromPaid(
+  paid: number,
+  runningStart: number,
+  rowAmount: number,
+): "paid" | "partial" | "pending" {
+  const tol = 0.5; // $0.50 tolerance for floating-point / rounding drift
+  const runningEnd = runningStart + rowAmount;
+  if (paid >= runningEnd - tol) return "paid";
+  if (paid > runningStart + tol) return "partial";
+  return "pending";
+}
+
+/**
  * Build the full list of payment-installment audit rows across every wedding.
  * Extracted from PaymentAudit.tsx so the page stays under the file-size limit.
+ *
+ * Row status is recomputed from cumulative `paid_amount` (Stripe + GHL) so a
+ * GHL invoice payment correctly marks retainer + earlier installments Paid /
+ * Partial instead of staying "Overdue". The old `inst.status` string from
+ * generatePaymentSchedule is ignored for status purposes.
  *
  * IMPORTANT: when a wedding is on a deliberately-set custom plan (enabled ===
  * true) that yields zero installments — e.g. staff cancelled every future
@@ -77,9 +107,17 @@ export function buildAuditScheduleItems(weddings: any[]): AuditScheduleItem[] {
       ];
     }
 
+    // ── Recompute row statuses from cumulative paid_amount ──
+    // Running total across the installments so a later payment covers the
+    // retainer and earlier rows too (paid_amount is cumulative, not per-row).
+    let runningStart = 0;
+
     // Map schedule items into structured records
     schedule.forEach((inst: any, index: number) => {
-      let isPaid = inst.status === "paid";
+      const rowAmount = Number(inst.amount) || 0;
+      const computed = rowStatusFromPaid(paid, runningStart, rowAmount);
+      const isPaid = computed === "paid";
+      const isPartial = computed === "partial";
 
       // Parse payment date
       let parsedDate: Date | null = null;
@@ -94,14 +132,18 @@ export function buildAuditScheduleItems(weddings: any[]): AuditScheduleItem[] {
         }
       }
 
+      // Overdue only applies to rows that are not yet covered by paid_amount.
+      // Paid and Partial rows are never overdue. Pending unsigned-proposal
+      // weddings never go overdue either.
       let isOverdue = false;
-      if (!isPaid && parsedDate && !isPending) {
+      if (!isPaid && !isPartial && parsedDate && !isPending) {
         isOverdue = parsedDate < todayDate;
       }
 
-      let computedStatus: "paid" | "overdue" | "pending" = "pending";
-      if (isPaid) computedStatus = "paid";
-      else if (isOverdue) computedStatus = "overdue";
+      let finalStatus: AuditScheduleItem["status"] = "pending";
+      if (isPaid) finalStatus = "paid";
+      else if (isPartial) finalStatus = "partial";
+      else if (isOverdue) finalStatus = "overdue";
 
       items.push({
         id: `${wedding.id}-${index}`,
@@ -116,10 +158,10 @@ export function buildAuditScheduleItems(weddings: any[]): AuditScheduleItem[] {
         totalAmount: total,
         paidAmount: paid,
         installmentLabel: inst.label || `Installment #${index + 1}`,
-        installmentAmount: Number(inst.amount) || 0,
+        installmentAmount: rowAmount,
         installmentDate: inst.date,
         parsedDate,
-        status: computedStatus,
+        status: finalStatus,
         paymentPlan: plan,
         hasCustomPlan: plan === "custom" || customPlan?.enabled,
         stripeCustomerId: wedding.stripe_customer_id,
@@ -127,6 +169,8 @@ export function buildAuditScheduleItems(weddings: any[]): AuditScheduleItem[] {
         stripeSubscriptionStatus: wedding.stripe_subscription_status,
         weddingObj: wedding,
       } as AuditScheduleItem);
+
+      runningStart += rowAmount;
     });
   });
 

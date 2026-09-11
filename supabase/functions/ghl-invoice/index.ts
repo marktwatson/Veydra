@@ -198,119 +198,90 @@ Deno.serve(async (req) => {
     console.log("[ghl-invoice] resolved baseUrl:", baseUrl, "saved?", !!savedBaseUrl);
 
     // ── SYNC action ──
+    // Multi-step lookup: finds invoices even when ghl_contact_id / ghl_invoice_id
+    // are empty (migrated invoices matched by email in the webhook). ADDs GHL
+    // deltas to paid_amount — never replaces with a smaller number.
     if (action === "sync") {
-      const contactId = wedding.ghl_contact_id || "";
+      const cEmail = (email || "").toString().toLowerCase().trim();
       let invoices: any[] = [];
-      if (contactId) {
-        try {
-          const invRes = await fetch(
-            `https://services.leadconnectorhq.com/invoices/?altId=${locationId}&altType=location&contactId=${contactId}&limit=50`,
-            { headers: crmHeaders },
-          );
-          if (invRes.ok) {
-            const invData = await invRes.json();
-            invoices = invData.invoices || invData.data || [];
-          }
-        } catch (e: any) {
-          console.warn("[ghl-invoice] sync list invoices failed:", e?.message);
-        }
+      let sContactId = wedding.ghl_contact_id || "";
+      let lookupPath = "";
+      // 1. GET each stored invoice id directly (no contactId needed).
+      const sIds: string[] = [];
+      if (wedding.ghl_invoice_id) sIds.push(wedding.ghl_invoice_id);
+      if (Array.isArray(wedding.ghl_invoice_ids)) sIds.push(...(wedding.ghl_invoice_ids as string[]));
+      for (const sid of Array.from(new Set(sIds.filter(Boolean)))) {
+        try { const r = await fetch(`https://services.leadconnectorhq.com/invoices/${sid}?altId=${locationId}&altType=location`, { headers: crmHeaders }); if (r.ok) { const d = await r.json(); const inv = d.invoice || d; if (inv?._id || inv?.id) invoices.push(inv); } } catch (_e) {}
       }
-
-      let totalPaidDelta = 0;
+      // 2. Search contact by email → contactId.
+      if (invoices.length === 0 && cEmail) {
+        try { const cs = await fetch(`https://services.leadconnectorhq.com/contacts/search/duplicate?locationId=${locationId}&email=${encodeURIComponent(cEmail)}`, { headers: crmHeaders }); if (cs.ok) { const cd = await cs.json(); sContactId = cd.contact?.id || cd.id || sContactId; } } catch (_e) {}
+      }
+      // 3. List invoices by contactId.
+      if (invoices.length === 0 && sContactId) {
+        lookupPath = "contactId";
+        try { const r = await fetch(`https://services.leadconnectorhq.com/invoices/?altId=${locationId}&altType=location&contactId=${sContactId}&limit=50`, { headers: crmHeaders }); if (r.ok) { const d = await r.json(); const l = d.invoices || d.data?.invoices || d.data || []; invoices = Array.isArray(l) ? l : []; } } catch (_e) {}
+      }
+      // 4. List by search=email (catches invoices when contactId is unknown).
+      if (invoices.length === 0 && cEmail) {
+        lookupPath = "searchEmail";
+        try { const r = await fetch(`https://services.leadconnectorhq.com/invoices/?altId=${locationId}&altType=location&search=${encodeURIComponent(cEmail)}&limit=50`, { headers: crmHeaders }); if (r.ok) { const d = await r.json(); const l = d.invoices || d.data?.invoices || d.data || []; invoices = Array.isArray(l) ? l : []; } } catch (_e) {}
+      }
+      if (invoices.length > 0 && !lookupPath) lookupPath = "invoiceIds";
+      // 5. Collect found ids + merge onto existing ghl_invoice_ids.
+      const foundIds: string[] = [];
+      for (const inv of invoices) { const id = inv._id || inv.id; if (id && !foundIds.includes(id)) foundIds.push(id); }
+      const exIds: string[] = Array.isArray(wedding.ghl_invoice_ids) ? (wedding.ghl_invoice_ids as string[]) : [];
+      const allIds = Array.from(new Set([...exIds, ...foundIds].filter(Boolean)));
+      // 6. Sum GHL amountPaid + ADD delta (never replace paid_amount).
+      let totalPaidDelta = 0, ghlPaidSum = 0;
       const scheduleRows: any[] = [];
       for (const inv of invoices) {
         const invId = inv._id || inv.id;
-        const status = (inv.status || inv.statusType || "").toLowerCase();
-        const amountPaid = Number(inv.amountPaid || inv.amount_paid || 0);
-        const total = Number(inv.total || inv.amount || 0);
-
-        const { data: existing } = await db
-          .from("ghl_invoice_payments")
-          .select("id, amount_paid_on_invoice")
-          .eq("ghl_invoice_id", invId)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        const stored = Number(existing?.amount_paid_on_invoice || 0);
-        if (amountPaid > stored) {
-          totalPaidDelta += amountPaid - stored;
-          if (existing?.id) {
-            await db.from("ghl_invoice_payments").update({ amount_paid_on_invoice: amountPaid, amount: total }).eq("id", existing.id);
-          } else {
-            await db.from("ghl_invoice_payments").insert({ wedding_id: weddingId, ghl_invoice_id: invId, amount: total, amount_paid_on_invoice: amountPaid });
-          }
+        const st = (inv.status || inv.statusType || "").toLowerCase();
+        const aPaid = Number(inv.amountPaid || inv.amount_paid || 0);
+        const it = Number(inv.total || inv.amount || 0);
+        ghlPaidSum += aPaid;
+        const { data: ex } = await db.from("ghl_invoice_payments").select("id, amount_paid_on_invoice").eq("ghl_invoice_id", invId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+        const stored = Number(ex?.amount_paid_on_invoice || 0);
+        if (aPaid > stored) {
+          totalPaidDelta += aPaid - stored;
+          if (ex?.id) await db.from("ghl_invoice_payments").update({ amount_paid_on_invoice: aPaid, amount: it }).eq("id", ex.id);
+          else { try { await db.from("ghl_invoice_payments").insert({ wedding_id: weddingId, ghl_invoice_id: invId, amount: it, amount_paid_on_invoice: aPaid }); } catch (_e) {} }
         }
-
         const ps = inv.paymentSchedule || inv.payment_schedule || [];
         if (Array.isArray(ps) && ps.length > 0) {
-          for (const row of ps) {
-            scheduleRows.push({
-              date: row.date || row.dueDate || "",
-              amount: Number(row.amount || 0),
-              status: (row.status || (Number(row.amount) <= amountPaid ? "paid" : "upcoming")).toLowerCase(),
-              invoiceId: invId,
-            });
-          }
+          for (const row of ps) scheduleRows.push({ date: row.date || row.dueDate || "", amount: Number(row.amount || 0), status: (row.status || (Number(row.amount) <= aPaid ? "paid" : "upcoming")).toLowerCase(), invoiceId: invId });
         } else {
-          scheduleRows.push({
-            date: inv.issueDate || inv.issue_date || "",
-            amount: total,
-            status: status === "paid" ? "paid" : amountPaid > 0 ? "partially_paid" : status || "upcoming",
-            invoiceId: invId,
-          });
+          scheduleRows.push({ date: inv.issueDate || inv.issue_date || "", amount: it, status: st === "paid" ? "paid" : aPaid > 0 ? "partially_paid" : st || "upcoming", invoiceId: invId });
         }
       }
-
-      const newPaid = Math.max(0, (Number(wedding.paid_amount) || 0) + totalPaidDelta);
+      const exPaid = Number(wedding.paid_amount) || 0;
+      const newPaid = Math.max(exPaid, exPaid + totalPaidDelta);
       const latest = invoices[0];
       const latestId = latest?._id || latest?.id || wedding.ghl_invoice_id || "";
-      const update: any = {
-        paid_amount: newPaid,
-        ghl_amount_paid: newPaid,
-        ghl_schedule: scheduleRows,
-      };
-      if (latestId) {
-        update.ghl_invoice_id = latestId;
-        update.ghl_invoice_status = (latest?.status || latest?.statusType || "").toLowerCase();
-        update.ghl_invoice_url = `${baseUrl}/invoice/${latestId}`;
-      }
+      const update: any = { paid_amount: newPaid, ghl_amount_paid: ghlPaidSum, ghl_schedule: scheduleRows, ghl_invoice_ids: allIds };
+      if (latestId) { update.ghl_invoice_id = latestId; update.ghl_invoice_status = (latest?.status || latest?.statusType || "").toLowerCase(); update.ghl_invoice_url = `${baseUrl}/invoice/${latestId}`; }
+      if (sContactId) update.ghl_contact_id = sContactId;
       await db.from("weddings").update(update).eq("id", weddingId);
-
-      return jsonResp({
-        success: true,
-        synced: true,
-        invoiceCount: invoices.length,
-        totalPaidDelta,
-        paid_amount: newPaid,
-        scheduleRows: scheduleRows.length,
-      });
+      return jsonResp({ success: true, synced: true, found: invoices.length, invoiceCount: invoices.length, totalPaidDelta, paid_amount: newPaid, ghl_amount_paid: ghlPaidSum, scheduleRows: scheduleRows.length, invoiceIds: foundIds, contactId: sContactId, lookupPath });
     }
 
-    // Helper: send an invoice by id. Tries send_manually, then "email".
     async function sendInvoice(invId: string) {
-      const autoTypes = ["customer_card", "customerCard", "Customer Card", "saved_card"];
-      const actions = ["send_manually", "email"];
-      for (const act of actions) {
-        const baseBody: any = { altId: locationId, altType: "location", action: act, liveMode: true };
-        if (userId) baseBody.userId = userId;
-        // Try WITH autoPayment using different type enum values, then WITHOUT.
-        const attempts: { body: any; autoPayEnabled: boolean; autoPayType?: string }[] = [];
-        for (const t of autoTypes) {
-          attempts.push({ body: { ...baseBody, autoPayment: { enable: true, type: t } }, autoPayEnabled: true, autoPayType: t });
-        }
-        attempts.push({ body: baseBody, autoPayEnabled: false });
-        for (const att of attempts) {
+      const types = ["customer_card", "customerCard", "Customer Card", "saved_card"];
+      for (const act of ["send_manually", "email"]) {
+        const base: any = { altId: locationId, altType: "location", action: act, liveMode: true };
+        if (userId) base.userId = userId;
+        const atts = [...types.map((t) => ({ body: { ...base, autoPayment: { enable: true, type: t } }, on: true, t })), { body: base, on: false, t: null as any }];
+        for (const a of atts) {
           try {
-            const sRes = await fetch(`https://services.leadconnectorhq.com/invoices/${invId}/send`, { method: "POST", headers: crmHeaders, body: JSON.stringify(att.body) });
-            const sText = await sRes.text();
-            console.log(`[ghl-invoice] send action=${act} auto=${att.autoPayEnabled} type=${att.autoPayType || "none"} status=${sRes.status} body=${sText.slice(0, 300)}`);
-            if (sRes.ok) return { ok: true, status: sRes.status, body: sText, action: act, autoPayEnabled: att.autoPayEnabled, autoPayTypeUsed: att.autoPayType || null };
-            if (sRes.status >= 400 && sRes.status < 500) continue; // try next type / fallback
-            break; // non-retryable (5xx)
-          } catch (e: any) {
-            console.warn(`[ghl-invoice] send action=${act} auto=${att.autoPayEnabled} type=${att.autoPayType || "none"} failed:`, e?.message);
+            const r = await fetch(`https://services.leadconnectorhq.com/invoices/${invId}/send`, { method: "POST", headers: crmHeaders, body: JSON.stringify(a.body) });
+            const txt = await r.text();
+            console.log(`[ghl-invoice] send ${act} auto=${a.on} type=${a.t || "none"} ${r.status} ${txt.slice(0, 200)}`);
+            if (r.ok) return { ok: true, status: r.status, body: txt, action: act, autoPayEnabled: a.on, autoPayTypeUsed: a.t };
+            if (r.status >= 400 && r.status < 500) continue;
             break;
-          }
+          } catch (e: any) { console.warn(`[ghl-invoice] send ${act} failed:`, e?.message); break; }
         }
       }
       return { ok: false, status: 0, body: "all send actions failed", action: "", autoPayEnabled: false, autoPayTypeUsed: null };
@@ -665,6 +636,14 @@ Deno.serve(async (req) => {
       await db.from("weddings").update(update).eq("id", weddingId);
     } catch (e: any) {
       console.warn("[ghl-invoice] could not store ghl tracking:", e?.message);
+    }
+
+    // Tag "bartending booked" on bartending invoices (fire-and-forget).
+    if (isAddon && /bartending/i.test(label || "") && contactId) {
+      try {
+        const tg = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, Version: "2021-07-28", "Content-Type": "application/json" }, body: JSON.stringify({ tags: ["bartending booked"] }) });
+        console.log("[ghl-invoice] tag bartending booked →", contactId, tg.status);
+      } catch (e: any) { console.warn("[ghl-invoice] bartending tag failed:", e?.message); }
     }
 
     return jsonResp({

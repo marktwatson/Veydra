@@ -19,6 +19,7 @@ interface Metrics {
   overdueCount: number;
   pendingCount: number;
   paidCount: number;
+  partialCount?: number;
 }
 
 interface Props {
@@ -29,8 +30,10 @@ interface Props {
   clientOptions: ClientOption[];
   dateFilter: string;
   onDateFilterChange: (v: string) => void;
-  statusFilter: "all" | "paid" | "overdue" | "pending";
-  onStatusFilterChange: (v: "all" | "paid" | "overdue" | "pending") => void;
+  statusFilter: "all" | "paid" | "partial" | "overdue" | "pending";
+  onStatusFilterChange: (
+    v: "all" | "paid" | "partial" | "overdue" | "pending",
+  ) => void;
   planFilter: string;
   onPlanFilterChange: (v: string) => void;
   sortBy: "date-asc" | "date-desc" | "name-asc" | "name-desc";
@@ -133,6 +136,9 @@ export function PaymentAuditFilters(props: Props) {
                 </SelectItem>
                 <SelectItem value="pending">
                   Pending ({metrics.pendingCount})
+                </SelectItem>
+                <SelectItem value="partial">
+                  Partial ({(metrics as any).partialCount ?? 0})
                 </SelectItem>
                 <SelectItem value="paid">Paid ({metrics.paidCount})</SelectItem>
               </SelectContent>

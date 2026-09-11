@@ -232,6 +232,13 @@ export function PaymentAuditTable({
                         >
                           <CheckCircle2 className="h-3 w-3 mr-1" /> Paid
                         </Badge>
+                      ) : item.status === "partial" ? (
+                        <Badge
+                          variant="outline"
+                          className="rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 font-medium"
+                        >
+                          <Clock className="h-3 w-3 mr-1" /> Partial
+                        </Badge>
                       ) : item.status === "overdue" ? (
                         <Badge
                           variant="outline"

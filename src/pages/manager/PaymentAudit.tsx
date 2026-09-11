@@ -41,7 +41,7 @@ export default function ManagerPaymentAudit() {
 
   const [searchTerm, setSearchTrigger] = useState("");
   const [statusFilter, setStatusFilter] = useState<
-    "all" | "paid" | "overdue" | "pending"
+    "all" | "paid" | "partial" | "overdue" | "pending"
   >("all");
   const [planFilter, setPaymentPlanFilter] = useState<string>("all");
   const [clientFilter, setClientFilter] = useState<string>("all");
@@ -210,9 +210,15 @@ export default function ManagerPaymentAudit() {
         return false;
       }
 
-      // Status filter
-      if (statusFilter !== "all" && item.status !== statusFilter) {
-        return false;
+      // Status filter. "pending" also includes "partial" rows (a partial row
+      // still has an unpaid remainder).
+      if (statusFilter !== "all") {
+        if (statusFilter === "pending") {
+          if (item.status !== "pending" && item.status !== "partial")
+            return false;
+        } else if (item.status !== statusFilter) {
+          return false;
+        }
       }
 
       // Payment plan filter
@@ -324,7 +330,9 @@ export default function ManagerPaymentAudit() {
       totalScheduled += item.installmentAmount;
       if (item.status === "paid") {
         // count only — amount is NOT used for collected (see above)
-      } else if (item.status === "overdue")
+      } else if (item.status === "partial")
+        totalPending += item.installmentAmount;
+      else if (item.status === "overdue")
         totalOverdue += item.installmentAmount;
       else totalPending += item.installmentAmount;
     });
@@ -339,7 +347,10 @@ export default function ManagerPaymentAudit() {
         (i: any) => i.status === "overdue",
       ).length,
       pendingCount: auditScheduleItems.filter(
-        (i: any) => i.status === "pending",
+        (i: any) => i.status === "pending" || i.status === "partial",
+      ).length,
+      partialCount: auditScheduleItems.filter(
+        (i: any) => i.status === "partial",
       ).length,
       paidCount: auditScheduleItems.filter((i: any) => i.status === "paid")
         .length,

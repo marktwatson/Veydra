@@ -25,35 +25,18 @@ function parseMoney(v: any): number {
 
 const GHL_BASE = "https://services.leadconnectorhq.com";
 
-async function fetchInvoiceList(
-  qs: string,
-  label: string,
-  headers: Record<string, string>,
-): Promise<any[]> {
+async function fetchInvoiceList(qs: string, label: string, headers: Record<string, string>): Promise<any[]> {
   const url = `${GHL_BASE}/invoices/?${qs}`;
-  console.log(`[ghl-invoice-webhook] list call (${label}):`, url);
+  console.log(`[ghl-invoice-webhook] list (${label}):`, url);
   try {
     const res = await fetch(url, { headers });
-    const rawText = await res.text();
-    console.log(
-      `[ghl-invoice-webhook] list (${label}) status:`,
-      res.status,
-      "body:",
-      rawText.slice(0, 500),
-    );
+    const txt = await res.text();
+    console.log(`[ghl-invoice-webhook] list (${label}) ${res.status}:`, txt.slice(0, 300));
     if (!res.ok) return [];
-    const json: any = JSON.parse(rawText);
-    const invs: any[] =
-      json?.invoices || json?.data?.invoices || json?.data || [];
-    console.log(
-      `[ghl-invoice-webhook] list (${label}) invoice count:`,
-      Array.isArray(invs) ? invs.length : 0,
-    );
+    const j: any = JSON.parse(txt);
+    const invs = j?.invoices || j?.data?.invoices || j?.data || [];
     return Array.isArray(invs) ? invs : [];
-  } catch (e: any) {
-    console.warn(`[ghl-invoice-webhook] list (${label}) failed:`, e?.message);
-    return [];
-  }
+  } catch (e: any) { console.warn(`[ghl-invoice-webhook] list (${label}) failed:`, e?.message); return []; }
 }
 
 Deno.serve(async (req) => {
@@ -673,14 +656,31 @@ Deno.serve(async (req) => {
       ghl_invoice_status: status,
       ghl_schedule: scheduleRows,
     };
-    if (invoiceId) update.ghl_invoice_id = invoiceId;
-    if (contactId && !wedding.ghl_contact_id) {
-      update.ghl_contact_id = contactId;
-    }
+    if (invoiceId) { update.ghl_invoice_id = invoiceId; const _i: string[] = Array.isArray(wedding.ghl_invoice_ids) ? wedding.ghl_invoice_ids : []; if (!_i.includes(invoiceId)) update.ghl_invoice_ids = [..._i, invoiceId]; }
+    if (contactId && !wedding.ghl_contact_id) update.ghl_contact_id = contactId;
     update.final_payment_verified =
       newPaid >= (Number(wedding.total_amount) || 0) - 0.01;
     await db.from("weddings").update(update).eq("id", weddingId);
     if (delta > 0) { try { const wf = (Number(wedding.paid_amount) || 0) <= 0; const cn = wedding.client_name || "client"; const tot = Number(wedding.total_amount) || 0; await fetch(`${su}/functions/v1/send-push`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${sk}`, apikey: sk }, body: JSON.stringify({ action: "send", roles: ["owner", "super_admin"], category: "bookings_payments", title: wf ? `New booking — ${cn}` : `Payment received — ${cn}`, body: `$${delta.toFixed(2)} posted · paid $${newPaid.toFixed(2)} of $${tot.toFixed(2)}`, url: "/manager/payments", tag: `ghl-pay-${weddingId}` }) }); } catch (e: any) { console.warn("[ghl-invoice-webhook] send-push failed:", e?.message); } }
+
+    // GHL contact tagging (fire-and-forget; never fails the webhook).
+    try {
+      const tagCid = wedding.ghl_contact_id || contactId || "";
+      const tagKey = (portalSettings?.hl_api_key || "").trim();
+      if (tagCid && tagKey) {
+        const rows: any[] = Array.isArray(wedding.ghl_schedule) ? wedding.ghl_schedule : [];
+        const ids: string[] = Array.isArray(wedding.ghl_invoice_ids) ? wedding.ghl_invoice_ids : [];
+        const extra = ids.length > 1 && invoiceId && ids.includes(invoiceId) && ids[0] !== invoiceId;
+        const isBartend = rows.some((r) => (r.source || "").toLowerCase() === "bartending") || extra;
+        const tags: string[] = [];
+        if ((Number(wedding.paid_amount) || 0) <= 0) tags.push("booked");
+        if (isBartend) tags.push("bartending booked");
+        if (tags.length > 0) {
+          const tg = await fetch(`https://services.leadconnectorhq.com/contacts/${tagCid}/tags`, { method: "POST", headers: { Authorization: `Bearer ${tagKey}`, Version: "2021-07-28", "Content-Type": "application/json" }, body: JSON.stringify({ tags }) });
+          console.log("[ghl-invoice-webhook] tag", tags.join(","), "→", tagCid, tg.status);
+        }
+      }
+    } catch (e: any) { console.warn("[ghl-invoice-webhook] tag failed:", e?.message); }
 
     return jsonResp({
       weddingId,
