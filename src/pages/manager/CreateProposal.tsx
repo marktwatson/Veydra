@@ -27,7 +27,7 @@ import { checkCustomPlanBalance } from "@/lib/custom-plan-balance";
 import CustomPlanBalanceIndicator from "@/components/CustomPlanBalanceIndicator";
 import ProposalShareModal from "@/components/ProposalShareModal";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Loader2, ChevronRight, Save } from "lucide-react";
+import { Loader2, ChevronRight, Save, ArrowLeft } from "lucide-react";
 
 // Fallbacks used while DB data loads or if DB is unreachable
 import {
@@ -431,8 +431,16 @@ export default function CreateProposal() {
   return (
     <div className="min-h-screen bg-muted/30 p-4 md:p-8">
       <div className="max-w-5xl mx-auto space-y-8 pb-12">
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex items-center justify-between gap-3">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => navigate("/manager/proposals")}
+            title="Back to Proposals"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
+          <div className="flex-1">
             <h1 className="text-3xl font-serif text-foreground">
               {id ? "Edit Proposal" : "Create Proposal"}
             </h1>
