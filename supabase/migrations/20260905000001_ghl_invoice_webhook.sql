@@ -94,3 +94,25 @@ CREATE INDEX IF NOT EXISTS idx_ghl_invoice_payments_wedding ON public.ghl_invoic
 ALTER TABLE public.ghl_invoice_payments ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access ghl_invoice_payments" ON public.ghl_invoice_payments;
 CREATE POLICY "Public full access ghl_invoice_payments" ON public.ghl_invoice_payments FOR ALL USING (true) WITH CHECK (true);
+
+-- ════════════════════════════════════════════════════════════════════════
+-- payment_manual_adjustments — ledger for manual Mark Paid / Mark Unpaid and
+-- Paid in full (off-platform Venmo / Cash App / Zelle / Cash) overrides in
+-- Payment Audit. One row per confirm; positive = marked paid, negative =
+-- reversed. Synced to every territory so new areas get it automatically.
+-- ════════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS public.payment_manual_adjustments (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  wedding_id uuid NOT NULL,
+  amount numeric NOT NULL,
+  installment_label text,
+  schedule_index int,
+  reason text,
+  created_at timestamptz DEFAULT now(),
+  created_by text
+);
+ALTER TABLE public.payment_manual_adjustments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "pma_auth_insert" ON public.payment_manual_adjustments;
+DROP POLICY IF EXISTS "pma_auth_select" ON public.payment_manual_adjustments;
+CREATE POLICY "pma_auth_insert" ON public.payment_manual_adjustments FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "pma_auth_select" ON public.payment_manual_adjustments FOR SELECT TO authenticated USING (true);

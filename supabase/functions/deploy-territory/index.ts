@@ -167,20 +167,22 @@ Deno.serve(async (req) => {
     const { data: sourceRows, error: sourceError } = await mainDbForSources.from("edge_function_sources").select("name, source_code");
     console.log(`[Fleet] edge_function_sources query: ${sourceRows?.length || 0} rows, error: ${sourceError?.message || "none"}`);
 
-    let dynamicMasterSql = "";
-    let ghlInvoiceSchemaSql = "";
+    // Load every SQL source row we know about. The *_sql / *_schema keys are
+    // metadata (not functions), so they are excluded from the function deploy
+    // list via SQL_META_KEYS below but ARE pushed onto sqlSources so they run
+    // during schema sync in a fixed order.
+    const SQL_SOURCE_NAMES = ["master_sql", "ghl_invoice_schema", "scheduled_jobs_schema", "push_schema"] as const;
+    const sqlSourceMap: Record<string, string> = {};
     if (sourceRows && sourceRows.length > 0) {
       for (const row of sourceRows) {
         if (row.source_code && row.source_code.length > 50) {
           FN_SOURCES[row.name] = row.source_code;
         }
-        if (row.name === "master_sql" && row.source_code && row.source_code.length > 50) {
-          dynamicMasterSql = row.source_code;
-          console.log(`[Fleet] Loaded master_sql from DB (${row.source_code.length} chars)`);
-        }
-        if (row.name === "ghl_invoice_schema" && row.source_code && row.source_code.length > 50) {
-          ghlInvoiceSchemaSql = row.source_code;
-          console.log(`[Fleet] Loaded ghl_invoice_schema from DB (${row.source_code.length} chars)`);
+        for (const key of SQL_SOURCE_NAMES) {
+          if (row.name === key && row.source_code && row.source_code.length > 50) {
+            sqlSourceMap[key] = row.source_code;
+            console.log(`[Fleet] Loaded ${key} from DB (${row.source_code.length} chars)`);
+          }
         }
       }
       console.log(`[Fleet] Loaded ${sourceRows.length} rows from edge_function_sources`);
@@ -190,6 +192,7 @@ Deno.serve(async (req) => {
     }
 
     // Use the DB-fetched master SQL if available, otherwise fall back to the minimal stub
+    const dynamicMasterSql = sqlSourceMap["master_sql"];
     let effectiveSql = dynamicMasterSql;
     if (dynamicMasterSql) {
       console.log(`[Fleet] Using DB master SQL (${dynamicMasterSql.length} chars) — always latest version`);
@@ -199,16 +202,24 @@ Deno.serve(async (req) => {
       results.errors.push("WARNING: master_sql not found in edge_function_sources DB — used minimal fallback. Click 'Upload Sources' in the Territories UI to push the full schema.");
     }
 
-    // Ordered list of SQL sources to deploy. master_sql runs first (creates
-    // tables / exec_sql), then ghl_invoice_schema adds the per-area columns
-    // Sign & Pay + the webhook need (proposals.wedding_id, weddings.ghl_*,
-    // portal_settings, ghl_invoice_payments). This guarantees freshly-synced
-    // areas get every column even if their deployed master_sql is stale.
+    // Ordered list of SQL sources to deploy. Order matters:
+    //   1. master_sql      — creates tables / exec_sql / core schema
+    //   2. ghl_invoice_schema — per-area columns Sign & Pay + the webhook +
+    //                           off-platform / paid-in-full / ledger tables need
+    //                           (proposals.wedding_id, weddings.ghl_*,
+    //                           portal_settings, ghl_invoice_payments,
+    //                           payment_manual_adjustments)
+    //   3. scheduled_jobs_schema — scheduled_jobs table for the scheduler
+    //   4. push_schema    — push_subscriptions table for send-push
+    // This guarantees freshly-synced areas get every column + table even if
+    // their deployed master_sql is stale.
     const sqlSources: { name: string; sql: string }[] = [
       { name: "master_sql", sql: effectiveSql },
     ];
-    if (ghlInvoiceSchemaSql) {
-      sqlSources.push({ name: "ghl_invoice_schema", sql: ghlInvoiceSchemaSql });
+    for (const key of ["ghl_invoice_schema", "scheduled_jobs_schema", "push_schema"] as const) {
+      if (sqlSourceMap[key]) {
+        sqlSources.push({ name: key, sql: sqlSourceMap[key] });
+      }
     }
 
     // Push SQL Schema — runs every SQL source in sqlSources in order
