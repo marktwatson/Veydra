@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -50,7 +50,9 @@ import {
   tabCounts,
   filterByTab,
   methodLabel,
+  resolveWedding,
 } from "@/lib/proposal-tabs";
+import { useProposalsData } from "@/lib/use-proposals-data";
 
 const PACKAGES = [
   { id: "pearl", name: "Pearl", isArchived: true },
@@ -73,8 +75,7 @@ const ADDONS = [
 let DB_PACKAGES: any[] = PACKAGES;
 
 export default function ManagerProposals() {
-  const [proposals, setProposals] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { proposals, loading, refresh } = useProposalsData();
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ProposalTab>("all");
   const [detailProposal, setDetailProposal] = useState<any | null>(null);
@@ -82,33 +83,15 @@ export default function ManagerProposals() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  useEffect(() => {
+  // Load DB package names (best-effort).
+  useMemo(() => {
     api
       .getPackages(true)
       .then((pkgs) => {
         if (pkgs.length) DB_PACKAGES = pkgs;
       })
       .catch(() => {});
-  }, []);
-
-  const fetchProposals = async () => {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from("proposals")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (error) {
-      console.error(error);
-      toast({
-        title: "Error",
-        description: "Failed to load proposals",
-        variant: "destructive",
-      });
-    } else setProposals(data || []);
-    setLoading(false);
-  };
-  useEffect(() => {
-    fetchProposals();
+    return null;
   }, []);
 
   const counts = useMemo(() => tabCounts(proposals), [proposals]);
@@ -158,7 +141,7 @@ export default function ManagerProposals() {
     else {
       api.logAdminActivity("Proposal Deleted", `Deleted proposal ${id}`);
       toast({ title: "Success", description: "Proposal deleted" });
-      fetchProposals();
+      refresh();
     }
   };
 
@@ -357,15 +340,8 @@ export default function ManagerProposals() {
         title: "Success",
         description: "Proposal marked as booked and wedding created!",
       });
-      setProposals((prev) =>
-        prev.map((p) =>
-          p.id === proposal.id
-            ? { ...p, status: "accepted", wedding_id: weddingId }
-            : p,
-        ),
-      );
       queryClient.invalidateQueries({ queryKey: ["weddings"] });
-      fetchProposals();
+      refresh();
     } catch (error: any) {
       console.error("Error marking as booked:", error);
       api.logAdminActivity(
@@ -384,6 +360,12 @@ export default function ManagerProposals() {
     const isExpired =
       proposal.expires_at && new Date(proposal.expires_at) < new Date();
     switch (proposal.status) {
+      case "superseded":
+        return (
+          <Badge className="bg-slate-500/10 text-slate-600 dark:text-slate-300 border-slate-500/20">
+            Superseded
+          </Badge>
+        );
       case "paid":
       case "accepted":
         return (
@@ -453,6 +435,9 @@ export default function ManagerProposals() {
             Waiting payment ({counts.waiting})
           </TabsTrigger>
           <TabsTrigger value="booked">Booked ({counts.booked})</TabsTrigger>
+          <TabsTrigger value="superseded">
+            Superseded ({counts.superseded})
+          </TabsTrigger>
         </TabsList>
       </Tabs>
 
@@ -465,7 +450,9 @@ export default function ManagerProposals() {
                 ? "Draft Proposals"
                 : activeTab === "waiting"
                   ? "Waiting Payment"
-                  : "Booked"}
+                  : activeTab === "booked"
+                    ? "Booked"
+                    : "Superseded"}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -495,8 +482,15 @@ export default function ManagerProposals() {
                 </TableHeader>
                 <TableBody>
                   {filtered.map((proposal) => {
-                    const ofStatus = proposal.offplatform_status;
-                    const ofAmount = Number(proposal.offplatform_amount) || 0;
+                    const w = resolveWedding(proposal);
+                    const ofStatus =
+                      w?.offplatform_status || proposal.offplatform_status;
+                    const ofMethod =
+                      w?.offplatform_method || proposal.offplatform_method;
+                    const ofAmount =
+                      Number(
+                        w?.offplatform_amount || proposal.offplatform_amount,
+                      ) || 0;
                     return (
                       <TableRow
                         key={proposal.id}
@@ -516,7 +510,7 @@ export default function ManagerProposals() {
                             <div className="mt-1.5">
                               <OffPlatformBadge
                                 status={ofStatus}
-                                method={proposal.offplatform_method}
+                                method={ofMethod}
                                 amount={ofAmount}
                                 claimedAt={proposal.offplatform_claimed_at}
                               />
@@ -616,7 +610,8 @@ export default function ManagerProposals() {
                               <Pencil className="w-4 h-4" />
                             </Button>
                             {proposal.status !== "accepted" &&
-                              proposal.status !== "paid" && (
+                              proposal.status !== "paid" &&
+                              proposal.status !== "superseded" && (
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -702,54 +697,60 @@ export default function ManagerProposals() {
                 </SheetDescription>
               </SheetHeader>
               <div className="mt-4 space-y-4">
-                {detailProposal.offplatform_status && (
-                  <Card className="bg-muted/30">
-                    <CardContent className="pt-4 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold">
-                          Off-platform payment
-                        </span>
-                        <OffPlatformBadge
-                          status={detailProposal.offplatform_status}
-                          method={detailProposal.offplatform_method}
-                          amount={
-                            Number(detailProposal.offplatform_amount) || 0
-                          }
-                          claimedAt={detailProposal.offplatform_claimed_at}
-                        />
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        Waiting for: $
-                        {Number(
-                          detailProposal.offplatform_amount || 0,
-                        ).toLocaleString()}{" "}
-                        via {methodLabel(detailProposal.offplatform_method)}
-                      </div>
-                      {detailProposal.offplatform_claimed_at && (
-                        <div className="text-xs text-muted-foreground">
-                          {detailProposal.offplatform_status === "promised"
-                            ? "Promised"
-                            : "Claimed"}{" "}
-                          on{" "}
-                          {new Date(
-                            detailProposal.offplatform_claimed_at,
-                          ).toLocaleString()}
+                {(() => {
+                  const w = resolveWedding(detailProposal);
+                  const ofStatus =
+                    w?.offplatform_status || detailProposal.offplatform_status;
+                  const ofMethod =
+                    w?.offplatform_method || detailProposal.offplatform_method;
+                  const ofAmount =
+                    Number(
+                      w?.offplatform_amount ||
+                        detailProposal.offplatform_amount,
+                    ) || 0;
+                  const ofClaimedAt =
+                    detailProposal.offplatform_claimed_at ||
+                    w?.offplatform_claimed_at;
+                  if (!ofStatus) return null;
+                  return (
+                    <Card className="bg-muted/30">
+                      <CardContent className="pt-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-semibold">
+                            Off-platform payment
+                          </span>
+                          <OffPlatformBadge
+                            status={ofStatus}
+                            method={ofMethod}
+                            amount={ofAmount}
+                            claimedAt={ofClaimedAt}
+                          />
                         </div>
-                      )}
-                      {(detailProposal.offplatform_status === "claimed" ||
-                        detailProposal.offplatform_status === "promised") && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="w-full"
-                          onClick={() => navigate("/manager/payments")}
-                        >
-                          Review in Payment Audit
-                        </Button>
-                      )}
-                    </CardContent>
-                  </Card>
-                )}
+                        <div className="text-sm text-muted-foreground">
+                          Waiting for: ${ofAmount.toLocaleString()} via{" "}
+                          {methodLabel(ofMethod)}
+                        </div>
+                        {ofClaimedAt && (
+                          <div className="text-xs text-muted-foreground">
+                            {ofStatus === "promised" ? "Promised" : "Claimed"}{" "}
+                            on {new Date(ofClaimedAt).toLocaleString()}
+                          </div>
+                        )}
+                        {(ofStatus === "claimed" ||
+                          ofStatus === "promised") && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="w-full"
+                            onClick={() => navigate("/manager/payments")}
+                          >
+                            Review in Payment Audit
+                          </Button>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })()}
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <span className="text-muted-foreground">Package</span>
