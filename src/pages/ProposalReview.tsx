@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { useProposalResumeStep } from "@/lib/use-proposal-resume-step";
 import { useParams, Navigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { signAndPayProposal } from "@/lib/proposal-sign-and-pay";
@@ -58,6 +59,7 @@ export default function ProposalReview() {
       .catch(() => {});
   }, []);
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  useProposalResumeStep(id, proposal, step, setStep);
   const [signature, setSignature] = useState("");
   const [paymentPlan, setPaymentPlan] = useState<
     "deposit" | "fifty_fifty" | "quarterly" | "full" | "custom"
