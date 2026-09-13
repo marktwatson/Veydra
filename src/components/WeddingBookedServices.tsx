@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Wine, Camera, ExternalLink } from "lucide-react";
+import { Wine, Camera, ExternalLink, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
 
@@ -89,6 +89,41 @@ export default function WeddingBookedServices({ wedding }: { wedding: any }) {
                 <ExternalLink className="h-3 w-3" />
                 Open invoice
               </a>
+            )}
+          </Badge>
+        )}
+        {wedding?.offplatform_status && (
+          <Badge
+            variant="outline"
+            className={`gap-1.5 py-1.5 px-2.5 text-xs font-medium ${
+              wedding.offplatform_status === "confirmed"
+                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20"
+                : wedding.offplatform_status === "claimed"
+                  ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20"
+                  : "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20"
+            }`}
+          >
+            <Wallet className="h-3.5 w-3.5" />
+            <span>
+              {wedding.offplatform_method === "venmo"
+                ? "Venmo"
+                : wedding.offplatform_method === "cashapp"
+                  ? "Cash App"
+                  : wedding.offplatform_method === "zelle"
+                    ? "Zelle"
+                    : "Off-platform"}
+            </span>
+            <span className="font-semibold">
+              {wedding.offplatform_status === "confirmed"
+                ? "Confirmed"
+                : wedding.offplatform_status === "claimed"
+                  ? "Bride says paid — review"
+                  : "Pay later"}
+            </span>
+            {Number(wedding.offplatform_amount) > 0 && (
+              <span className="text-muted-foreground">
+                ${Number(wedding.offplatform_amount).toLocaleString()}
+              </span>
             )}
           </Badge>
         )}

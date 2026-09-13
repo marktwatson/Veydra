@@ -171,8 +171,8 @@ export default function ManagerPaymentAudit() {
     onSuccess: (_data, item) => {
       queryClient.invalidateQueries({ queryKey: ["weddings"] });
       toast({
-        title: "Off-platform payment confirmed",
-        description: `${item.clientName} marked paid in full.`,
+        title: "Payment received — booking confirmed",
+        description: `${item.clientName} marked paid in full and activated.`,
       });
     },
     onError: (error: any) => {

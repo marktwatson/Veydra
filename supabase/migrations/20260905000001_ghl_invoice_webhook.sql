@@ -57,6 +57,16 @@ ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS offplatform_method TEXT;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS offplatform_amount NUMERIC;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS offplatform_claimed_at TIMESTAMPTZ;
 
+-- Mirror off-platform flags onto proposals so the Proposals list shows badges.
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS offplatform_status TEXT;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS offplatform_method TEXT;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS offplatform_amount NUMERIC;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS offplatform_claimed_at TIMESTAMPTZ;
+
+-- Allow staff (managers/owners) auth user IDs in notifications.contractor_id
+-- so in-app notifications show up for managers, not just contractors.
+ALTER TABLE public.notifications DROP CONSTRAINT IF EXISTS notifications_contractor_id_fkey;
+
 -- portal_settings — off-platform method toggles + handles.
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS accept_venmo BOOLEAN DEFAULT false;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS venmo_handle TEXT;

@@ -109,6 +109,20 @@ export interface DbWedding {
   songs_submitted_at?: string | null;
   songs_reminder_sent_at?: string | null;
   final_payment_verified?: boolean | null;
+  ghl_contact_id?: string | null;
+  ghl_invoice_id?: string | null;
+  ghl_invoice_ids?: string[] | null;
+  ghl_invoice_url?: string | null;
+  ghl_invoice_status?: string | null;
+  ghl_amount_paid?: number | null;
+  ghl_schedule?: any | null;
+  ghl_schedule_id?: string | null;
+  ghl_invoice_amount?: number | null;
+  ghl_invoice_created_date?: string | null;
+  offplatform_status?: string | null;
+  offplatform_method?: string | null;
+  offplatform_amount?: number | null;
+  offplatform_claimed_at?: string | null;
 }
 
 export interface DbJob {

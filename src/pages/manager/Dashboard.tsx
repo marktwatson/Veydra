@@ -86,6 +86,7 @@ import { CallSheetGenerator } from "@/components/CallSheetGenerator";
 import { ClientPrepSheetGenerator } from "@/components/ClientPrepSheetGenerator";
 import { ManageWeddingSheet } from "@/pages/manager/Weddings";
 import { RoyaltyHealthAlert } from "@/components/RoyaltyHealthAlert";
+import { OffPlatformActionItems } from "@/components/OffPlatformActionItems";
 import {
   Accordion,
   AccordionItem,
@@ -1357,12 +1358,20 @@ export default function ManagerDashboard() {
               pendingPayoutsList.length > 0 ||
               missingDriveLinksList.length > 0 ||
               missingUploadLinksList.length > 0 ||
+              weddings.some(
+                (w: any) =>
+                  w.offplatform_status === "claimed" ||
+                  w.offplatform_status === "promised",
+              ) ||
               unconfirmedAttendanceList.length > 0 ? (
               <Accordion
                 type="multiple"
                 defaultValue={overduePaymentsList.length > 0 ? ["overdue"] : []}
                 className="w-full"
               >
+                {/* Off-Platform Payments Group */}
+                <OffPlatformActionItems />
+
                 {/* Overdue Payments Group */}
                 {overduePaymentsList.length > 0 && (
                   <AccordionItem

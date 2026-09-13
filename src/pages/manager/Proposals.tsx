@@ -465,40 +465,88 @@ export default function ManagerProposals() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {proposals.map((proposal) => (
-                    <TableRow key={proposal.id}>
-                      <TableCell>
-                        <div className="font-medium flex items-center gap-2">
-                          {proposal.client_name}
-                          {proposal.is_upgrade && (
-                            <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-wider">
-                              Upgrade
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {proposal.client_email}
-                        </div>
-                        {proposal.client_phone && (
-                          <div className="text-xs text-muted-foreground">
-                            {proposal.client_phone}
+                  {proposals.map((proposal) => {
+                    const ofStatus = proposal.offplatform_status;
+                    const ofMethod = proposal.offplatform_method;
+                    const ofAmount = Number(proposal.offplatform_amount) || 0;
+                    const methodLabel =
+                      ofMethod === "venmo"
+                        ? "Venmo"
+                        : ofMethod === "cashapp"
+                          ? "Cash App"
+                          : ofMethod === "zelle"
+                            ? "Zelle"
+                            : "Off-platform";
+                    return (
+                      <TableRow key={proposal.id}>
+                        <TableCell>
+                          <div className="font-medium flex items-center gap-2 flex-wrap">
+                            {proposal.client_name}
+                            {proposal.is_upgrade && (
+                              <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-wider">
+                                Upgrade
+                              </span>
+                            )}
+                            {ofStatus === "promised" && (
+                              <span className="px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-500/20 text-[10px] font-semibold">
+                                {methodLabel} · Pay later
+                              </span>
+                            )}
+                            {ofStatus === "claimed" && (
+                              <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 text-[10px] font-semibold">
+                                {methodLabel} · Bride says paid — review
+                              </span>
+                            )}
+                            {ofStatus === "confirmed" && (
+                              <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 text-[10px] font-semibold">
+                                {methodLabel} · Confirmed
+                              </span>
+                            )}
                           </div>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {formatDisplayDate(proposal.wedding_date)}
-                      </TableCell>
-                      <TableCell>
-                        <div className="font-medium text-sm">
-                          {proposal.package_id
-                            ? `${DB_PACKAGES.find((p) => p.id === proposal.package_id)?.name || proposal.package_id.charAt(0).toUpperCase() + proposal.package_id.slice(1)} (${proposal.coverage_type === "photo" ? "Photo Only" : proposal.coverage_type === "video" ? "Video Only" : "Photo & Video"})`
-                            : "Custom"}
-                        </div>
-                        {proposal.addons && proposal.addons.length > 0 && (
-                          <div
-                            className="text-xs text-muted-foreground truncate max-w-[200px]"
-                            title={
-                              Array.isArray(proposal.addons)
+                          {ofStatus &&
+                            ofStatus !== "confirmed" &&
+                            ofAmount > 0 && (
+                              <div className="text-xs text-muted-foreground">
+                                ${ofAmount.toLocaleString()}
+                                {proposal.offplatform_claimed_at
+                                  ? ` · ${new Date(proposal.offplatform_claimed_at).toLocaleDateString()}`
+                                  : ""}
+                              </div>
+                            )}
+                          <div className="text-xs text-muted-foreground">
+                            {proposal.client_email}
+                          </div>
+                          {proposal.client_phone && (
+                            <div className="text-xs text-muted-foreground">
+                              {proposal.client_phone}
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {formatDisplayDate(proposal.wedding_date)}
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium text-sm">
+                            {proposal.package_id
+                              ? `${DB_PACKAGES.find((p) => p.id === proposal.package_id)?.name || proposal.package_id.charAt(0).toUpperCase() + proposal.package_id.slice(1)} (${proposal.coverage_type === "photo" ? "Photo Only" : proposal.coverage_type === "video" ? "Video Only" : "Photo & Video"})`
+                              : "Custom"}
+                          </div>
+                          {proposal.addons && proposal.addons.length > 0 && (
+                            <div
+                              className="text-xs text-muted-foreground truncate max-w-[200px]"
+                              title={
+                                Array.isArray(proposal.addons)
+                                  ? proposal.addons
+                                      .map(
+                                        (id: string) =>
+                                          ADDONS.find((a) => a.id === id)
+                                            ?.name || id,
+                                      )
+                                      .join(", ")
+                                  : proposal.addons
+                              }
+                            >
+                              {Array.isArray(proposal.addons)
                                 ? proposal.addons
                                     .map(
                                       (id: string) =>
@@ -506,142 +554,137 @@ export default function ManagerProposals() {
                                         id,
                                     )
                                     .join(", ")
-                                : proposal.addons
-                            }
-                          >
-                            {Array.isArray(proposal.addons)
-                              ? proposal.addons
-                                  .map(
-                                    (id: string) =>
-                                      ADDONS.find((a) => a.id === id)?.name ||
-                                      id,
-                                  )
-                                  .join(", ")
-                              : proposal.addons}
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        ${proposal.total_amount?.toLocaleString()}
-                      </TableCell>
-                      <TableCell>
-                        {proposal.payment_plan === "full"
-                          ? "Paid in Full"
-                          : proposal.payment_plan === "half"
-                            ? "50/50 Split"
-                            : proposal.payment_plan === "monthly"
-                              ? "Monthly"
-                              : proposal.payment_plan === "quarterly"
-                                ? "Quarterly"
-                                : proposal.payment_plan === "custom" ||
-                                    (proposal.custom_payment_plan &&
-                                      (typeof proposal.custom_payment_plan ===
-                                      "string"
-                                        ? JSON.parse(
-                                            proposal.custom_payment_plan,
-                                          )
-                                        : proposal.custom_payment_plan
-                                      )?.enabled)
-                                  ? "Custom"
-                                  : "Not Set"}
-                      </TableCell>
-                      <TableCell>{getStatusBadge(proposal)}</TableCell>
-                      <TableCell>
-                        {proposal.viewed_at ? (
-                          <span className="text-xs text-muted-foreground">
-                            {new Date(proposal.viewed_at).toLocaleDateString()}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground italic">
-                            Not yet
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {new Date(proposal.created_at).toLocaleDateString()}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => copyLink(proposal.id)}
-                            title="Copy Link"
-                          >
-                            {copiedId === proposal.id ? (
-                              <CheckCircle2 className="w-4 h-4 text-green-500" />
-                            ) : (
-                              <Copy className="w-4 h-4" />
-                            )}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() =>
-                              navigate(`/edit-proposal/${proposal.id}`)
-                            }
-                            title="Edit Proposal"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </Button>
-                          {proposal.status !== "accepted" &&
-                            proposal.status !== "paid" && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleMarkAsBooked(proposal)}
-                                title="Mark as Booked"
-                              >
-                                <CheckCircle className="w-4 h-4 text-green-500" />
-                              </Button>
-                            )}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() =>
-                              window.open(`/proposal/${proposal.id}`, "_blank")
-                            }
-                            title="Preview"
-                          >
-                            <ExternalLink className="w-4 h-4" />
-                          </Button>
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                                title="Delete"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>
-                                  Are you absolutely sure?
-                                </AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  This action cannot be undone. This will
-                                  permanently delete the proposal and it will no
-                                  longer be accessible via the link.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={() => deleteProposal(proposal.id)}
-                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                : proposal.addons}
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          ${proposal.total_amount?.toLocaleString()}
+                        </TableCell>
+                        <TableCell>
+                          {proposal.payment_plan === "full"
+                            ? "Paid in Full"
+                            : proposal.payment_plan === "half"
+                              ? "50/50 Split"
+                              : proposal.payment_plan === "monthly"
+                                ? "Monthly"
+                                : proposal.payment_plan === "quarterly"
+                                  ? "Quarterly"
+                                  : proposal.payment_plan === "custom" ||
+                                      (proposal.custom_payment_plan &&
+                                        (typeof proposal.custom_payment_plan ===
+                                        "string"
+                                          ? JSON.parse(
+                                              proposal.custom_payment_plan,
+                                            )
+                                          : proposal.custom_payment_plan
+                                        )?.enabled)
+                                    ? "Custom"
+                                    : "Not Set"}
+                        </TableCell>
+                        <TableCell>{getStatusBadge(proposal)}</TableCell>
+                        <TableCell>
+                          {proposal.viewed_at ? (
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(
+                                proposal.viewed_at,
+                              ).toLocaleDateString()}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground italic">
+                              Not yet
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {new Date(proposal.created_at).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => copyLink(proposal.id)}
+                              title="Copy Link"
+                            >
+                              {copiedId === proposal.id ? (
+                                <CheckCircle2 className="w-4 h-4 text-green-500" />
+                              ) : (
+                                <Copy className="w-4 h-4" />
+                              )}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() =>
+                                navigate(`/edit-proposal/${proposal.id}`)
+                              }
+                              title="Edit Proposal"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            {proposal.status !== "accepted" &&
+                              proposal.status !== "paid" && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleMarkAsBooked(proposal)}
+                                  title="Mark as Booked"
                                 >
-                                  Delete
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                                  <CheckCircle className="w-4 h-4 text-green-500" />
+                                </Button>
+                              )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() =>
+                                window.open(
+                                  `/proposal/${proposal.id}`,
+                                  "_blank",
+                                )
+                              }
+                              title="Preview"
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>
+                                    Are you absolutely sure?
+                                  </AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This action cannot be undone. This will
+                                    permanently delete the proposal and it will
+                                    no longer be accessible via the link.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => deleteProposal(proposal.id)}
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                  >
+                                    Delete
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>

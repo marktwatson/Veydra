@@ -390,10 +390,16 @@ export function PaymentAuditTable({
                             </Button>
                           )}
                           {(item as any).offplatformStatus === "promised" && (
-                            <span className="text-[10px] text-muted-foreground italic">
-                              Bride promised payment — no approve until claimed
-                              or money arrives
-                            </span>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 rounded-full text-xs shadow-sm text-emerald-600 dark:text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/10 gap-1.5 font-medium"
+                              onClick={() => onConfirmOffPlatform(item)}
+                              title="Money arrived — mark paid in full and book"
+                            >
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              Payment received
+                            </Button>
                           )}
                           {[
                             "active",
@@ -478,6 +484,18 @@ export function PaymentAuditTable({
                                       >
                                         <Wallet className="h-3.5 w-3.5" />
                                         Confirm off-platform
+                                      </DropdownMenuItem>
+                                    )}
+                                    {(item as any).offplatformStatus ===
+                                      "promised" && (
+                                      <DropdownMenuItem
+                                        onClick={() =>
+                                          onConfirmOffPlatform(item)
+                                        }
+                                        className="text-emerald-600 dark:text-emerald-400 focus:text-emerald-600 focus:bg-emerald-500/10 gap-2 cursor-pointer text-xs"
+                                      >
+                                        <CheckCircle2 className="h-3.5 w-3.5" />
+                                        Payment received
                                       </DropdownMenuItem>
                                     )}
                                     <DropdownMenuItem

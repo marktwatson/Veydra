@@ -34,7 +34,9 @@ export const OFF_PLATFORM_METHODS: {
   },
 ];
 
-/** Self-heal the portal_settings + weddings columns needed for off-platform. */
+/** Self-heal the portal_settings + weddings + proposals columns needed for
+ *  off-platform. Non-fatal — swallowed so writes don't hard-fail on a missing
+ *  column. */
 const OFF_PLATFORM_HEAL_SQL = `
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS accept_venmo boolean DEFAULT false;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS venmo_handle text;
@@ -46,6 +48,13 @@ ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS offplatform_status text;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS offplatform_method text;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS offplatform_amount numeric;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS offplatform_claimed_at timestamptz;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS offplatform_status text;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS offplatform_method text;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS offplatform_amount numeric;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS offplatform_claimed_at timestamptz;
+-- Allow staff (managers/owners) auth user IDs in notifications.contractor_id
+-- so in-app notifications show up for managers, not just contractors.
+ALTER TABLE public.notifications DROP CONSTRAINT IF EXISTS notifications_contractor_id_fkey;
 NOTIFY pgrst, 'reload schema';
 `;
 
@@ -54,6 +63,41 @@ export async function healOffPlatformColumns(): Promise<void> {
     await supabase.rpc("exec_sql", { sql_text: OFF_PLATFORM_HEAL_SQL });
   } catch (e: any) {
     console.warn("[off-platform] heal failed:", e?.message);
+  }
+}
+
+/**
+ * Mirror offplatform_* flags onto the proposal linked to this wedding, if the
+ * proposals columns exist. Non-fatal — if the columns are missing the heal
+ * runs first; if still missing, the update silently no-ops.
+ */
+async function mirrorOffPlatformToProposal(
+  weddingId: string,
+  status: string,
+  method: string,
+  amount: number,
+): Promise<void> {
+  try {
+    const { data: proposal } = await supabase
+      .from("proposals")
+      .select("id")
+      .eq("wedding_id", weddingId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!proposal?.id) return;
+    await supabase
+      .from("proposals")
+      .update({
+        offplatform_status: status,
+        offplatform_method: method,
+        offplatform_amount: amount,
+        offplatform_claimed_at: new Date().toISOString(),
+      })
+      .eq("id", proposal.id);
+  } catch (e: any) {
+    // Non-fatal — columns may not exist yet on older areas.
+    console.warn("[off-platform] proposal mirror failed:", e?.message);
   }
 }
 
@@ -140,6 +184,10 @@ export async function claimOffPlatformPayment(
 
     if (error) throw error;
 
+    mirrorOffPlatformToProposal(weddingId, "claimed", method, amount).catch(
+      () => {},
+    );
+
     notifyStaffClaim(clientName, method, amount, weddingId, "claimed").catch(
       () => {},
     );
@@ -180,6 +228,10 @@ export async function promiseOffPlatformPayment(
 
     if (error) throw error;
 
+    mirrorOffPlatformToProposal(weddingId, "promised", method, amount).catch(
+      () => {},
+    );
+
     notifyStaffClaim(clientName, method, amount, weddingId, "promised").catch(
       () => {},
     );
@@ -199,22 +251,41 @@ async function notifyStaffClaim(
 ): Promise<void> {
   try {
     const isClaimed = status === "claimed";
-    const verb = isClaimed ? "claims" : "is expected to send";
+    const methodLabel = method.charAt(0).toUpperCase() + method.slice(1);
+    // Exact copy requested by spec.
     const title = isClaimed
-      ? `${clientName} claims ${method} $${amount.toLocaleString()}`
-      : `Expected ${method} from ${clientName}`;
+      ? `${clientName} claims ${methodLabel} $${amount.toLocaleString()} — review in Payment Audit`
+      : `${clientName} is expected to send ${methodLabel} $${amount.toLocaleString()} — Payment Audit`;
     const body = isClaimed
       ? `Off-platform payment pending confirmation`
-      : `Bride promised ${method} $${amount.toLocaleString()} — not yet sent`;
-    await api.sendAdminNotification(
-      "booking",
-      `${clientName} ${verb} ${method} $${amount.toLocaleString()} — review in Payment Audit.`,
-      {},
-    );
+      : `Bride promised ${methodLabel} $${amount.toLocaleString()} — not yet sent`;
+    await api.sendAdminNotification("booking", `${title}`, {});
     await api.logAdminActivity(
       "booking",
-      `[Off-platform ${status}] ${clientName} ${verb} ${method} $${amount.toLocaleString()} (wedding ${weddingId}). ${isClaimed ? "Pending staff confirmation." : "Pending — no payment sent yet."}`,
+      `[Off-platform ${status}] ${clientName} ${isClaimed ? "claims" : "is expected to send"} ${methodLabel} $${amount.toLocaleString()} (wedding ${weddingId}). ${isClaimed ? "Pending staff confirmation." : "Pending — no payment sent yet."}`,
     );
+    // In-app notification for every manager + owner + super_admin so the
+    // Notifications page + Dashboard pick it up. We insert one row per
+    // staff user resolved by role.
+    try {
+      const { data: managers } = await supabase
+        .from("managers")
+        .select("id, role");
+      const staff = (managers || []).filter(
+        (m: any) =>
+          m.role === "owner" ||
+          m.role === "super_admin" ||
+          m.role === "manager",
+      );
+      for (const m of staff) {
+        await supabase.from("notifications").insert({
+          contractor_id: m.id,
+          title,
+          message: body,
+          type: "announcement",
+        });
+      }
+    } catch {}
     try {
       await fetch(
         `${import.meta.env.VITE_SUPABASE_URL || ""}/functions/v1/send-push`,
@@ -222,7 +293,7 @@ async function notifyStaffClaim(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            roles: ["owner", "super_admin"],
+            roles: ["owner", "super_admin", "manager"],
             category: "bookings_payments",
             title,
             body,
@@ -236,8 +307,10 @@ async function notifyStaffClaim(
 }
 
 /**
- * Staff confirms the off-platform claim. Writes paid_amount = total, royalty
- * sale + manual adjustment, final_payment_verified. Reuses the PIF ledger.
+ * Staff confirms the off-platform claim. This is the ONLY action that books
+ * the wedding. Writes paid_amount = total, status = upcoming (unless
+ * cancelled), contract_date if null, royalty sale + manual adjustment,
+ * final_payment_verified. Reuses the PIF ledger.
  */
 export async function confirmOffPlatformClaim(
   weddingId: string,
@@ -247,7 +320,7 @@ export async function confirmOffPlatformClaim(
     const { data: wedding } = await supabase
       .from("weddings")
       .select(
-        "id, client_name, total_amount, paid_amount, offplatform_method, offplatform_amount",
+        "id, client_name, total_amount, paid_amount, offplatform_method, offplatform_amount, status, contract_date",
       )
       .eq("id", weddingId)
       .maybeSingle();
@@ -261,14 +334,31 @@ export async function confirmOffPlatformClaim(
     }
 
     const method = wedding.offplatform_method || "other";
+    const isCancelled = wedding.status === "cancelled";
 
-    // 1. Wedding: paid in full + clear claim flags.
-    await api.updateWedding(weddingId, {
+    // 1. Wedding: paid in full + BOOK (status upcoming unless cancelled) +
+    //    contract_date if null. This is the only place status → upcoming.
+    const update: Record<string, any> = {
       paid_amount: total,
       final_payment_verified: true,
       offplatform_status: "confirmed",
       offplatform_claimed_at: new Date().toISOString(),
-    } as any);
+    };
+    if (!isCancelled) {
+      update.status = "upcoming";
+    }
+    if (!wedding.contract_date) {
+      update.contract_date = new Date().toISOString();
+    }
+    await api.updateWedding(weddingId, update as any);
+
+    // Mirror confirmed status onto the proposal too.
+    mirrorOffPlatformToProposal(
+      weddingId,
+      "confirmed",
+      method,
+      remaining,
+    ).catch(() => {});
 
     // 2. Manual adjustment ledger.
     await logManualAdjustment({
@@ -297,7 +387,8 @@ export async function confirmOffPlatformClaim(
   }
 }
 
-/** Staff rejects/clears the claimed flags without changing paid_amount. */
+/** Staff rejects/clears the claimed/promised flags without changing
+ *  paid_amount or status. Stays pending. Also clears the proposal mirror. */
 export async function rejectOffPlatformClaim(
   weddingId: string,
 ): Promise<{ success: boolean; error?: string }> {
@@ -313,6 +404,27 @@ export async function rejectOffPlatformClaim(
       })
       .eq("id", weddingId);
     if (error) throw error;
+    // Clear the proposal mirror too.
+    try {
+      const { data: proposal } = await supabase
+        .from("proposals")
+        .select("id")
+        .eq("wedding_id", weddingId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (proposal?.id) {
+        await supabase
+          .from("proposals")
+          .update({
+            offplatform_status: null,
+            offplatform_method: null,
+            offplatform_amount: null,
+            offplatform_claimed_at: null,
+          })
+          .eq("id", proposal.id);
+      }
+    } catch {}
     await api.logAdminActivity(
       "booking",
       `[Off-platform rejected] Cleared off-platform payment claim for wedding ${weddingId}. paid_amount unchanged.`,
