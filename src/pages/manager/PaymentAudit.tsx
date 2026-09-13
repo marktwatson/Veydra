@@ -1,0 +1,680 @@
+import { useState, useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
+import { api } from "@/lib/api";
+import {
+  PaymentAuditModals,
+  type AuditItem,
+} from "@/components/PaymentAuditModals";
+import { PaymentAuditStats } from "@/components/PaymentAuditStats";
+import { PaymentAuditFilters } from "@/components/PaymentAuditFilters";
+import { PaymentAuditTable } from "@/components/PaymentAuditTable";
+import { buildAuditScheduleItems } from "@/lib/audit-schedule";
+import { syncPaymentsFromStripe } from "@/lib/sync-payments";
+import { syncGhlInvoices } from "@/lib/ghl-invoice-api";
+import { Button } from "@/components/ui/button";
+import {
+  RefreshCw,
+  CloudDownload,
+  FileText,
+  FileSpreadsheet,
+  Wallet,
+} from "lucide-react";
+import { SyncReportDialog } from "@/components/SyncReportDialog";
+import { GhlInvoiceDialog } from "@/components/GhlInvoiceDialog";
+import { PaidInFullDialog } from "@/components/PaidInFullDialog";
+import {
+  confirmOffPlatformClaim,
+  rejectOffPlatformClaim,
+} from "@/lib/off-platform-payment";
+import { usePaymentAuditMutations } from "@/hooks/use-payment-audit-mutations";
+import { useToast } from "@/hooks/use-toast";
+
+// Map query param values to the dateFilter dropdown values.
+const DATE_PARAM_MAP: Record<string, string> = {
+  today: "today",
+  past: "past",
+  overdue: "past",
+  "this-month": "this-month",
+  "next-30": "next-30",
+  custom: "custom",
+};
+
+export default function ManagerPaymentAudit() {
+  const [searchParams] = useSearchParams();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const [searchTerm, setSearchTrigger] = useState("");
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "paid" | "partial" | "overdue" | "pending"
+  >("all");
+  const [planFilter, setPaymentPlanFilter] = useState<string>("all");
+  const [clientFilter, setClientFilter] = useState<string>("all");
+
+  // Pre-apply the date filter from the query string (?date=today) so the
+  // "Go to Payment Audit" modal can deep-link straight into the right view.
+  const [dateFilter, setDateFilter] = useState<string>(
+    DATE_PARAM_MAP[searchParams.get("date") || ""] || "all",
+  );
+  const [startDate, setStartDate] = useState<string>("");
+  const [endDate, setEndDate] = useState<string>("");
+  const [sortBy, setSortBy] = useState<
+    "date-asc" | "date-desc" | "name-asc" | "name-desc"
+  >("date-asc");
+
+  // Modal states for action triggers
+  const [autoChargeModalItem, setAutoChargeModalItem] =
+    useState<AuditItem | null>(null);
+  const [manualInvoiceModalItem, setManualInvoiceModalItem] =
+    useState<AuditItem | null>(null);
+  const [markUnpaidModalItem, setMarkUnpaidModalItem] =
+    useState<AuditItem | null>(null);
+  const [markPaidModalItem, setMarkPaidModalItem] = useState<AuditItem | null>(
+    null,
+  );
+  const [resendReceiptModalItem, setResendReceiptModalItem] =
+    useState<AuditItem | null>(null);
+  const [cancelPaymentModalItem, setCancelPaymentModalItem] =
+    useState<AuditItem | null>(null);
+  const [showSyncReport, setShowSyncReport] = useState(false);
+  const [showGhlInvoiceModal, setShowGhlInvoiceModal] = useState(false);
+  const [paidInFullWedding, setPaidInFullWedding] = useState<any | null>(null);
+
+  const {
+    data: weddings = [],
+    isLoading,
+    refetch,
+  } = useQuery({
+    queryKey: ["weddings"],
+    queryFn: api.getWeddings,
+  });
+
+  // Force a Stripe paid-amount recompute (no notifications, no charging).
+  // Fixes stale paid_amount after refunds without waiting for the daily cron.
+  // Shows a per-wedding diagnostic so staff can see exactly what changed (or
+  // didn't) instead of a generic "Synced" that hides silent failures.
+  const [syncResult, setSyncResult] = useState<any>(null);
+  const syncMutation = useMutation({
+    mutationFn: syncPaymentsFromStripe,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["weddings"] });
+      setSyncResult(data);
+      const s = data?.summary;
+      if (s?.stripe_key_missing) {
+        toast({
+          variant: "destructive",
+          title: "Stripe key missing",
+          description:
+            "The STRIPE_SECRET_KEY env var is not set on the daily-reminders edge function. Add it in Supabase → Edge Functions → daily-reminders → Secrets, then redeploy.",
+        });
+      } else if (s && s.weddings_updated > 0) {
+        toast({
+          title: "Synced from Stripe",
+          description: `Updated ${s.weddings_updated} wedding(s) · Net collected $${s.total_net_collected?.toLocaleString()} · Click "Last Sync Report" to see per-wedding details.`,
+        });
+      } else if (s && s.weddings_errored > 0) {
+        toast({
+          variant: "destructive",
+          title: "Sync completed with errors",
+          description: `${s.weddings_errored} wedding(s) failed. Click "Last Sync Report" to see what went wrong.`,
+        });
+      } else {
+        toast({
+          title: "Synced from Stripe",
+          description: `All ${s?.total_weddings || 0} weddings already up to date. Net collected $${s?.total_net_collected?.toLocaleString() || 0}.`,
+        });
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "Stripe sync failed",
+        description:
+          error?.message ||
+          "Could not reach the sync function. Make sure daily-reminders is deployed.",
+      });
+    },
+  });
+
+  // Sync CRM invoices for a wedding (recompute paid_amount + schedule).
+  const [ghlSyncWeddingId, setGhlSyncWeddingId] = useState<string>("");
+  const ghlSyncMutation = useMutation({
+    mutationFn: (weddingId: string) => syncGhlInvoices(weddingId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["weddings"] });
+      if (data.totalPaidDelta > 0) {
+        toast({
+          title: "CRM invoices synced",
+          description: `Found ${data.invoiceCount} invoice(s) · paid amount updated by $${data.totalPaidDelta.toLocaleString()} to $${data.paid_amount.toLocaleString()}.`,
+        });
+      } else {
+        toast({
+          title: "CRM invoices synced",
+          description: `Found ${data.invoiceCount} invoice(s) · paid amount unchanged at $${data.paid_amount.toLocaleString()}.`,
+        });
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "CRM sync failed",
+        description:
+          error?.message ||
+          "Could not sync CRM invoices. Make sure ghl-invoice is deployed.",
+      });
+    },
+  });
+
+  const confirmOffPlatformMutation = useMutation({
+    mutationFn: (item: AuditItem) => confirmOffPlatformClaim(item.weddingId),
+    onSuccess: (_data, item) => {
+      queryClient.invalidateQueries({ queryKey: ["weddings"] });
+      toast({
+        title: "Off-platform payment confirmed",
+        description: `${item.clientName} marked paid in full.`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "Confirm failed",
+        description: error?.message || "Could not confirm.",
+      });
+    },
+  });
+
+  const rejectOffPlatformMutation = useMutation({
+    mutationFn: (item: AuditItem) => rejectOffPlatformClaim(item.weddingId),
+    onSuccess: (_data, item) => {
+      queryClient.invalidateQueries({ queryKey: ["weddings"] });
+      toast({
+        title: "Claim rejected",
+        description: `Cleared off-platform claim for ${item.clientName}. paid_amount unchanged.`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "Reject failed",
+        description: error?.message || "Could not reject.",
+      });
+    },
+  });
+
+  const {
+    autoChargeMutation,
+    releaseAndRetryMutation,
+    sendManualInvoiceMutation,
+    markUnpaidMutation,
+    markPaidMutation,
+    resendReceiptMutation,
+    cancelPaymentMutation,
+  } = usePaymentAuditMutations({
+    setAutoChargeModalItem,
+    setManualInvoiceModalItem,
+    setMarkUnpaidModalItem,
+    setMarkPaidModalItem,
+    setResendReceiptModalItem,
+    setCancelPaymentModalItem,
+  });
+
+  // Calculate all schedule items across every wedding
+  const auditScheduleItems = useMemo(
+    () => buildAuditScheduleItems(weddings),
+    [weddings],
+  );
+
+  // Get unique list of clients for the filter dropdown
+  const clientOptions = useMemo(() => {
+    const clientsMap = new Map<string, string>();
+    auditScheduleItems.forEach((item) => {
+      if (item.weddingId && item.clientName) {
+        clientsMap.set(item.weddingId, item.clientName);
+      }
+    });
+    return Array.from(clientsMap.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [auditScheduleItems]);
+
+  // Apply search and filtering
+  const filteredItems = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const result = auditScheduleItems.filter((item: any) => {
+      // Search
+      const search = searchTerm.toLowerCase().trim();
+      if (search) {
+        const nameMatch = item.clientName.toLowerCase().includes(search);
+        const emailMatch = item.clientEmail.toLowerCase().includes(search);
+        const labelMatch = item.installmentLabel.toLowerCase().includes(search);
+        if (!nameMatch && !emailMatch && !labelMatch) return false;
+      }
+
+      // Client filter
+      if (clientFilter !== "all" && item.weddingId !== clientFilter) {
+        return false;
+      }
+
+      // Status filter. "pending" also includes "partial" rows (a partial row
+      // still has an unpaid remainder).
+      if (statusFilter !== "all") {
+        if (statusFilter === "pending") {
+          if (item.status !== "pending" && item.status !== "partial")
+            return false;
+        } else if (item.status !== statusFilter) {
+          return false;
+        }
+      }
+
+      // Payment plan filter
+      if (planFilter !== "all") {
+        if (planFilter === "custom" && !item.hasCustomPlan) return false;
+        if (planFilter !== "custom" && item.paymentPlan !== planFilter)
+          return false;
+      }
+
+      // Date preset filter
+      if (dateFilter !== "all" && item.parsedDate) {
+        const itemTime = item.parsedDate.getTime();
+        const now = today.getTime();
+
+        if (dateFilter === "past") {
+          if (itemTime >= now) return false;
+        } else if (dateFilter === "today") {
+          const itemDateStr = item.parsedDate.toISOString().split("T")[0];
+          const todayStr = today.toISOString().split("T")[0];
+          if (itemDateStr !== todayStr) return false;
+        } else if (dateFilter === "this-month") {
+          const startOfMonth = new Date(
+            today.getFullYear(),
+            today.getMonth(),
+            1,
+          ).getTime();
+          const endOfMonth = new Date(
+            today.getFullYear(),
+            today.getMonth() + 1,
+            0,
+            23,
+            59,
+            59,
+          ).getTime();
+          if (itemTime < startOfMonth || itemTime > endOfMonth) return false;
+        } else if (dateFilter === "next-30") {
+          const in30Days = now + 30 * 24 * 60 * 60 * 1000;
+          if (itemTime < now || itemTime > in30Days) return false;
+        } else if (dateFilter === "custom") {
+          if (startDate) {
+            const start = new Date(`${startDate}T00:00:00`).getTime();
+            if (itemTime < start) return false;
+          }
+          if (endDate) {
+            const end = new Date(`${endDate}T23:59:59`).getTime();
+            if (itemTime > end) return false;
+          }
+        }
+      }
+
+      return true;
+    });
+
+    // Sorting
+    return result.sort((a: any, b: any) => {
+      if (sortBy === "date-asc") {
+        const timeA = a.parsedDate ? a.parsedDate.getTime() : 0;
+        const timeB = b.parsedDate ? b.parsedDate.getTime() : 0;
+        return timeA - timeB;
+      } else if (sortBy === "date-desc") {
+        const timeA = a.parsedDate ? a.parsedDate.getTime() : 0;
+        const timeB = b.parsedDate ? b.parsedDate.getTime() : 0;
+        return timeB - timeA;
+      } else if (sortBy === "name-asc") {
+        return a.clientName.localeCompare(b.clientName);
+      } else if (sortBy === "name-desc") {
+        return b.clientName.localeCompare(a.clientName);
+      }
+      return 0;
+    });
+  }, [
+    auditScheduleItems,
+    searchTerm,
+    clientFilter,
+    statusFilter,
+    planFilter,
+    dateFilter,
+    startDate,
+    endDate,
+    sortBy,
+  ]);
+
+  // Aggregate Metrics
+  // IMPORTANT: `paid_amount` on each wedding is already NET (gross succeeded
+  // minus refunds, minus manual "mark unpaid" adjustments) — computed by the
+  // daily-reminders sync + the stripe-webhook refund handler. We must NOT
+  // subtract `refunded_amount` again here; that double-counts refunds and
+  // produces the wrong "Collected" number.
+  // Collected = sum of paid_amount on non-cancelled, non-draft weddings.
+  // Installment sums stay for volume / overdue / upcoming / paid-count only.
+  // totalRefunded is a footnote, never subtracted from collected.
+  const metrics = useMemo(() => {
+    let totalScheduled = 0,
+      totalOverdue = 0,
+      totalPending = 0;
+    const totalRefunded = weddings.reduce(
+      (s: number, w: any) => s + (Number(w.refunded_amount) || 0),
+      0,
+    );
+    // Collected = net paid_amount across non-cancelled, non-draft weddings.
+    // paid_amount is already net of refunds (synced by daily-reminders).
+    const collected = (weddings as any[])
+      .filter(
+        (w: any) =>
+          w.status !== "cancelled" && !w.notes?.includes("[UNPAID_DRAFT]"),
+      )
+      .reduce((s: number, w: any) => s + (Number(w.paid_amount) || 0), 0);
+    auditScheduleItems.forEach((item: any) => {
+      totalScheduled += item.installmentAmount;
+      if (item.status === "paid") {
+        // count only — amount is NOT used for collected (see above)
+      } else if (item.status === "partial")
+        totalPending += item.installmentAmount;
+      else if (item.status === "overdue")
+        totalOverdue += item.installmentAmount;
+      else totalPending += item.installmentAmount;
+    });
+    return {
+      totalScheduled,
+      totalPaid: 0, // deprecated — kept for interface compat; collected is the real number
+      collected,
+      totalOverdue,
+      totalPending,
+      totalRefunded,
+      overdueCount: auditScheduleItems.filter(
+        (i: any) => i.status === "overdue",
+      ).length,
+      pendingCount: auditScheduleItems.filter(
+        (i: any) => i.status === "pending" || i.status === "partial",
+      ).length,
+      partialCount: auditScheduleItems.filter(
+        (i: any) => i.status === "partial",
+      ).length,
+      paidCount: auditScheduleItems.filter((i: any) => i.status === "paid")
+        .length,
+    };
+  }, [auditScheduleItems, weddings]);
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
+            Payment Audit & Invoicing
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Audit past, present, and custom scheduled payments across all client
+            contracts. Send CRM invoices and sync payment status.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowGhlInvoiceModal(true)}
+            className="rounded-full shadow-sm bg-primary/5 hover:bg-primary/10 border-primary/20 text-primary font-semibold"
+            title="Create a CRM invoice and get a direct payment URL"
+          >
+            <FileSpreadsheet className="h-4 w-4 mr-2" /> Send CRM Invoice
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              const opts = weddings
+                .filter(
+                  (w: any) =>
+                    w.status !== "cancelled" &&
+                    !w.notes?.includes("[UNPAID_DRAFT]"),
+                )
+                .map(
+                  (w: any) =>
+                    `${w.client_name} — Due: $${Math.max(0, (Number(w.total_amount) || 0) - (Number(w.paid_amount) || 0)).toLocaleString()}`,
+                );
+              const choice = window.prompt(
+                `Sync CRM invoices for which wedding?\n\nEnter a number (1-${opts.length}):\n${opts.map((o, i) => `${i + 1}. ${o}`).join("\n")}`,
+                "1",
+              );
+              const idx = choice ? parseInt(choice, 10) - 1 : -1;
+              const active = weddings.filter(
+                (w: any) =>
+                  w.status !== "cancelled" &&
+                  !w.notes?.includes("[UNPAID_DRAFT]"),
+              );
+              if (idx >= 0 && idx < active.length) {
+                const w = active[idx];
+                setGhlSyncWeddingId(w.id);
+                ghlSyncMutation.mutate(w.id);
+              }
+            }}
+            disabled={ghlSyncMutation.isPending}
+            className="rounded-full shadow-sm bg-primary/5 hover:bg-primary/10 border-primary/20 text-primary font-semibold"
+            title="Recompute paid amounts from CRM invoices"
+          >
+            {ghlSyncMutation.isPending ? (
+              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <FileSpreadsheet className="h-4 w-4 mr-2" />
+            )}
+            Sync GHL Invoices
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            className="rounded-full shadow-sm"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" /> Refresh Audit Data
+          </Button>
+          {syncResult && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowSyncReport(true)}
+              className="rounded-full shadow-sm"
+            >
+              <FileText className="h-4 w-4 mr-2" /> Last Sync Report
+            </Button>
+          )}
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+            className="rounded-full shadow-sm"
+            title="Recompute paid amounts from Stripe (net of refunds). Does not charge anyone or send notifications."
+          >
+            {syncMutation.isPending ? (
+              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <CloudDownload className="h-4 w-4 mr-2" />
+            )}
+            Sync legacy Stripe (refunds only)
+          </Button>
+        </div>
+      </div>
+
+      <PaymentAuditStats
+        metrics={metrics}
+        totalInstallments={auditScheduleItems.length}
+      />
+
+      {(() => {
+        const claimed = auditScheduleItems.filter(
+          (i: any) => i.offplatformStatus === "claimed",
+        ).length;
+        const promised = auditScheduleItems.filter(
+          (i: any) => i.offplatformStatus === "promised",
+        ).length;
+        if (!claimed && !promised) return null;
+        return (
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm">
+            <Wallet className="h-4 w-4 text-amber-600" />
+            <span className="font-semibold text-amber-700 dark:text-amber-400">
+              Off-platform payments to review
+            </span>
+            {claimed > 0 && (
+              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                {claimed} claimed — review
+              </span>
+            )}
+            {promised > 0 && (
+              <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-400">
+                {promised} promised — pending
+              </span>
+            )}
+          </div>
+        );
+      })()}
+
+      <PaymentAuditFilters
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTrigger}
+        clientFilter={clientFilter}
+        onClientFilterChange={setClientFilter}
+        clientOptions={clientOptions}
+        dateFilter={dateFilter}
+        onDateFilterChange={setDateFilter}
+        statusFilter={statusFilter}
+        onStatusFilterChange={setStatusFilter}
+        planFilter={planFilter}
+        onPlanFilterChange={setPaymentPlanFilter}
+        sortBy={sortBy}
+        onSortByChange={setSortBy}
+        totalItems={auditScheduleItems.length}
+        metrics={metrics}
+        startDate={startDate}
+        onStartDateChange={setStartDate}
+        endDate={endDate}
+        onEndDateChange={setEndDate}
+      />
+
+      <PaymentAuditTable
+        isLoading={isLoading}
+        filteredItems={filteredItems}
+        totalItems={auditScheduleItems.length}
+        onAutoCharge={setAutoChargeModalItem}
+        onManualInvoice={setManualInvoiceModalItem}
+        onCancelPayment={setCancelPaymentModalItem}
+        onResendReceipt={setResendReceiptModalItem}
+        onMarkUnpaid={setMarkUnpaidModalItem}
+        onMarkPaid={setMarkPaidModalItem}
+        onPaidInFull={(item) =>
+          setPaidInFullWedding({
+            id: item.weddingId,
+            client_name: item.clientName,
+            total_amount: item.totalAmount,
+            paid_amount: item.paidAmount,
+            status: item.weddingObj?.status,
+          })
+        }
+        onConfirmOffPlatform={(item) => confirmOffPlatformMutation.mutate(item)}
+        onRejectOffPlatform={(item) => rejectOffPlatformMutation.mutate(item)}
+      />
+
+      <PaymentAuditModals
+        autoChargeItem={autoChargeModalItem}
+        onAutoChargeClose={() => setAutoChargeModalItem(null)}
+        onAutoChargeConfirm={(item) =>
+          autoChargeMutation.mutate({
+            weddingId: item.weddingId,
+            amount: item.installmentAmount,
+            description: `${item.installmentLabel} for ${item.clientName} Wedding`,
+            scheduleIndex: item.scheduleIndex,
+            installmentLabel: item.installmentLabel,
+          })
+        }
+        autoChargePending={autoChargeMutation.isPending}
+        onReleaseAndRetry={(item) =>
+          releaseAndRetryMutation.mutate({
+            weddingId: item.weddingId,
+            amount: item.installmentAmount,
+            description: `${item.installmentLabel} for ${item.clientName} Wedding`,
+            scheduleIndex: item.scheduleIndex,
+            installmentLabel: item.installmentLabel,
+          })
+        }
+        releaseAndRetryPending={releaseAndRetryMutation.isPending}
+        manualInvoiceItem={manualInvoiceModalItem}
+        onManualInvoiceClose={() => setManualInvoiceModalItem(null)}
+        onManualInvoiceConfirm={(item) =>
+          sendManualInvoiceMutation.mutate({
+            weddingId: item.weddingId,
+            amount: item.installmentAmount,
+            label: item.installmentLabel,
+          })
+        }
+        manualInvoicePending={sendManualInvoiceMutation.isPending}
+        markUnpaidItem={markUnpaidModalItem}
+        onMarkUnpaidClose={() => setMarkUnpaidModalItem(null)}
+        onMarkUnpaidConfirm={(item) =>
+          markUnpaidMutation.mutate({
+            weddingId: item.weddingId,
+            currentPaidAmount: item.paidAmount,
+            installmentAmount: item.installmentAmount,
+            scheduleIndex: item.scheduleIndex,
+            wedding: item.weddingObj,
+          })
+        }
+        markUnpaidPending={markUnpaidMutation.isPending}
+        markPaidItem={markPaidModalItem}
+        onMarkPaidClose={() => setMarkPaidModalItem(null)}
+        onMarkPaidConfirm={(item) =>
+          markPaidMutation.mutate({
+            weddingId: item.weddingId,
+            installmentAmount: item.installmentAmount,
+            totalAmount: item.totalAmount,
+            installmentLabel: item.installmentLabel,
+            scheduleIndex: item.scheduleIndex,
+            clientName: item.clientName,
+          })
+        }
+        markPaidPending={markPaidMutation.isPending}
+        resendReceiptItem={resendReceiptModalItem}
+        onResendReceiptClose={() => setResendReceiptModalItem(null)}
+        onResendReceiptConfirm={(item) =>
+          resendReceiptMutation.mutate({
+            weddingId: item.weddingId,
+            amount: item.installmentAmount,
+            label: item.installmentLabel,
+          })
+        }
+        resendReceiptPending={resendReceiptMutation.isPending}
+        cancelPaymentItem={cancelPaymentModalItem}
+        onCancelPaymentClose={() => setCancelPaymentModalItem(null)}
+        onCancelPaymentConfirm={(item) => cancelPaymentMutation.mutate(item)}
+        cancelPaymentPending={cancelPaymentMutation.isPending}
+      />
+
+      <GhlInvoiceDialog
+        open={showGhlInvoiceModal}
+        onOpenChange={setShowGhlInvoiceModal}
+        weddings={weddings}
+      />
+
+      <PaidInFullDialog
+        wedding={paidInFullWedding}
+        open={!!paidInFullWedding}
+        onOpenChange={(o) => !o && setPaidInFullWedding(null)}
+      />
+
+      <SyncReportDialog
+        open={showSyncReport}
+        onOpenChange={setShowSyncReport}
+        summary={syncResult?.summary}
+        log={syncResult?.log}
+      />
+    </div>
+  );
+}

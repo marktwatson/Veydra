@@ -1,0 +1,511 @@
+import { useState } from "react";
+import { ChangePendingBadge } from "@/components/ChangePendingBadge";
+import { type AuditItem } from "@/components/PaymentAuditModals";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  CreditCard,
+  Send,
+  CheckCircle2,
+  AlertCircle,
+  Clock,
+  Loader2,
+  Mail,
+  Calendar,
+  RotateCcw,
+  Ban,
+  XCircle,
+  DollarSign,
+  MoreHorizontal,
+  Wallet,
+  XCircle as XCircleIcon,
+} from "lucide-react";
+import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
+import { useToast } from "@/hooks/use-toast";
+import { api } from "@/lib/api";
+
+interface Props {
+  isLoading: boolean;
+  filteredItems: any[];
+  totalItems: number;
+  onAutoCharge: (item: AuditItem) => void;
+  onManualInvoice: (item: AuditItem) => void;
+  onCancelPayment: (item: AuditItem) => void;
+  onResendReceipt: (item: AuditItem) => void;
+  onMarkUnpaid: (item: AuditItem) => void;
+  onMarkPaid: (item: AuditItem) => void;
+  onPaidInFull: (item: AuditItem) => void;
+  onConfirmOffPlatform: (item: AuditItem) => void;
+  onRejectOffPlatform: (item: AuditItem) => void;
+}
+
+export function PaymentAuditTable({
+  isLoading,
+  filteredItems,
+  totalItems,
+  onAutoCharge,
+  onManualInvoice,
+  onCancelPayment,
+  onResendReceipt,
+  onMarkUnpaid,
+  onMarkPaid,
+  onPaidInFull,
+  onConfirmOffPlatform,
+  onRejectOffPlatform,
+}: Props) {
+  const { toast } = useToast();
+  const [cancellingSubId, setCancellingSubId] = useState<string | null>(null);
+
+  const handleCancelSubscription = async (item: any) => {
+    const subId = item.stripeSubscriptionId;
+    const customerId = item.stripeCustomerId;
+    if (!subId && !customerId) {
+      toast({
+        variant: "destructive",
+        title: "No subscription found",
+        description:
+          "This wedding has no Stripe subscription on file to cancel.",
+      });
+      return;
+    }
+    setCancellingSubId(item.id);
+    try {
+      const res = await fetch(
+        `${supabaseUrl}/functions/v1/stripe-cancel-subscription`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${supabaseAnonKey}`,
+            apikey: supabaseAnonKey,
+          },
+          body: JSON.stringify({
+            subscriptionId: subId || null,
+            customerId: customerId || null,
+            weddingId: item.weddingId,
+          }),
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to cancel");
+      await api.logAdminActivity(
+        "Cancelled Stripe Subscription",
+        `Cancelled subscription ${subId || "(by customer)"} for ${item.clientName} (${item.weddingId}). Cancelled: ${data.cancelledSubscriptions?.join(", ") || "none"}. Voided invoices: ${data.voidedInvoices?.join(", ") || "none"}.`,
+      );
+      toast({
+        title: "Subscription cancelled",
+        description: `Stopped recurring charges for ${item.clientName}. ${data.cancelledSubscriptions?.length || 0} subscription(s) cancelled, ${data.voidedInvoices?.length || 0} open invoice(s) voided.`,
+      });
+    } catch (e: any) {
+      toast({
+        variant: "destructive",
+        title: "Failed to cancel subscription",
+        description: e.message || "Something went wrong.",
+      });
+    } finally {
+      setCancellingSubId(null);
+    }
+  };
+  return (
+    <Card className="shadow-sm border-border/40 rounded-2xl overflow-hidden bg-card">
+      <CardHeader className="p-5 pb-3 border-b border-border/40 flex flex-row items-center justify-between">
+        <div>
+          <CardTitle className="text-lg font-bold">
+            Scheduled & Historical Payments
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Showing {filteredItems.length} of {totalItems} payment installment
+            items
+          </CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="p-0">
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center p-12 space-y-3">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground">
+              Loading payment schedule audit...
+            </p>
+          </div>
+        ) : filteredItems.length === 0 ? (
+          <div className="flex flex-col items-center justify-center p-12 text-center text-muted-foreground space-y-2">
+            <CreditCard className="h-10 w-10 text-muted-foreground/40" />
+            <p className="font-semibold text-foreground">
+              No matching payments found
+            </p>
+            <p className="text-xs">
+              Try clearing your search query or filters.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader className="bg-muted/30">
+                <TableRow>
+                  <TableHead className="font-semibold">
+                    Client / Wedding
+                  </TableHead>
+                  <TableHead className="font-semibold">Installment</TableHead>
+                  <TableHead className="font-semibold">Plan Type</TableHead>
+                  <TableHead className="font-semibold">Due Date</TableHead>
+                  <TableHead className="font-semibold text-right">
+                    Amount
+                  </TableHead>
+                  <TableHead className="font-semibold">Status</TableHead>
+                  <TableHead className="font-semibold text-right pr-6">
+                    Payment Actions
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredItems.map((item: any) => (
+                  <TableRow
+                    key={item.id}
+                    className="hover:bg-muted/20 transition-colors"
+                  >
+                    {/* Client info */}
+                    <TableCell className="font-medium">
+                      <div className="flex flex-col">
+                        <span className="font-semibold text-foreground">
+                          {item.clientName}
+                        </span>
+                        <ChangePendingBadge weddingId={item.weddingId} />
+                        <span className="text-xs text-muted-foreground">
+                          {item.clientEmail || "No email on file"} • Paid: $
+                          {item.paidAmount.toLocaleString()} / Total: $
+                          {item.totalAmount.toLocaleString()}
+                        </span>
+                      </div>
+                    </TableCell>
+
+                    {/* Installment label */}
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className="rounded-full text-xs font-normal border-border/60"
+                      >
+                        {item.installmentLabel}
+                      </Badge>
+                    </TableCell>
+
+                    {/* Payment plan */}
+                    <TableCell>
+                      <span className="text-xs uppercase tracking-wider font-semibold text-muted-foreground">
+                        {item.hasCustomPlan ? (
+                          <Badge
+                            variant="secondary"
+                            className="rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20 text-[10px]"
+                          >
+                            Custom Plan
+                          </Badge>
+                        ) : (
+                          item.paymentPlan
+                        )}
+                      </span>
+                    </TableCell>
+
+                    {/* Due Date */}
+                    <TableCell>
+                      <div className="flex items-center gap-1.5 text-xs font-medium">
+                        <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span>{item.installmentDate}</span>
+                      </div>
+                    </TableCell>
+
+                    {/* Amount */}
+                    <TableCell className="text-right font-bold text-sm">
+                      $
+                      {item.installmentAmount.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                      })}
+                    </TableCell>
+
+                    {/* Status badge */}
+                    <TableCell>
+                      <div className="flex flex-col items-start gap-1">
+                        {item.status === "paid" ? (
+                          <Badge
+                            variant="outline"
+                            className="rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 font-medium"
+                          >
+                            <CheckCircle2 className="h-3 w-3 mr-1" /> Paid
+                          </Badge>
+                        ) : item.status === "partial" ? (
+                          <Badge
+                            variant="outline"
+                            className="rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 font-medium"
+                          >
+                            <Clock className="h-3 w-3 mr-1" /> Partial
+                          </Badge>
+                        ) : item.status === "overdue" ? (
+                          <Badge
+                            variant="outline"
+                            className="rounded-full bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20 font-bold animate-pulse"
+                          >
+                            <AlertCircle className="h-3 w-3 mr-1" /> Overdue
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="outline"
+                            className="rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20 font-medium"
+                          >
+                            <Clock className="h-3 w-3 mr-1" /> Pending
+                          </Badge>
+                        )}
+                        {(item as any).offplatformStatus === "claimed" && (
+                          <Badge
+                            variant="outline"
+                            className="rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 text-[10px] font-semibold"
+                          >
+                            <Wallet className="h-3 w-3 mr-1" />
+                            {(item as any).offplatformMethod ||
+                              "Off-platform"}{" "}
+                            claimed — review
+                          </Badge>
+                        )}
+                        {(item as any).offplatformStatus === "promised" && (
+                          <Badge
+                            variant="outline"
+                            className="rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30 text-[10px] font-semibold"
+                          >
+                            <Clock className="h-3 w-3 mr-1" />
+                            {(item as any).offplatformMethod ||
+                              "Off-platform"}{" "}
+                            promised — pending
+                          </Badge>
+                        )}
+                      </div>
+                    </TableCell>
+
+                    {/* Action buttons */}
+                    <TableCell className="text-right pr-6">
+                      {item.status === "paid" ? (
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 rounded-full text-xs shadow-sm gap-1.5 font-medium"
+                            onClick={() => onResendReceipt(item)}
+                          >
+                            <Mail className="h-3.5 w-3.5 text-primary" />
+                            Resend Receipt
+                          </Button>
+
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 w-8 p-0 rounded-full text-muted-foreground hover:text-foreground"
+                                aria-label="More actions"
+                              >
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent
+                              align="end"
+                              className="w-48 rounded-xl shadow-lg"
+                            >
+                              <DropdownMenuItem
+                                onClick={() => onPaidInFull(item)}
+                                className="text-emerald-600 dark:text-emerald-400 focus:text-emerald-600 focus:bg-emerald-500/10 gap-2 cursor-pointer text-xs"
+                              >
+                                <DollarSign className="h-3.5 w-3.5" />
+                                Paid in full
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => onMarkUnpaid(item)}
+                                className="text-amber-600 dark:text-amber-400 focus:text-amber-600 focus:bg-amber-500/10 gap-2 cursor-pointer text-xs"
+                              >
+                                <RotateCcw className="h-3.5 w-3.5" />
+                                Mark Unpaid
+                              </DropdownMenuItem>
+                              {((item as any).offplatformStatus === "claimed" ||
+                                (item as any).offplatformStatus ===
+                                  "promised") && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  {(item as any).offplatformStatus ===
+                                    "claimed" && (
+                                    <DropdownMenuItem
+                                      onClick={() => onConfirmOffPlatform(item)}
+                                      className="text-emerald-600 dark:text-emerald-400 focus:text-emerald-600 focus:bg-emerald-500/10 gap-2 cursor-pointer text-xs"
+                                    >
+                                      <Wallet className="h-3.5 w-3.5" />
+                                      Confirm off-platform
+                                    </DropdownMenuItem>
+                                  )}
+                                  <DropdownMenuItem
+                                    onClick={() => onRejectOffPlatform(item)}
+                                    className="text-destructive focus:text-destructive focus:bg-destructive/10 gap-2 cursor-pointer text-xs"
+                                  >
+                                    <XCircleIcon className="h-3.5 w-3.5" />
+                                    Reject{" "}
+                                    {(item as any).offplatformStatus ===
+                                    "promised"
+                                      ? "promise"
+                                      : "claim"}
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-end gap-2">
+                          {(item as any).offplatformStatus === "claimed" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 rounded-full text-xs shadow-sm text-amber-600 dark:text-amber-400 border-amber-500/40 hover:bg-amber-500/10 gap-1.5 font-medium animate-pulse"
+                              onClick={() => onConfirmOffPlatform(item)}
+                              title={`${(item as any).clientName || "Client"} claims they sent ${(item as any).offplatformMethod || "off-platform"} payment`}
+                            >
+                              <Wallet className="h-3.5 w-3.5" />
+                              Confirm{" "}
+                              {(item as any).offplatformMethod || "claim"}
+                            </Button>
+                          )}
+                          {(item as any).offplatformStatus === "promised" && (
+                            <span className="text-[10px] text-muted-foreground italic">
+                              Bride promised payment — no approve until claimed
+                              or money arrives
+                            </span>
+                          )}
+                          {[
+                            "active",
+                            "trialing",
+                            "past_due",
+                            "unpaid",
+                          ].includes((item as any).stripeSubscriptionStatus) ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 rounded-full text-xs shadow-sm text-red-600 dark:text-red-400 border-red-500/40 hover:bg-red-500/10 gap-1 font-semibold animate-pulse"
+                              onClick={() => handleCancelSubscription(item)}
+                              disabled={cancellingSubId === item.id}
+                              title="Cancel a leftover Stripe subscription still billing this wedding."
+                            >
+                              {cancellingSubId === item.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <XCircle className="h-3.5 w-3.5" />
+                              )}
+                              Cancel leftover Stripe subscription
+                            </Button>
+                          ) : null}
+
+                          <div className="flex items-center justify-end gap-1.5">
+                            {/* Primary action button: Mark Paid */}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 rounded-full text-xs shadow-sm text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10 gap-1.5 font-medium"
+                              onClick={() => onMarkPaid(item)}
+                              title="Manually mark this installment as paid (confirm it posted first)"
+                            >
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              Mark Paid
+                            </Button>
+
+                            {/* Actions dropdown for secondary/destructive actions */}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 w-8 p-0 rounded-full text-muted-foreground hover:text-foreground"
+                                  aria-label="More actions"
+                                >
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent
+                                align="end"
+                                className="w-48 rounded-xl shadow-lg"
+                              >
+                                <DropdownMenuItem
+                                  onClick={() => onPaidInFull(item)}
+                                  className="text-emerald-600 dark:text-emerald-400 focus:text-emerald-600 focus:bg-emerald-500/10 gap-2 cursor-pointer text-xs"
+                                >
+                                  <DollarSign className="h-3.5 w-3.5" />
+                                  Paid in full
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => onCancelPayment(item)}
+                                  className="text-destructive focus:text-destructive focus:bg-destructive/10 gap-2 cursor-pointer text-xs"
+                                >
+                                  <Ban className="h-3.5 w-3.5" />
+                                  Cancel Payment
+                                </DropdownMenuItem>
+                                {((item as any).offplatformStatus ===
+                                  "claimed" ||
+                                  (item as any).offplatformStatus ===
+                                    "promised") && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    {(item as any).offplatformStatus ===
+                                      "claimed" && (
+                                      <DropdownMenuItem
+                                        onClick={() =>
+                                          onConfirmOffPlatform(item)
+                                        }
+                                        className="text-emerald-600 dark:text-emerald-400 focus:text-emerald-600 focus:bg-emerald-500/10 gap-2 cursor-pointer text-xs"
+                                      >
+                                        <Wallet className="h-3.5 w-3.5" />
+                                        Confirm off-platform
+                                      </DropdownMenuItem>
+                                    )}
+                                    <DropdownMenuItem
+                                      onClick={() => onRejectOffPlatform(item)}
+                                      className="text-destructive focus:text-destructive focus:bg-destructive/10 gap-2 cursor-pointer text-xs"
+                                    >
+                                      <XCircleIcon className="h-3.5 w-3.5" />
+                                      Reject{" "}
+                                      {(item as any).offplatformStatus ===
+                                      "promised"
+                                        ? "promise"
+                                        : "claim"}
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </div>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
