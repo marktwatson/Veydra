@@ -12,6 +12,126 @@ import { History } from "lucide-react";
 // You can add new entries to the top of this array as we build out the app!
 export const CHANGELOG_DATA = [
   {
+    version: "v1.20.0",
+    date: "2026-09-13",
+    title: "Off-Platform Payments, Proposal Resume & Readiness UX",
+    changes: [
+      {
+        type: "feature",
+        text: "Added off-platform payment collection (Venmo, Cash App, Zelle) with a blocking bride-side modal that defers invoice creation until the couple chooses card/bank.",
+      },
+      {
+        type: "feature",
+        text: "Staff can approve or reject off-platform claims from a unified modal on the Dashboard, Proposals, and Payment Audit — confirming books the wedding and records royalty.",
+      },
+      {
+        type: "feature",
+        text: "Proposal links now resume correctly: signed contracts skip the signature pad, existing invoices show 'Open invoice', and off-platform choices show the wait state.",
+      },
+      {
+        type: "improvement",
+        text: "Replaced the vague 'View gaps' link on the Weddings table with an inline readiness tooltip listing every missing item directly on the row.",
+      },
+      {
+        type: "improvement",
+        text: "Proposal tabs now follow the actual wedding state (booked, waiting payment, draft) instead of leftover 'viewed' status, with automatic duplicate detection.",
+      },
+      {
+        type: "improvement",
+        text: "Payment Audit row status now derives from cumulative paid_amount (Stripe + GHL merged) using a running-total model, so installments show Paid correctly after GHL payments post.",
+      },
+      {
+        type: "fix",
+        text: "Fixed contractor Profile tabs not switching on click — tab state now syncs with the URL search param.",
+      },
+    ],
+  },
+  {
+    version: "v1.19.0",
+    date: "2026-09-10",
+    title: "Bartender Role, Territory Sync & Push Restoration",
+    changes: [
+      {
+        type: "feature",
+        text: "Added Bartender as a first-class specialty and job role with simplified onboarding (photo + basics only, no portfolio or gear list required).",
+      },
+      {
+        type: "feature",
+        text: "Bartender contractors skip Training Academy but still complete W-9, and only see Bartender jobs in Opportunities and Dashboard.",
+      },
+      {
+        type: "feature",
+        text: "Bartending upsell now creates a second GHL invoice instead of charging Stripe, with auto-insert of an unassigned Bartender job row.",
+      },
+      {
+        type: "improvement",
+        text: "Territory Sync now ships all off-platform and GHL invoice schema columns (proposals.wedding_id, wedding ghl_*, portal_settings handles) via a hardcoded fallback that always runs last.",
+      },
+      {
+        type: "improvement",
+        text: "Restored consistent owner push notifications: 9 AM daily digest triggered from the scheduler, plus instant push when a GHL payment posts via the webhook.",
+      },
+      {
+        type: "fix",
+        text: "Fixed ghl-invoice edge function bundling failures by inlining all schema-heal SQL and removing sibling file imports.",
+      },
+    ],
+  },
+  {
+    version: "v1.18.0",
+    date: "2026-09-07",
+    title: "GHL Invoicing, Payment Schedules & Webhook",
+    changes: [
+      {
+        type: "feature",
+        text: "Replaced Stripe booking payments with GHL invoice creation and send, including payment schedules for custom payment plans with multiple installments.",
+      },
+      {
+        type: "feature",
+        text: "Added ghl-invoice-webhook to process InvoicePartiallyPaid and InvoicePaid events, updating paid_amount with idempotent delta math and booking on first payment.",
+      },
+      {
+        type: "feature",
+        text: "Added per-area invoice link domain in Settings so each territory's customer invoice URL uses the correct host.",
+      },
+      {
+        type: "feature",
+        text: "Payment Audit now supports manual Mark Paid / Mark Unpaid, Paid in Full for off-platform collection, and Sync GHL Invoices to pull live payment status.",
+      },
+      {
+        type: "improvement",
+        text: "Removed Stripe auto-charge and Stripe invoice link actions from Payment Audit; royalty Stripe charging remains untouched.",
+      },
+      {
+        type: "improvement",
+        text: "Custom payment plans now enforce that installment amounts sum to the contract total before Sign & Pay or save.",
+      },
+      {
+        type: "fix",
+        text: "Fixed GHL contact tagging — 'booked' on first payment and 'bartending booked' on bartending invoice create, with idempotent re-tagging.",
+      },
+    ],
+  },
+  {
+    version: "v1.17.0",
+    date: "2026-09-04",
+    title: "New Area Setup, Gift Page & Payment Plan Approval",
+    changes: [
+      {
+        type: "improvement",
+        text: "Updated the New Area Setup Checklist to reflect GHL booking flow — no more Stripe webhook setup for booking payments.",
+      },
+      {
+        type: "improvement",
+        text: "Payment plan approval flow no longer cancels Stripe subscriptions; instead it creates a GHL invoice for remaining unpaid installments.",
+      },
+      {
+        type: "fix",
+        text: "Disabled the Gift Wedding page's Stripe checkout — gift payments now show a 'temporarily unavailable' message while keeping old links live.",
+      },
+    ],
+  },
+  {
     version: "v1.16.0",
     date: "2026-05-03",
     title: "Contractor Onboarding, 1099 Reporting & Dark Mode",

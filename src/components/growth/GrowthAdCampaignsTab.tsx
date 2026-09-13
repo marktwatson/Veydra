@@ -1,4 +1,5 @@
 import { RefreshCw } from "lucide-react";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -10,6 +11,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  includedCampaigns,
+  excludedCampaignNames,
+} from "@/lib/campaign-inclusion";
 
 interface AdCampaignsTabProps {
   loadingCampaigns: boolean;
@@ -28,13 +33,22 @@ export function GrowthAdCampaignsTab(props: AdCampaignsTabProps) {
     onRefresh,
   } = props;
 
+  const included = includedCampaigns(rawCampaignsList, excludedCampaignIds);
+  const excludedNames = excludedCampaignNames(
+    rawCampaignsList,
+    excludedCampaignIds,
+  );
+
   return (
     <>
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-bold">Meta / Facebook Ad Performance</h3>
           <p className="text-xs text-muted-foreground">
-            Live ad tracking synced with your marketing account
+            Live ad tracking synced with your marketing account ·{" "}
+            <span className="text-primary font-semibold">
+              {included.length} of {rawCampaignsList.length} in Intelligence
+            </span>
           </p>
         </div>
         <Button
@@ -46,6 +60,29 @@ export function GrowthAdCampaignsTab(props: AdCampaignsTabProps) {
           <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Refresh Ads
         </Button>
       </div>
+
+      {excludedNames.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span className="text-muted-foreground font-medium">
+            Excluded from ROAS/spend:
+          </span>
+          {excludedNames.map((c) => (
+            <Badge
+              key={c.id}
+              variant="outline"
+              className="text-[10px] py-0 px-2 font-medium text-muted-foreground border-border/50"
+            >
+              {c.name}
+            </Badge>
+          ))}
+          <Link
+            to="/manager/ad-campaigns"
+            className="text-primary underline font-medium ml-1"
+          >
+            Manage →
+          </Link>
+        </div>
+      )}
 
       <Card className="rounded-3xl border-border/40 shadow-sm overflow-hidden bg-card">
         <Table>

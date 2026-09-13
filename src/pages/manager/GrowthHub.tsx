@@ -37,6 +37,14 @@ import {
   enrichLeadsWithBookingData,
   computeAvgLeadToBookingDays,
 } from "@/lib/lead-correlation";
+import {
+  includedCampaigns,
+  normalizeExcludedIds,
+  sumIncluded,
+  computeRoas,
+  computeCac,
+  excludedCampaignNames,
+} from "@/lib/campaign-inclusion";
 import { GrowthKpiCards } from "@/components/growth/GrowthKpiCards";
 import { GrowthOverviewTab } from "@/components/growth/GrowthOverviewTab";
 import { GrowthAdCampaignsTab } from "@/components/growth/GrowthAdCampaignsTab";
@@ -59,20 +67,21 @@ export default function GrowthHub() {
     queryFn: api.getPortalSettings,
   });
 
-  const excludedCampaignIds = useMemo(() => {
-    if (
-      portalSettings?.excluded_campaign_ids &&
-      Array.isArray(portalSettings.excluded_campaign_ids)
-    ) {
-      return portalSettings.excluded_campaign_ids;
-    }
-    try {
-      const saved = localStorage.getItem("veydra_excluded_campaign_ids");
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  }, [portalSettings]);
+  const excludedCampaignIds = useMemo(
+    () =>
+      normalizeExcludedIds(portalSettings?.excluded_campaign_ids).length > 0
+        ? normalizeExcludedIds(portalSettings?.excluded_campaign_ids)
+        : normalizeExcludedIds(
+            (() => {
+              try {
+                return localStorage.getItem("veydra_excluded_campaign_ids");
+              } catch {
+                return null;
+              }
+            })(),
+          ),
+    [portalSettings],
+  );
 
   const toggleCampaignExclusion = async (id: string) => {
     const updated = excludedCampaignIds.includes(id)
@@ -218,16 +227,19 @@ export default function GrowthHub() {
   );
 
   const rawCampaignsList = Array.isArray(campaigns) ? campaigns : [];
-  const validCampaigns = rawCampaignsList.filter(
-    (c) => !excludedCampaignIds.includes(c.id),
+  const validCampaigns = includedCampaigns(
+    rawCampaignsList,
+    excludedCampaignIds,
   );
-  const totalAdSpend = validCampaigns.reduce(
-    (sum, c) => sum + (c.spend || 0),
-    0,
+  const totalAdSpend = sumIncluded(
+    rawCampaignsList,
+    excludedCampaignIds,
+    "spend",
   );
-  const totalAdConversions = validCampaigns.reduce(
-    (sum, c) => sum + (c.conversions || 0),
-    0,
+  const totalAdConversions = sumIncluded(
+    rawCampaignsList,
+    excludedCampaignIds,
+    "conversions",
   );
 
   const leadsCount = leadsList.length;
@@ -243,14 +255,22 @@ export default function GrowthHub() {
 
   const avgBookingValue =
     bookedWeddings.length > 0 ? totalBookedValue / bookedWeddings.length : 0;
-  const estimatedCAC =
-    bookedWeddings.length > 0 && totalAdSpend > 0
-      ? totalAdSpend / bookedWeddings.length
-      : totalAdConversions > 0
-        ? totalAdSpend / totalAdConversions
-        : 0;
-  const overallROAS =
-    totalAdSpend > 0 ? (totalBookedValue / totalAdSpend).toFixed(2) : "N/A";
+  const estimatedCAC = computeCac(
+    rawCampaignsList,
+    excludedCampaignIds,
+    bookedWeddings.length,
+  );
+  const roasNumber = computeRoas(
+    totalBookedValue,
+    rawCampaignsList,
+    excludedCampaignIds,
+  );
+  const overallROAS = roasNumber !== null ? roasNumber.toFixed(2) : "N/A";
+
+  const excludedNames = excludedCampaignNames(
+    rawCampaignsList,
+    excludedCampaignIds,
+  );
 
   const funnelData = useMemo(
     () => computeFunnelData(leadsCount, proposalsCount, bookedWeddings.length),
@@ -440,6 +460,34 @@ export default function GrowthHub() {
             </Link>
           </Button>
         </div>
+      </div>
+
+      {/* ROAS / spend scope caption */}
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+        <span className="font-medium">ROAS uses included campaigns only.</span>
+        <span>
+          Revenue is all bookings in range; spend is included campaigns only.
+        </span>
+        <Link
+          to="/manager/ad-campaigns"
+          className="text-primary underline font-medium"
+        >
+          Manage inclusions →
+        </Link>
+        {excludedNames.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 w-full mt-0.5">
+            <span className="font-medium">Excluded:</span>
+            {excludedNames.map((c) => (
+              <Badge
+                key={c.id}
+                variant="outline"
+                className="text-[10px] py-0 px-2 font-medium text-muted-foreground border-border/50"
+              >
+                {c.name}
+              </Badge>
+            ))}
+          </div>
+        )}
       </div>
 
       <GrowthKpiCards

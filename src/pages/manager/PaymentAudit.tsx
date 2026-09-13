@@ -23,6 +23,7 @@ import {
 import { SyncReportDialog } from "@/components/SyncReportDialog";
 import { GhlInvoiceDialog } from "@/components/GhlInvoiceDialog";
 import { PaidInFullDialog } from "@/components/PaidInFullDialog";
+import { ApproveOffPlatformPaymentDialog } from "@/components/ApproveOffPlatformPaymentDialog";
 import {
   confirmOffPlatformClaim,
   rejectOffPlatformClaim,
@@ -80,6 +81,9 @@ export default function ManagerPaymentAudit() {
   const [showSyncReport, setShowSyncReport] = useState(false);
   const [showGhlInvoiceModal, setShowGhlInvoiceModal] = useState(false);
   const [paidInFullWedding, setPaidInFullWedding] = useState<any | null>(null);
+  const [offPlatformWedding, setOffPlatformWedding] = useState<any | null>(
+    null,
+  );
 
   const {
     data: weddings = [],
@@ -579,8 +583,28 @@ export default function ManagerPaymentAudit() {
             status: item.weddingObj?.status,
           })
         }
-        onConfirmOffPlatform={(item) => confirmOffPlatformMutation.mutate(item)}
-        onRejectOffPlatform={(item) => rejectOffPlatformMutation.mutate(item)}
+        onConfirmOffPlatform={(item) =>
+          setOffPlatformWedding({
+            id: item.weddingId,
+            client_name: item.clientName,
+            date: item.weddingObj?.date,
+            offplatform_status: (item as any).offplatformStatus,
+            offplatform_method: (item as any).offplatformMethod,
+            offplatform_amount: (item as any).offplatformAmount,
+            offplatform_claimed_at: (item as any).offplatformClaimedAt,
+          })
+        }
+        onRejectOffPlatform={(item) =>
+          setOffPlatformWedding({
+            id: item.weddingId,
+            client_name: item.clientName,
+            date: item.weddingObj?.date,
+            offplatform_status: (item as any).offplatformStatus,
+            offplatform_method: (item as any).offplatformMethod,
+            offplatform_amount: (item as any).offplatformAmount,
+            offplatform_claimed_at: (item as any).offplatformClaimedAt,
+          })
+        }
       />
 
       <PaymentAuditModals
@@ -667,6 +691,12 @@ export default function ManagerPaymentAudit() {
         wedding={paidInFullWedding}
         open={!!paidInFullWedding}
         onOpenChange={(o) => !o && setPaidInFullWedding(null)}
+      />
+
+      <ApproveOffPlatformPaymentDialog
+        wedding={offPlatformWedding}
+        open={!!offPlatformWedding}
+        onOpenChange={(o) => !o && setOffPlatformWedding(null)}
       />
 
       <SyncReportDialog

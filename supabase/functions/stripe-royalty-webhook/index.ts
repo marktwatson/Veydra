@@ -143,29 +143,13 @@ Deno.serve(async (req) => {
           .maybeSingle();
         if (!period) break;
 
-        // Idempotent: only apply payback if not already paid.
+        // Idempotent: only mark paid if not already paid.
         if (period.status === "paid") {
           console.log(`[royalty-webhook] period ${periodId} already paid — skipping`);
           break;
         }
 
-        const paybackDue = Number(period.payback_amount) || 0;
-        if (paybackDue > 0 && period.territory_id) {
-          const { data: terr } = await supabase
-            .from("territories")
-            .select("id, remaining_balance")
-            .eq("id", period.territory_id)
-            .maybeSingle();
-          if (terr?.id) {
-            const currentBalance = Number(terr.remaining_balance) || 0;
-            const newRemainingBalance = Math.max(0, currentBalance - paybackDue);
-            await supabase
-              .from("territories")
-              .update({ remaining_balance: newRemainingBalance, last_calculated_at: new Date().toISOString() })
-              .eq("id", terr.id);
-          }
-        }
-
+        // Mark the period paid first
         await supabase
           .from("royalty_periods")
           .update({
@@ -174,6 +158,21 @@ Deno.serve(async (req) => {
             stripe_payment_intent_id: pi.id,
           })
           .eq("id", periodId);
+
+        // Then apply payback via the SHARED helper (single source of truth).
+        // Call royalty-processor action=apply_payback so the exact same guard
+        // + remaining_balance / total_payback_applied logic runs everywhere.
+        try {
+          const r = await fetch(`${supabaseUrl}/functions/v1/royalty-processor`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}`, apikey: supabaseKey },
+            body: JSON.stringify({ action: "apply_payback", period_id: periodId }),
+          });
+          const paybackResult = await r.json();
+          console.log(`[royalty-webhook] payback applied for period ${periodId}:`, paybackResult);
+        } catch (e: any) {
+          console.warn(`[royalty-webhook] apply_payback call failed (non-fatal):`, e?.message);
+        }
         console.log(`[royalty-webhook] period ${periodId} → paid (PI ${pi.id})`);
         break;
       }

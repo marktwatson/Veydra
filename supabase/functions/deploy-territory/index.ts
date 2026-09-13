@@ -37,6 +37,48 @@ END; $$;
 GRANT EXECUTE ON FUNCTION public.exec_sql_batch(TEXT[]) TO anon, authenticated, service_role;
 `;
 
+// ── Hardcoded off-platform schema fallback ────────────────────────────────
+// This ALWAYS runs LAST, after the four sqlSources (master_sql,
+// ghl_invoice_schema, scheduled_jobs_schema, push_schema), even if the
+// edge_function_sources rows are stale and ghl_invoice_schema is missing
+// or incomplete. It guarantees proposals.offplatform_* + wedding
+// offplatform_* + portal_settings accept_* handles + the
+// payment_manual_adjustments ledger table exist on every Veydra, including
+// HQ, so off-platform claims/promises + Paid in full never 400.
+const OFFPLATFORM_SCHEMA_SQL = `
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS offplatform_status TEXT;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS offplatform_method TEXT;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS offplatform_amount NUMERIC;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS offplatform_claimed_at TIMESTAMPTZ;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS wedding_id UUID;
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS offplatform_status TEXT;
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS offplatform_method TEXT;
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS offplatform_amount NUMERIC;
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS offplatform_claimed_at TIMESTAMPTZ;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS accept_venmo BOOLEAN DEFAULT false;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS venmo_handle TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS accept_cashapp BOOLEAN DEFAULT false;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS cashapp_cashtag TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS accept_zelle BOOLEAN DEFAULT false;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS zelle_target TEXT;
+CREATE TABLE IF NOT EXISTS public.payment_manual_adjustments (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  wedding_id uuid NOT NULL,
+  amount numeric NOT NULL,
+  installment_label text,
+  schedule_index int,
+  reason text,
+  created_at timestamptz DEFAULT now(),
+  created_by text
+);
+ALTER TABLE public.payment_manual_adjustments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "pma_auth_insert" ON public.payment_manual_adjustments;
+DROP POLICY IF EXISTS "pma_auth_select" ON public.payment_manual_adjustments;
+CREATE POLICY "pma_auth_insert" ON public.payment_manual_adjustments FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "pma_auth_select" ON public.payment_manual_adjustments FOR SELECT TO authenticated USING (true);
+NOTIFY pgrst, 'reload schema';
+`;
+
 const FN_SOURCES: Record<string, string> = {}; // Populated at runtime from DB
 
 // Strip SQL comments (single-line -- and multi-line block) so comment content
@@ -330,22 +372,72 @@ Deno.serve(async (req) => {
         results.errors.push(`Schema: ${e.message}`);
       }
 
-      // Reload PostgREST schema cache — hard restart (token) + NOTIFY signal.
-      if (results.schema?.status === "success") {
-        try {
-          if (accessToken) await fetch(`${managementApiBase}/postgrest/restart`, { method: "POST", headers: { "Authorization": `Bearer ${accessToken}` } });
-          const notifySql = "NOTIFY pgrst, 'reload schema';";
-          const selfSk2 = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-          if (accessToken) await fetch(`${managementApiBase}/database/query`, { method: "POST", headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ query: notifySql }) });
-          else if (isSelfDeploy && selfSk2) await fetch(`${selfSu}/rest/v1/rpc/exec_sql`, { method: "POST", headers: { "apikey": selfSk2, "Authorization": `Bearer ${selfSk2}`, "Content-Type": "application/json" }, body: JSON.stringify({ sql_text: notifySql }) });
-          console.log("[Fleet] PostgREST schema cache reload triggered");
-        } catch (e) {
-          console.warn("[Fleet] Could not reload PostgREST cache:", (e as Error).message);
-        }
+// Reload PostgREST schema cache — hard restart (token) + NOTIFY signal.
+      // ALWAYS fire this (not only when schema === "success"), because even if
+      // master_sql had a transient lock-timeout, the ghl_invoice_schema +
+      // offplatform fallback columns may have applied and the API needs to see
+      // them. Skipping the reload when schema is "failed" was the #1 cause of
+      // "columns exist in DB but the app still 400s" after sync.
+      try {
+        if (accessToken) await fetch(`${managementApiBase}/postgrest/restart`, { method: "POST", headers: { "Authorization": `Bearer ${accessToken}` } });
+        const notifySql = "NOTIFY pgrst, 'reload schema';";
+        const selfSk2 = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+        if (accessToken) await fetch(`${managementApiBase}/database/query`, { method: "POST", headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ query: notifySql }) });
+        else if (isSelfDeploy && selfSk2) await fetch(`${selfSu}/rest/v1/rpc/exec_sql`, { method: "POST", headers: { "apikey": selfSk2, "Authorization": `Bearer ${selfSk2}`, "Content-Type": "application/json" }, body: JSON.stringify({ sql_text: notifySql }) });
+        console.log("[Fleet] PostgREST schema cache reload triggered");
+      } catch (e) {
+        console.warn("[Fleet] Could not reload PostgREST cache:", (e as Error).message);
       }
     }
 
-    // Deploy Edge Functions — including self-deploy when an access token is provided.
+    // ── Off-platform schema fallback (ALWAYS runs LAST, after the 4 sqlSources) ──
+    // Guarantees proposals/weddings offplatform_* + portal_settings accept_*
+    // handles + payment_manual_adjustments exist even if edge_function_sources
+    // is stale and ghl_invoice_schema is missing/incomplete (incl. HQ).
+    if (deploySchema !== false) {
+      const fbStmts = splitSqlStatements(OFFPLATFORM_SCHEMA_SQL);
+      const LOCK = "SET lock_timeout='5s'; SET statement_timeout='30s';";
+      const TRANSIENT = ["already exists", "duplicate", "already", "Throttler", "lock timeout", "deadlock"];
+      let fbOk = true;
+      const fbErr: string[] = [];
+      try {
+        for (const stmt of fbStmts) {
+          if (!stmt.trim()) continue;
+          let ok = false;
+          if (accessToken) {
+            const r = await fetch(`${managementApiBase}/database/query`, { method: "POST", headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ query: `${LOCK}\n${stmt}` }) });
+            ok = r.ok;
+            if (!r.ok) { const t = await r.text(); if (!TRANSIENT.some((x) => t.includes(x))) { fbOk = false; if (fbErr.length < 10) fbErr.push(t.substring(0, 150)); } }
+          } else if (isSelfDeploy) {
+            const sk3 = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+            const r = await fetch(`${selfSu}/rest/v1/rpc/exec_sql`, { method: "POST", headers: { "apikey": sk3, "Authorization": `Bearer ${sk3}`, "Content-Type": "application/json" }, body: JSON.stringify({ sql_text: `${LOCK}\n${stmt}` }) });
+            ok = r.ok;
+            if (!r.ok) { const t = await r.text(); if (!TRANSIENT.some((x) => t.includes(x))) { fbOk = false; if (fbErr.length < 10) fbErr.push(t.substring(0, 150)); } }
+          }
+        }
+console.log(`[Fleet] applied offplatform schema fallback: ${fbOk ? "OK" : "partial"}`);
+      } catch (e: any) {
+        fbOk = false; fbErr.push(e.message);
+        console.warn(`[Fleet] offplatform schema fallback failed: ${e.message}`);
+      }
+      results.offplatformFallback = { status: fbOk ? "ok" : "fail", errors: fbErr };
+      if (!fbOk) results.errors.push("Off-platform schema fallback: partial/failed");
+
+      // Reload PostgREST AGAIN after the fallback so the offplatform_* columns
+      // are immediately visible to the API. The main reload (above) fired before
+      // this block ran, so without this the new columns exist in the DB but the
+      // app still gets 400/422 until the next natural reload.
+      try {
+        const notifySql2 = "NOTIFY pgrst, 'reload schema';";
+        const selfSk4 = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+        if (accessToken) await fetch(`${managementApiBase}/database/query`, { method: "POST", headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ query: notifySql2 }) });
+        else if (isSelfDeploy && selfSk4) await fetch(`${selfSu}/rest/v1/rpc/exec_sql`, { method: "POST", headers: { "apikey": selfSk4, "Authorization": `Bearer ${selfSk4}`, "Content-Type": "application/json" }, body: JSON.stringify({ sql_text: notifySql2 }) });
+        console.log("[Fleet] PostgREST reload after offplatform fallback");
+      } catch (e) {
+        console.warn("[Fleet] PostgREST reload after fallback failed:", (e as Error).message);
+      }
+    }
+
     // The function list is derived DYNAMICALLY from the edge_function_sources
     // table (any row whose name is a function slug, not a *_sql/*_schema row).
     // This way, adding a new function to the sources table automatically deploys

@@ -88,6 +88,10 @@ export async function ensureSourcesUploaded(): Promise<boolean> {
       "sms_contractor_prep_enabled",
       "venue_geocodes",
       "email_colors",
+      "offplatform_status",
+      "offplatform_method",
+      "accept_venmo",
+      "payment_manual_adjustments",
     ];
     const missingCols = criticalColumns.filter(
       (col) => !masterSql.includes(col),

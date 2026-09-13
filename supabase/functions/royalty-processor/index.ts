@@ -37,6 +37,56 @@ async function pushRoyaltyAlert(type: string, territory: any, amount: number, er
   try { await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-push`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`, apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "" }, body: JSON.stringify({ action: "send", roles: ["owner", "super_admin"], category: "royalty_finance", title, body, url: "/manager/royalty", tag: `royalty-${type}-${territory.id}` }) }); } catch (e) { console.warn("[Royalty] push failed:", (e as any)?.message); }
 }
 
+// ─── Shared payback helper ────────────────────────────────────────────────
+// Single source of truth for decrementing remaining_balance when a period
+// becomes paid. Idempotent: never applies twice for the same period id.
+// Called from: stripe-royalty-webhook (payment_intent.succeeded),
+//              Mark Paid (action: "apply_payback"),
+//              one-time reconcile (action: "reconcile_payback").
+async function applyRoyaltyPayback(supabase: any, periodId: string): Promise<{ applied: boolean; payback_amount: number; new_remaining_balance: number | null; reason?: string }> {
+  const { data: period, error: pErr } = await supabase
+    .from("royalty_periods")
+    .select("id, territory_id, payback_amount, status, payback_applied_at, notes")
+    .eq("id", periodId)
+    .maybeSingle();
+  if (pErr || !period) return { applied: false, payback_amount: 0, new_remaining_balance: null, reason: "period not found" };
+
+  const payback = Number(period.payback_amount) || 0;
+  if (payback <= 0) return { applied: false, payback_amount: 0, new_remaining_balance: null, reason: "no payback due" };
+
+  // Idempotency guard: skip if already applied
+  if (period.payback_applied_at) return { applied: false, payback_amount: payback, new_remaining_balance: null, reason: "already applied (payback_applied_at set)" };
+  if (period.notes && period.notes.includes(`payback applied:${period.id}`)) return { applied: false, payback_amount: payback, new_remaining_balance: null, reason: "already applied (notes marker)" };
+
+  const { data: terr } = await supabase
+    .from("territories")
+    .select("id, remaining_balance, total_payback_applied")
+    .eq("id", period.territory_id)
+    .maybeSingle();
+  if (!terr) return { applied: false, payback_amount: payback, new_remaining_balance: null, reason: "territory not found" };
+
+  const currentRemaining = Number(terr.remaining_balance) || 0;
+  const currentTotalApplied = Number(terr.total_payback_applied) || 0;
+  const newRemaining = Math.max(0, currentRemaining - payback);
+  const newTotalApplied = currentTotalApplied + payback;
+
+  await supabase
+    .from("territories")
+    .update({ remaining_balance: newRemaining, total_payback_applied: newTotalApplied, last_calculated_at: new Date().toISOString() })
+    .eq("id", terr.id);
+
+  // Stamp the period so it can never apply twice
+  const existingNotes = period.notes || "";
+  const marker = `payback applied:${period.id}`;
+  await supabase
+    .from("royalty_periods")
+    .update({ payback_applied_at: new Date().toISOString(), notes: existingNotes ? `${existingNotes} | ${marker}` : marker })
+    .eq("id", period.id);
+
+  console.log(`[royalty] payback applied for period ${period.id}: $${payback} → remaining $${newRemaining}`);
+  return { applied: true, payback_amount: payback, new_remaining_balance: newRemaining };
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -78,6 +128,40 @@ Deno.serve(async (req) => {
     // can't accidentally return an unconfigured row instead of the real one.
     `DELETE FROM public.royalty_settings WHERE stripe_royalty_configured = true AND id NOT IN (SELECT id FROM public.royalty_settings WHERE stripe_royalty_configured = true ORDER BY created_at ASC LIMIT 1)`,
     `DELETE FROM public.royalty_settings WHERE stripe_royalty_configured IS NULL OR stripe_royalty_configured = false`,
+    // Payback tracking columns for the shared applyRoyaltyPayback helper
+    `ALTER TABLE public.royalty_periods ADD COLUMN IF NOT EXISTS payback_applied_at TIMESTAMPTZ`,
+    `ALTER TABLE public.territories ADD COLUMN IF NOT EXISTS total_payback_applied NUMERIC DEFAULT 0`,
+    // ─── DB trigger: single source of truth for payback ───────────────
+    // Fires on any UPDATE that sets status='paid' (Mark Paid, webhook,
+    // processor). Idempotent via payback_applied_at guard. This means we
+    // do NOT need to edit api.ts markRoyaltyPeriodPaid or Royalty.tsx —
+    // the DB catches every path.
+    `CREATE OR REPLACE FUNCTION public.apply_royalty_payback_trigger()
+       RETURNS TRIGGER AS $$
+       DECLARE terr_id UUID; payback NUMERIC; cur_remaining NUMERIC; cur_total NUMERIC;
+       BEGIN
+         IF NEW.status = 'paid' AND (OLD.status IS DISTINCT FROM 'paid') AND NEW.payback_applied_at IS NULL THEN
+           payback := COALESCE(NEW.payback_amount, 0);
+           IF payback > 0 THEN
+             terr_id := NEW.territory_id;
+             SELECT COALESCE(remaining_balance,0), COALESCE(total_payback_applied,0)
+               INTO cur_remaining, cur_total
+               FROM public.territories WHERE id = terr_id;
+             UPDATE public.territories
+               SET remaining_balance = GREATEST(0, cur_remaining - payback),
+                   total_payback_applied = cur_total + payback,
+                   last_calculated_at = now()
+               WHERE id = terr_id;
+           END IF;
+           NEW.payback_applied_at := now();
+         END IF;
+         RETURN NEW;
+       END;
+       $$ LANGUAGE plpgsql`,
+    `DROP TRIGGER IF EXISTS trg_royalty_payback ON public.royalty_periods`,
+    `CREATE TRIGGER trg_royalty_payback
+       BEFORE UPDATE ON public.royalty_periods
+       FOR EACH ROW EXECUTE FUNCTION public.apply_royalty_payback_trigger()`,
   ];
   for (const stmt of HEAL_SQL) { try { await supabase.rpc("exec_sql", { sql_text: stmt }); } catch (_) {} }
 
@@ -332,7 +416,30 @@ Deno.serve(async (req) => {
       if (insErr) return jsonResponse({ error: insErr.message }, 500);
       return jsonResponse({ success: true, message: `Seeded $${amt} test sale (excluded from royalty).` });
     }
-    const forceRecalculate = body.force === true;
+
+    // ─── Apply payback for a single period (called by Mark Paid + webhook) ───
+    if (body.action === "apply_payback") {
+      if (!body.period_id) return jsonResponse({ error: "period_id required" }, 400);
+      const result = await applyRoyaltyPayback(supabase, body.period_id);
+      return jsonResponse({ success: true, ...result });
+    }
+
+    // ─── One-time reconcile: catch up paid periods that never got payback ───
+    if (body.action === "reconcile_payback") {
+      const territory = await getOwnTerritory(supabase);
+      const terrFilter = territory?.id ? supabase.from("royalty_periods").select("id, payback_amount, status, payback_applied_at").eq("status", "paid").gt("payback_amount", 0).is("payback_applied_at", null).eq("territory_id", territory.id) : supabase.from("royalty_periods").select("id, payback_amount, status, payback_applied_at").eq("status", "paid").gt("payback_amount", 0).is("payback_applied_at", null);
+      const { data: unpaid, error: uErr } = await terrFilter;
+      if (uErr) return jsonResponse({ error: uErr.message }, 500);
+      const results: any[] = [];
+      let totalApplied = 0;
+      for (const p of unpaid || []) {
+        const r = await applyRoyaltyPayback(supabase, p.id);
+        results.push({ period_id: p.id, ...r });
+        if (r.applied) totalApplied += r.payback_amount;
+      }
+      return jsonResponse({ success: true, reconciled: results.length, total_applied: totalApplied, results });
+    }
+
     const specificTerritoryId = body.territory_id || null;
 
     const { data: settings } = await supabase.from("royalty_settings").select("*").limit(1).single();
@@ -556,8 +663,10 @@ Deno.serve(async (req) => {
       // "succeeded". Treat both as submitted; only apply payback reduction
       // once the charge actually succeeds.
       if (paymentIntent.status === "succeeded") {
+        // The DB trigger (trg_royalty_payback) decrements remaining_balance +
+        // stamps payback_applied_at when status flips to "paid". Do NOT
+        // manually update territories here — that would double-apply.
         const newRemainingBalance = Math.max(0, remainingBalance - paybackDue);
-        await supabase.from("territories").update({ remaining_balance: newRemainingBalance, last_calculated_at: new Date().toISOString() }).eq("id", territory.id);
         await supabase.from("royalty_periods").update({ status: "paid", paid_at: new Date().toISOString(), stripe_payment_intent_id: paymentIntent.id }).eq("id", period.id);
         await pushRoyaltyAlert("paid", territory, totalDue, null, newRemainingBalance);
         return { territory_id: territory.id, territory_name: territory.name, status: "paid", gross_sales: grossSales, royalty_due: royaltyDue, payback_due: paybackDue, total_due: totalDue, new_remaining_balance: newRemainingBalance, stripe_pi_id: paymentIntent.id };

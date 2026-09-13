@@ -39,6 +39,12 @@ import {
 } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
 import { api } from "@/lib/api";
+import {
+  includedCampaigns,
+  normalizeExcludedIds,
+  excludedCampaignNames,
+} from "@/lib/campaign-inclusion";
+import { Link } from "react-router-dom";
 
 export default function AdCampaigns() {
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -49,20 +55,21 @@ export default function AdCampaigns() {
     queryFn: api.getPortalSettings,
   });
 
-  const excludedCampaignIds: string[] = useMemo(() => {
-    if (
-      portalSettings?.excluded_campaign_ids &&
-      Array.isArray(portalSettings.excluded_campaign_ids)
-    ) {
-      return portalSettings.excluded_campaign_ids;
-    }
-    try {
-      const saved = localStorage.getItem("veydra_excluded_campaign_ids");
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  }, [portalSettings]);
+  const excludedCampaignIds: string[] = useMemo(
+    () =>
+      normalizeExcludedIds(portalSettings?.excluded_campaign_ids).length > 0
+        ? normalizeExcludedIds(portalSettings?.excluded_campaign_ids)
+        : normalizeExcludedIds(
+            (() => {
+              try {
+                return localStorage.getItem("veydra_excluded_campaign_ids");
+              } catch {
+                return null;
+              }
+            })(),
+          ),
+    [portalSettings],
+  );
 
   const toggleCampaignExclusion = async (id: string) => {
     const updated = excludedCampaignIds.includes(id)
@@ -105,9 +112,7 @@ export default function AdCampaigns() {
     setIsRefreshing(false);
   };
 
-  const validCampaigns = campaigns.filter(
-    (c) => !excludedCampaignIds.includes(c.id),
-  );
+  const validCampaigns = includedCampaigns(campaigns, excludedCampaignIds);
   const totalSpend = validCampaigns.reduce(
     (sum, camp) => sum + (camp.spend || 0),
     0,
@@ -121,6 +126,10 @@ export default function AdCampaigns() {
     (sum, camp) => sum + (camp.impressions || 0),
     0,
   );
+
+  const includedCount = validCampaigns.length;
+  const totalCount = campaigns.length;
+  const excludedNames = excludedCampaignNames(campaigns, excludedCampaignIds);
 
   const presets = [
     { label: "This Year", value: "this_year" },
@@ -306,7 +315,32 @@ export default function AdCampaigns() {
           <CardTitle>Active Campaigns</CardTitle>
           <CardDescription>
             Detailed performance metrics for your currently running ads.
+            <span className="ml-1 text-primary font-semibold">
+              {includedCount} of {totalCount} campaigns in Intelligence
+            </span>
           </CardDescription>
+          {excludedNames.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+              <span className="text-[11px] text-muted-foreground font-medium">
+                Excluded from totals:
+              </span>
+              {excludedNames.map((c) => (
+                <Badge
+                  key={c.id}
+                  variant="outline"
+                  className="text-[10px] py-0 px-2 font-medium text-muted-foreground border-border/50"
+                >
+                  {c.name}
+                </Badge>
+              ))}
+              <Link
+                to="/manager/growth"
+                className="text-[11px] text-primary underline font-medium ml-1"
+              >
+                View in Intelligence →
+              </Link>
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           <div className="rounded-md border overflow-x-auto">

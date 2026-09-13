@@ -5438,29 +5438,76 @@ export default function ManagerWeddings() {
 
                                 {/* Readiness */}
                                 <td className="px-4 py-4 hidden md:table-cell">
-                                  <div className="flex flex-col items-center gap-1">
-                                    <div
-                                      className={`inline-flex items-center justify-center w-10 h-10 rounded-full text-xs font-bold ${
-                                        readiness >= 100
-                                          ? "bg-emerald-500/10 text-emerald-600"
-                                          : readiness >= 80
-                                            ? "bg-amber-500/10 text-amber-600"
-                                            : "bg-red-500/10 text-red-600"
-                                      }`}
-                                    >
-                                      {Math.round(readiness)}%
-                                    </div>
-                                    {readiness < 100 && (
-                                      <ManageWeddingSheet
-                                        wedding={wedding}
-                                        trigger={
-                                          <button className="text-[10px] text-primary hover:underline cursor-pointer">
-                                            View gaps
-                                          </button>
-                                        }
-                                      />
-                                    )}
-                                  </div>
+                                  {(() => {
+                                    const missing = getMissingItems(wedding);
+                                    const isComplete = readiness >= 100;
+                                    const circleBg = isComplete
+                                      ? "bg-emerald-500/10 text-emerald-600 border border-emerald-500/20"
+                                      : readiness >= 80
+                                        ? "bg-amber-500/10 text-amber-600 border border-amber-500/20"
+                                        : "bg-red-500/10 text-red-600 border border-red-500/20";
+                                    return (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <div className="flex flex-col items-center gap-1 cursor-pointer group">
+                                            <div
+                                              className={`inline-flex items-center justify-center w-10 h-10 rounded-full text-xs font-bold transition-transform group-hover:scale-105 shadow-sm ${circleBg}`}
+                                            >
+                                              {Math.round(readiness)}%
+                                            </div>
+                                            {isComplete ? (
+                                              <span className="text-[10px] text-emerald-600 font-semibold">
+                                                Ready ✓
+                                              </span>
+                                            ) : (
+                                              <span className="text-[10px] text-muted-foreground group-hover:text-primary transition-colors font-medium">
+                                                {missing.length} missing
+                                              </span>
+                                            )}
+                                          </div>
+                                        </TooltipTrigger>
+                                        <TooltipContent
+                                          side="top"
+                                          align="center"
+                                          className="p-3 whitespace-normal w-60 rounded-xl shadow-xl border bg-popover/95 backdrop-blur-sm z-50"
+                                        >
+                                          <div className="flex items-center justify-between border-b pb-1.5 mb-2">
+                                            <p className="font-bold text-xs uppercase tracking-wider text-muted-foreground">
+                                              Readiness Gaps
+                                            </p>
+                                            <span
+                                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${circleBg}`}
+                                            >
+                                              {Math.round(readiness)}%
+                                            </span>
+                                          </div>
+                                          {missing.length === 0 ? (
+                                            <p className="text-xs text-emerald-600 font-medium">
+                                              All 6 readiness checks passed!
+                                            </p>
+                                          ) : (
+                                            <ul className="space-y-1.5">
+                                              {missing.map(
+                                                (item: string, i: number) => (
+                                                  <li
+                                                    key={i}
+                                                    className="text-xs flex items-center gap-2 text-foreground font-medium"
+                                                  >
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
+                                                    <span>{item}</span>
+                                                  </li>
+                                                ),
+                                              )}
+                                            </ul>
+                                          )}
+                                          <p className="text-[10px] text-muted-foreground/80 mt-2.5 pt-1.5 border-t">
+                                            Click wedding row to edit and
+                                            resolve
+                                          </p>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    );
+                                  })()}
                                 </td>
 
                                 {/* Team/Contractors */}

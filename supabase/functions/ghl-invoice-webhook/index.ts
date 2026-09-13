@@ -663,6 +663,28 @@ Deno.serve(async (req) => {
     update.final_payment_verified =
       newPaid >= (Number(wedding.total_amount) || 0) - 0.01;
     await db.from("weddings").update(update).eq("id", weddingId);
+
+    // Mark the linked proposal(s) accepted once a deposit posts. Staff still
+    // reviews the wedding (status unchanged) — this just flags the proposal.
+    if (delta > 0) {
+      try {
+        const _wid = String(weddingId);
+        const _upd = { status: "accepted" };
+        const _st = ["viewed", "pending", "draft", "sent"];
+        let _n = 0;
+        const _r1 = await db.from("proposals").update(_upd).eq("wedding_id", _wid).in("status", _st);
+        if (!_r1.error) _n += ((_r1.data as any[]) || []).length;
+        const _r2 = await db.from("proposals").update(_upd).eq("original_wedding_id", _wid).in("status", _st);
+        if (!_r2.error) _n += ((_r2.data as any[]) || []).length;
+        const _r3 = await db.from("proposals").update(_upd).eq("wedding_id", _wid).is("status", null);
+        if (!_r3.error) _n += ((_r3.data as any[]) || []).length;
+        const _r4 = await db.from("proposals").update(_upd).eq("original_wedding_id", _wid).is("status", null);
+        if (!_r4.error) _n += ((_r4.data as any[]) || []).length;
+        console.log("[ghl-invoice-webhook] proposals set accepted:", _n);
+      } catch (e: any) {
+        console.warn("[ghl-invoice-webhook] proposal accept failed:", e?.message);
+      }
+    }
     if (delta > 0) { try { const wf = (Number(wedding.paid_amount) || 0) <= 0; const cn = wedding.client_name || "client"; const tot = Number(wedding.total_amount) || 0; await fetch(`${su}/functions/v1/send-push`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${sk}`, apikey: sk }, body: JSON.stringify({ action: "send", roles: ["owner", "super_admin"], category: "bookings_payments", title: wf ? `New booking — ${cn}` : `Payment received — ${cn}`, body: `$${delta.toFixed(2)} posted · paid $${newPaid.toFixed(2)} of $${tot.toFixed(2)}`, url: "/manager/payments", tag: `ghl-pay-${weddingId}` }) }); } catch (e: any) { console.warn("[ghl-invoice-webhook] send-push failed:", e?.message); } }
 
     // GHL contact tagging (fire-and-forget; never fails the webhook).

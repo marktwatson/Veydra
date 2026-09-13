@@ -4,6 +4,7 @@ import OwnerRoyaltyDashboard from "@/pages/owner/RoyaltyDashboard";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { syncRoyaltyPaymentMethod } from "@/lib/royalty-sync";
+import { reconcileRoyaltyPayback } from "@/lib/royalty-payback";
 
 /**
  * Wraps the owner Royalty dashboard so that, on load, if the owner's territory
@@ -39,6 +40,19 @@ export default function OwnerRoyaltyWithSync() {
           /* best-effort; the page still renders normally */
         });
     }
+    // One-time payback reconcile: catch up paid periods that never decremented
+    // remaining_balance. The DB trigger handles new periods; this fixes history.
+    reconcileRoyaltyPayback()
+      .then((res) => {
+        if (res.success && res.reconciled > 0) {
+          queryClient.invalidateQueries({
+            queryKey: ["owner-territory", user?.id],
+          });
+        }
+      })
+      .catch(() => {
+        /* best-effort */
+      });
   }, [territory, queryClient, user?.id]);
 
   return <OwnerRoyaltyDashboard />;

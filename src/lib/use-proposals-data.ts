@@ -89,14 +89,18 @@ export function useProposalsData() {
                 wErr,
               );
             }
-            const wMap = new Map((wRows || []).map((w: any) => [w.id, w]));
+            // wedding_id may be text or uuid — match as STRING so a text
+            // proposals.wedding_id always joins to a uuid weddings.id.
+            const wMap = new Map(
+              (wRows || []).map((w: any) => [String(w.id), w]),
+            );
             rows = rows.map((p: any) => ({
               ...p,
               wedding:
-                (p.wedding_id && wMap.get(p.wedding_id)) ||
+                (p.wedding_id && wMap.get(String(p.wedding_id))) ||
                 (p.is_upgrade &&
                   p.original_wedding_id &&
-                  wMap.get(p.original_wedding_id)) ||
+                  wMap.get(String(p.original_wedding_id))) ||
                 null,
             }));
           }

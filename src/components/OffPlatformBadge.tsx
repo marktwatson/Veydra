@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { ProposalOffPlatformReview } from "@/components/ProposalOffPlatformReview";
 
 const METHOD_LABELS: Record<string, string> = {
   venmo: "Venmo",
@@ -15,8 +16,12 @@ const METHOD_LABELS: Record<string, string> = {
  *
  * Returns null when there is no off-platform status, so it can be dropped
  * inline anywhere without conditional wrappers.
+ *
+ * Also re-exports ProposalOffPlatformReview as a static property so callers
+ * that already import OffPlatformBadge can use <OffPlatformBadge.Review>
+ * without an extra import line.
  */
-export function OffPlatformBadge({
+function OffPlatformBadgeInner({
   status,
   method,
   amount,
@@ -70,3 +75,12 @@ export function OffPlatformBadge({
   }
   return null;
 }
+
+type OffPlatformBadgeWithReview = typeof OffPlatformBadgeInner & {
+  Review: typeof ProposalOffPlatformReview;
+};
+
+const OffPlatformBadge = OffPlatformBadgeInner as OffPlatformBadgeWithReview;
+OffPlatformBadge.Review = ProposalOffPlatformReview;
+
+export { OffPlatformBadge };

@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import RoyaltyManagement from "@/pages/manager/Royalty";
 import { api } from "@/lib/api";
 import { syncRoyaltyPaymentMethod } from "@/lib/royalty-sync";
+import { reconcileRoyaltyPayback } from "@/lib/royalty-payback";
 
 /**
  * Wraps the manager Royalty page so that, on load, if this territory has a
@@ -34,6 +35,19 @@ export default function RoyaltyWithSync() {
           /* best-effort; the page still renders normally */
         });
     }
+    // One-time payback reconcile: catch up any paid periods that were marked
+    // paid manually (or via webhook) but never decremented remaining_balance.
+    // The DB trigger now handles new periods automatically; this fixes history.
+    reconcileRoyaltyPayback()
+      .then((res) => {
+        if (res.success && res.reconciled > 0) {
+          queryClient.invalidateQueries({ queryKey: ["royalty-territory"] });
+          queryClient.invalidateQueries({ queryKey: ["royalty-periods"] });
+        }
+      })
+      .catch(() => {
+        /* best-effort */
+      });
   }, [territory, queryClient]);
 
   return <RoyaltyManagement />;

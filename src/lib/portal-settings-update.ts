@@ -13,6 +13,9 @@ type PortalSettingsPatch = Record<string, any>;
 const HEALABLE_COLUMNS: Record<string, string> = {
   hl_user_id: "TEXT",
   ghl_invoice_base_url: "TEXT",
+  // Intel / Growth Hub campaign exclusions (TEXT[]). Shared across areas.
+  excluded_campaign_ids: "TEXT[] DEFAULT '{}'",
+  intel_excluded_campaign_ids: "TEXT[] DEFAULT '{}'",
 };
 
 async function selfHealColumns(patch: PortalSettingsPatch): Promise<void> {

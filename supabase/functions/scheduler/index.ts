@@ -17,10 +17,16 @@ const MAX_ATTEMPTS = 5;
 const RETRY_MINUTES = 15;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
+const CORS_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+};
+
 function jsonResp(data: any, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
   });
 }
 
@@ -288,6 +294,9 @@ async function enqueueJob(sb: any, job: any): Promise<number> {
 
 // ─── Main ─────────────────────────────────────────────────────────────────
 serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 200, headers: CORS_HEADERS });
+  }
   const body = await safeJson(req);
   const source = body?.source || "cron";
   const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";

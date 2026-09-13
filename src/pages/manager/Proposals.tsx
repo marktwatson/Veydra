@@ -51,6 +51,7 @@ import {
   filterByTab,
   methodLabel,
   resolveWedding,
+  isBooked,
 } from "@/lib/proposal-tabs";
 import { useProposalsData } from "@/lib/use-proposals-data";
 
@@ -357,6 +358,13 @@ export default function ManagerProposals() {
   };
 
   const getStatusBadge = (proposal: any) => {
+    if (isBooked(proposal)) {
+      return (
+        <Badge className="bg-green-500/10 text-green-700 border-green-500/20">
+          Booked
+        </Badge>
+      );
+    }
     const isExpired =
       proposal.expires_at && new Date(proposal.expires_at) < new Date();
     switch (proposal.status) {
@@ -738,14 +746,10 @@ export default function ManagerProposals() {
                         )}
                         {(ofStatus === "claimed" ||
                           ofStatus === "promised") && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="w-full"
-                            onClick={() => navigate("/manager/payments")}
-                          >
-                            Review in Payment Audit
-                          </Button>
+                          <OffPlatformBadge.Review
+                            wedding={w}
+                            proposal={detailProposal}
+                          />
                         )}
                       </CardContent>
                     </Card>

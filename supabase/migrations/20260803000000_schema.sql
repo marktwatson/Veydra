@@ -103,6 +103,15 @@ ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS editor_assignment_we
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS webhook_url TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_api_key TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_location_id TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_user_id TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS ghl_invoice_base_url TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS ghl_webhook_secret TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS accept_venmo BOOLEAN DEFAULT false;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS venmo_handle TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS accept_cashapp BOOLEAN DEFAULT false;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS cashapp_cashtag TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS accept_zelle BOOLEAN DEFAULT false;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS zelle_target TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS fb_access_token TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS fb_ad_account_id TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS excluded_campaign_ids TEXT[] DEFAULT '{}';
@@ -622,6 +631,17 @@ ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_url TEXT;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_status TEXT;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_amount_paid NUMERIC DEFAULT 0;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_schedule JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_schedule_id TEXT;
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS client_phone TEXT;
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS questionnaire_data JSONB;
+
+-- Off-platform (Venmo / Cash App / Zelle) full-balance claim flags.
+-- These MUST be in master_sql so a brand-new area has them on the very first
+-- schema push, before ghl_invoice_schema or the deploy-territory fallback run.
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS offplatform_status TEXT;
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS offplatform_method TEXT;
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS offplatform_amount NUMERIC;
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS offplatform_claimed_at TIMESTAMPTZ;
 
 -- Venue geocode cache table — stores lat/lng for ANY location (leads, proposals, weddings)
 -- so geocoded lead locations survive page reloads even without a wedding record
@@ -969,6 +989,14 @@ ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS original_wedding_id TEXT;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS amount_paid_so_far NUMERIC DEFAULT 0;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS custom_contract_snapshot TEXT;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS contract_signed_at TEXT;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS contract_status TEXT;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS contract_snapshot TEXT;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS contract_signed_by TEXT;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS wedding_id UUID;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS offplatform_status TEXT;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS offplatform_method TEXT;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS offplatform_amount NUMERIC;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS offplatform_claimed_at TIMESTAMPTZ;
 
 -- 16. Messages (Portal Chat)
 CREATE TABLE IF NOT EXISTS public.messages (
@@ -1361,6 +1389,42 @@ DROP POLICY IF EXISTS "royalty_sales_admin_all" ON public.royalty_sales;
 DROP POLICY IF EXISTS "royalty_sales_owner_read" ON public.royalty_sales;
 DROP POLICY IF EXISTS "royalty_sales_service_all" ON public.royalty_sales;
 CREATE POLICY "Public full access royalty_sales" ON public.royalty_sales FOR ALL USING (true) WITH CHECK (true);
+
+-- ============================================================================
+-- 22b. GHL invoice payments ledger + manual payment adjustments
+-- These MUST be in master_sql so a brand-new area has them on the very first
+-- schema push (before ghl_invoice_schema runs). All idempotent.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.ghl_invoice_payments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  wedding_id UUID REFERENCES public.weddings(id) ON DELETE CASCADE,
+  ghl_invoice_id TEXT NOT NULL,
+  ghl_event_id TEXT UNIQUE,
+  amount NUMERIC NOT NULL DEFAULT 0,
+  amount_paid_on_invoice NUMERIC NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_ghl_invoice_payments_invoice ON public.ghl_invoice_payments(ghl_invoice_id);
+CREATE INDEX IF NOT EXISTS idx_ghl_invoice_payments_wedding ON public.ghl_invoice_payments(wedding_id);
+ALTER TABLE public.ghl_invoice_payments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public full access ghl_invoice_payments" ON public.ghl_invoice_payments;
+CREATE POLICY "Public full access ghl_invoice_payments" ON public.ghl_invoice_payments FOR ALL USING (true) WITH CHECK (true);
+
+CREATE TABLE IF NOT EXISTS public.payment_manual_adjustments (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  wedding_id uuid NOT NULL,
+  amount numeric NOT NULL,
+  installment_label text,
+  schedule_index int,
+  reason text,
+  created_at timestamptz DEFAULT now(),
+  created_by text
+);
+ALTER TABLE public.payment_manual_adjustments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "pma_auth_insert" ON public.payment_manual_adjustments;
+DROP POLICY IF EXISTS "pma_auth_select" ON public.payment_manual_adjustments;
+CREATE POLICY "pma_auth_insert" ON public.payment_manual_adjustments FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "pma_auth_select" ON public.payment_manual_adjustments FOR SELECT TO authenticated USING (true);
 
 -- ============================================================================
 -- 23. Royalty Summary RPC (for external Master Dashboard)

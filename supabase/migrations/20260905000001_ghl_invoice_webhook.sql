@@ -116,3 +116,43 @@ DROP POLICY IF EXISTS "pma_auth_insert" ON public.payment_manual_adjustments;
 DROP POLICY IF EXISTS "pma_auth_select" ON public.payment_manual_adjustments;
 CREATE POLICY "pma_auth_insert" ON public.payment_manual_adjustments FOR INSERT TO authenticated WITH CHECK (true);
 CREATE POLICY "pma_auth_select" ON public.payment_manual_adjustments FOR SELECT TO authenticated USING (true);
+
+-- ════════════════════════════════════════════════════════════════════════
+-- Royalty payback trigger — single source of truth.
+-- Fires on any UPDATE that flips status to 'paid' (Mark Paid, webhook,
+-- processor). Idempotent via payback_applied_at guard. Ensures
+-- remaining_balance + total_payback_applied move on EVERY paid path.
+-- ════════════════════════════════════════════════════════════════════════
+ALTER TABLE public.royalty_periods ADD COLUMN IF NOT EXISTS payback_applied_at TIMESTAMPTZ;
+ALTER TABLE public.territories ADD COLUMN IF NOT EXISTS total_payback_applied NUMERIC DEFAULT 0;
+
+CREATE OR REPLACE FUNCTION public.apply_royalty_payback_trigger()
+  RETURNS TRIGGER AS $$
+  DECLARE terr_id UUID; payback NUMERIC; cur_remaining NUMERIC; cur_total NUMERIC;
+  BEGIN
+    IF NEW.status = 'paid' AND (OLD.status IS DISTINCT FROM 'paid') AND NEW.payback_applied_at IS NULL THEN
+      payback := COALESCE(NEW.payback_amount, 0);
+      IF payback > 0 THEN
+        terr_id := NEW.territory_id;
+        SELECT COALESCE(remaining_balance,0), COALESCE(total_payback_applied,0)
+          INTO cur_remaining, cur_total
+          FROM public.territories WHERE id = terr_id;
+        UPDATE public.territories
+          SET remaining_balance = GREATEST(0, cur_remaining - payback),
+              total_payback_applied = cur_total + payback,
+              last_calculated_at = now()
+          WHERE id = terr_id;
+      END IF;
+      NEW.payback_applied_at := now();
+    END IF;
+    RETURN NEW;
+  END;
+  $$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_royalty_payback ON public.royalty_periods;
+CREATE TRIGGER trg_royalty_payback
+  BEFORE UPDATE ON public.royalty_periods
+  FOR EACH ROW EXECUTE FUNCTION public.apply_royalty_payback_trigger();
+
+-- Reload PostgREST schema cache so the API sees the new columns immediately.
+NOTIFY pgrst, 'reload schema';
