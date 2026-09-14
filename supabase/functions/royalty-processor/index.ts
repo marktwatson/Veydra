@@ -454,7 +454,7 @@ Deno.serve(async (req) => {
     // configured time in portal TZ. Manual "Run Weekly Processor" always runs
     // but is still protected against double-charging by the existing-period
     // check + the unique index on royalty_periods(territory_id, period_start, period_end).
-    if (body.scheduled === true && !forceRecalculate) {
+    if (body.scheduled === true && !body.force_recalculate) {
       const { dow, hhmm } = portalNow(portalTz);
       const targetDow = Number(settings.processing_day_of_week ?? 5);
       const targetTime = String(settings.processing_time || "02:00").padStart(5, "0");
@@ -491,8 +491,15 @@ Deno.serve(async (req) => {
 
   // ─── Helper: Process a single territory ───
   async function processTerritory(supabase: any, territory: any, settings: any, stripeKey: string | undefined, force: boolean) {
-    const periodEnd = new Date(); periodEnd.setHours(0, 0, 0, 0);
-    const periodStart = new Date(periodEnd); periodStart.setDate(periodStart.getDate() - 7);
+    // Fixed window: most recent scheduled processing weekday at 00:00 portal TZ (not today).
+    const _procDow = Number(settings.processing_day_of_week ?? 5);
+    const _dm: any = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    const _dtf = new Intl.DateTimeFormat("en-US", { timeZone: portalTz, weekday: "short", year: "numeric", month: "2-digit", day: "2-digit" });
+    const _pp: any = {}; for (const x of _dtf.formatToParts(new Date())) _pp[x.type] = x.value;
+    const _daysBack = ((_dm[_pp.weekday] ?? 5) - _procDow + 7) % 7;
+    const _base = new Date(`${_pp.year}-${_pp.month}-${_pp.day}T00:00:00Z`);
+    const periodEnd = new Date(_base); periodEnd.setUTCDate(periodEnd.getUTCDate() - _daysBack);
+    const periodStart = new Date(periodEnd); periodStart.setUTCDate(periodStart.getUTCDate() - 7);
 
     if (force) {
       await supabase.from("royalty_periods").delete()

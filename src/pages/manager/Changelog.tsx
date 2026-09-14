@@ -12,6 +12,29 @@ import { History } from "lucide-react";
 // You can add new entries to the top of this array as we build out the app!
 export const CHANGELOG_DATA = [
   {
+    version: "v1.21.0",
+    date: "2026-09-13",
+    title: "Royalty Payback, ROAS Controls & Bride Payment UX",
+    changes: [
+      {
+        type: "fix",
+        text: "Royalty payback now moves remaining_balance when a period is marked paid — a shared DB trigger covers both manual Mark Paid and the Stripe webhook, with a one-time reconcile button to backfill already-collected amounts.",
+      },
+      {
+        type: "feature",
+        text: "Intelligence and Growth Hub ROAS now honor per-campaign Include toggles — excluded campaigns are dropped from spend, ROAS, and CAC totals, with an excluded-names chip list and clear revenue caption.",
+      },
+      {
+        type: "improvement",
+        text: "Bride Portal 'Update card' now opens the GHL invoice URL first, falls back to the legacy Stripe portal only for old customers, and shows a note for off-platform (Venmo/Cash App/Zelle) weddings instead of a dead button.",
+      },
+      {
+        type: "fix",
+        text: "Added CORS + OPTIONS handling to the scheduler edge function so the manager 'Run now' button no longer fails with a fetch error.",
+      },
+    ],
+  },
+  {
     version: "v1.20.0",
     date: "2026-09-13",
     title: "Off-Platform Payments, Proposal Resume & Readiness UX",
