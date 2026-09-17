@@ -1,6 +1,16 @@
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Loader2,
   Radio,
@@ -11,6 +21,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/lib/supabase";
 import {
   getCoverageStatus,
   coverageBadge,
@@ -22,8 +33,8 @@ import { FALLBACK_PACKAGES_SLIM } from "@/lib/booking-fallbacks";
 
 /**
  * Staff coverage block on proposal builder / detail.
- * Displays which specific roles, hours, and package details are being sought,
- * plus assigned contractor names or awaiting status.
+ * Collects pay_rate / hours / region / notes inline (no modal), then posts
+ * open jobs via requestCoverage. Disabled until pay_rate > 0 and region set.
  */
 export function ProposalCoverageBlock({
   proposal,
@@ -37,6 +48,7 @@ export function ProposalCoverageBlock({
   onChanged?: () => void;
 }) {
   const [packages, setPackages] = useState<any[]>(propPackages || []);
+  const [regions, setRegions] = useState<string[]>([]);
 
   useEffect(() => {
     if (propPackages && propPackages.length > 0) {
@@ -52,10 +64,29 @@ export function ProposalCoverageBlock({
     }
   }, [propPackages]);
 
+  useEffect(() => {
+    supabase
+      .from("portal_settings")
+      .select("regions")
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }: any) => {
+        if (Array.isArray(data?.regions)) setRegions(data.regions);
+      });
+  }, []);
+
   const [status, setStatus] = useState<CoverageStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [requesting, setRequesting] = useState(false);
   const { toast } = useToast();
+
+  // Inline fields
+  const [photoPay, setPhotoPay] = useState("");
+  const [photoHours, setPhotoHours] = useState("");
+  const [videoPay, setVideoPay] = useState("");
+  const [videoHours, setVideoHours] = useState("");
+  const [region, setRegion] = useState("");
+  const [notes, setNotes] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -86,10 +117,39 @@ export function ProposalCoverageBlock({
   const hoursMatch = packageDesc.match(/(\d+)\s*(?:hours|hrs|hour)/i);
   const packageHours = hoursMatch ? parseInt(hoursMatch[1], 10) : null;
 
+  const photoPayNum = parseFloat(photoPay) || 0;
+  const videoPayNum = parseFloat(videoPay) || 0;
+  const photoHoursNum = photoHours
+    ? parseFloat(photoHours)
+    : packageHours || proposal?.second_shooter_hours || 8;
+  const videoHoursNum = videoHours
+    ? parseFloat(videoHours)
+    : packageHours || proposal?.second_shooter_hours || 8;
+
+  // Validation: required roles need pay > 0 and region set
+  const photoValid = !status.needsPhoto || photoPayNum > 0;
+  const videoValid = !status.needsVideo || videoPayNum > 0;
+  const canRequest = photoValid && videoValid && region.trim() && !requesting;
+
   const handleRequest = async () => {
     setRequesting(true);
     try {
-      const res = await requestCoverage(proposal);
+      const res = await requestCoverage(proposal, {
+        roles: {
+          photo: {
+            enabled: status.needsPhoto,
+            payRate: photoPayNum,
+            hours: photoHoursNum,
+          },
+          video: {
+            enabled: status.needsVideo,
+            payRate: videoPayNum,
+            hours: videoHoursNum,
+          },
+        },
+        region: region.trim(),
+        notes: notes.trim(),
+      });
       toast({
         title: "Coverage requested",
         description: `Waiting on applications. ${res.notified} contractor(s) notified.`,
@@ -236,18 +296,81 @@ export function ProposalCoverageBlock({
         </div>
       </div>
 
-      {/* Helper text & Request button */}
+      {/* Inline fields + Request button */}
       {!status.confirmed && (
-        <div className="space-y-2">
+        <div className="space-y-3">
           <p className="text-[11px] text-muted-foreground leading-relaxed">
             The bride's Sign &amp; Pay button stays locked until a contractor is
             assigned. Team can apply from Open Positions.
           </p>
+
+          {/* Per-role pay + hours */}
+          <div className="space-y-2.5">
+            {status.needsPhoto && (
+              <RolePayRow
+                icon={<Camera className="h-3.5 w-3.5 text-primary" />}
+                label="Photographer"
+                pay={photoPay}
+                setPay={setPhotoPay}
+                hours={photoHours}
+                setHours={setPhotoHours}
+                defaultHours={
+                  packageHours || proposal?.second_shooter_hours || 8
+                }
+              />
+            )}
+            {status.needsVideo && (
+              <RolePayRow
+                icon={<Video className="h-3.5 w-3.5 text-primary" />}
+                label="Videographer"
+                pay={videoPay}
+                setPay={setVideoPay}
+                hours={videoHours}
+                setHours={setVideoHours}
+                defaultHours={
+                  packageHours || proposal?.second_shooter_hours || 8
+                }
+              />
+            )}
+          </div>
+
+          {/* Region */}
+          <div className="space-y-1">
+            <Label className="text-xs font-medium text-foreground">
+              Region
+            </Label>
+            <Select value={region} onValueChange={setRegion}>
+              <SelectTrigger className="h-9 text-xs">
+                <SelectValue placeholder="Select region" />
+              </SelectTrigger>
+              <SelectContent>
+                {regions.map((r) => (
+                  <SelectItem key={r} value={r} className="text-xs">
+                    {r}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Notes */}
+          <div className="space-y-1">
+            <Label className="text-xs font-medium text-foreground">
+              Notes / requirements
+            </Label>
+            <Textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Any special requirements for this coverage…"
+              className="text-xs min-h-[60px] resize-none"
+            />
+          </div>
+
           <Button
             size="sm"
             variant="default"
             className="w-full h-9 text-xs font-medium"
-            disabled={requesting || loading}
+            disabled={!canRequest}
             onClick={handleRequest}
           >
             {requesting ? (
@@ -257,6 +380,12 @@ export function ProposalCoverageBlock({
             )}
             {requesting ? "Requesting…" : "Request Coverage Now"}
           </Button>
+          {!canRequest && !requesting && (
+            <p className="text-[10px] text-muted-foreground text-center">
+              Enter pay rate for each required role and select a region to
+              continue.
+            </p>
+          )}
         </div>
       )}
 
@@ -266,6 +395,58 @@ export function ProposalCoverageBlock({
           <span>All required coverage is confirmed. Couple can book.</span>
         </div>
       )}
+    </div>
+  );
+}
+
+function RolePayRow({
+  icon,
+  label,
+  pay,
+  setPay,
+  hours,
+  setHours,
+  defaultHours,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  pay: string;
+  setPay: (v: string) => void;
+  hours: string;
+  setHours: (v: string) => void;
+  defaultHours: number;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5 w-28 shrink-0">
+        {icon}
+        <span className="text-xs font-medium text-foreground">{label}</span>
+      </div>
+      <div className="relative flex-1">
+        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+          $
+        </span>
+        <Input
+          type="number"
+          min="0"
+          step="0.01"
+          value={pay}
+          onChange={(e) => setPay(e.target.value)}
+          placeholder="Pay rate"
+          className="h-8 text-xs pl-5"
+        />
+      </div>
+      <div className="w-20 shrink-0">
+        <Input
+          type="number"
+          min="0"
+          step="0.5"
+          value={hours}
+          onChange={(e) => setHours(e.target.value)}
+          placeholder={`${defaultHours} hrs`}
+          className="h-8 text-xs"
+        />
+      </div>
     </div>
   );
 }

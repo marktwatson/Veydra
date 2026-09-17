@@ -3,12 +3,7 @@ import { supabase } from "./supabase";
 import { api } from "./api";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
-import {
-  needsCoverage,
-  extractCoverageHours,
-  coverageRequirements,
-} from "./coverage";
-import { requestCoverage } from "./coverage-request";
+import { needsCoverage } from "./coverage";
 
 export interface CreateProposalArgs {
   id?: string | undefined;
@@ -193,51 +188,16 @@ export function useCreateProposal() {
           !coverageConfirmed &&
           !sendAnyway
         ) {
-          // Save as draft, then request coverage immediately (no modal).
-          // Pay rate from portal default contractor rate or 0; region from
-          // city/state; hours from the selected package if known.
-          try {
-            const req = coverageRequirements({
-              coverage_type: formData.coverageType,
-              addons: formData.addons,
-              second_shooter_type: formData.secondShooterType,
-              hours: extractCoverageHours({
-                hours: formData.secondShooterHours,
-              }),
-            });
-            const region = [formData.city, formData.state]
-              .filter(Boolean)
-              .join(", ");
-            await requestCoverage(data, {
-              roles: {
-                photo: {
-                  enabled: req.needsPhoto,
-                  payRate: 0,
-                  hours: req.hours || formData.secondShooterHours || 8,
-                },
-                video: {
-                  enabled: req.needsVideo,
-                  payRate: 0,
-                  hours: req.hours || formData.secondShooterHours || 8,
-                },
-              },
-              region,
-              notes: formData.notes || "",
-            });
-            toast({
-              title: "Coverage requested",
-              description:
-                "Waiting on applications. Team can apply from Open Positions.",
-            });
-            setCoverageConfirmed(false);
-          } catch (e: any) {
-            console.error("coverage request failed", e);
-            toast({
-              title: "Coverage request failed",
-              description: e.message || "Could not request coverage.",
-              variant: "destructive",
-            });
-          }
+          // Short-notice + not confirmed: save as draft and leave the couple
+          // on the coverage block. Pay rate / region are collected inline on
+          // the yellow card (ProposalCoverageBlock) — not here. Do NOT open
+          // the bride share modal.
+          toast({
+            title: "Proposal saved — awaiting coverage",
+            description:
+              "Request coverage from the yellow card before sending the link.",
+          });
+          navigate("/manager/proposals?tab=coverage");
         } else {
           setShareOpen(true);
           toast({
