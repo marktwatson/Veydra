@@ -19,8 +19,9 @@ import {
   Trash2,
   Pencil,
   CheckCircle,
+  Users,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { formatDisplayDate } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -52,8 +53,10 @@ import {
   methodLabel,
   resolveWedding,
   isBooked,
+  isAwaitingCoverage,
 } from "@/lib/proposal-tabs";
 import { useProposalsData } from "@/lib/use-proposals-data";
+import { markProposalAsBooked } from "@/lib/mark-proposal-booked";
 
 const PACKAGES = [
   { id: "pearl", name: "Pearl", isArchived: true },
@@ -78,7 +81,10 @@ let DB_PACKAGES: any[] = PACKAGES;
 export default function ManagerProposals() {
   const { proposals, loading, refresh } = useProposalsData();
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<ProposalTab>("all");
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<ProposalTab>(
+    searchParams.get("tab") === "coverage" ? "coverage" : "all",
+  );
   const [detailProposal, setDetailProposal] = useState<any | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -146,218 +152,23 @@ export default function ManagerProposals() {
     }
   };
 
-  const handleMarkAsBooked = async (proposal: any) => {
-    try {
-      const { data: settings } = await supabase
-        .from("portal_settings")
-        .select("*")
-        .single();
-      let weddingId = proposal.is_upgrade
-        ? proposal.original_wedding_id
-        : proposal.wedding_id;
-      const customPlan =
-        typeof proposal.custom_payment_plan === "string"
-          ? JSON.parse(proposal.custom_payment_plan)
-          : proposal.custom_payment_plan;
-      const resolvedPaymentPlan =
-        proposal.payment_plan || (customPlan?.enabled ? "custom" : null);
-      const packageName = proposal.package_id
-        ? proposal.package_id.charAt(0).toUpperCase() +
-          proposal.package_id.slice(1)
-        : "Custom";
-      const coverageLabel =
-        proposal.coverage_type === "photo"
-          ? "Photo Only"
-          : proposal.coverage_type === "video"
-            ? "Video Only"
-            : "Photo & Video";
-      const packageString = `${packageName} (${coverageLabel})`;
-      const effectiveTotalAmount =
-        resolvedPaymentPlan === "full"
-          ? proposal.total_amount * 0.95
-          : proposal.total_amount;
-
-      if (weddingId) {
-        await supabase
-          .from("weddings")
-          .update({
-            package: packageString,
-            addons: proposal.addons,
-            second_shooter_hours: proposal.second_shooter_hours,
-            second_shooter_type: proposal.second_shooter_type,
-            total_amount: effectiveTotalAmount,
-            payment_plan: resolvedPaymentPlan,
-            custom_payment_plan: customPlan,
-            status: proposal.is_upgrade ? undefined : "pending",
-            notes: proposal.is_upgrade
-              ? `Upgraded Package (Manually Marked).\nPhone: ${proposal.client_phone || "N/A"}\n${proposal.notes || ""}`
-              : `Manually Marked as Booked.\nPhone: ${proposal.client_phone || "N/A"}\n${proposal.notes || ""}`,
-          })
-          .eq("id", weddingId);
-      } else {
-        const { data: wedding, error: weddingError } = await supabase
-          .from("weddings")
-          .insert([
-            {
-              client_name: proposal.client_name,
-              client_email: proposal.client_email,
-              partner_name: proposal.partner_name,
-              date: proposal.wedding_date,
-              location:
-                `${proposal.venue || ""} ${proposal.city || ""}, ${proposal.state || ""}`.trim(),
-              package: packageString,
-              addons: proposal.addons,
-              second_shooter_hours: proposal.second_shooter_hours,
-              second_shooter_type: proposal.second_shooter_type,
-              status: "pending",
-              payment_plan: resolvedPaymentPlan,
-              custom_payment_plan: customPlan,
-              total_amount: effectiveTotalAmount,
-              paid_amount: 0,
-              contract_date: new Date().toISOString(),
-              notes: `Manually Marked as Booked.\nPhone: ${proposal.client_phone || "N/A"}\n${proposal.notes || ""}`,
-            },
-          ])
-          .select()
-          .single();
-        if (weddingError) throw weddingError;
-        if (wedding) weddingId = wedding.id;
-      }
-
-      if (weddingId) {
-        const { error: propError } = await supabase
-          .from("proposals")
-          .update({ status: "accepted", wedding_id: weddingId })
-          .eq("id", proposal.id);
-        if (propError) throw propError;
-
-        if (
-          !proposal.is_upgrade &&
-          settings?.email_bride_welcome_enabled &&
-          settings?.email_bride_welcome_template &&
-          proposal.client_email &&
-          settings?.hl_api_key
-        ) {
-          const companyName = settings.company_name || "Company";
-          let subject = (
-            settings.email_bride_welcome_subject || "Welcome to the Family!"
-          ).replace(/{{company_name}}/g, companyName);
-          let msg = settings.email_bride_welcome_template
-            .replace(/{{company_name}}/g, companyName)
-            .replace(/{{logo_url}}/g, settings.logo_url || "")
-            .replace(/{{bride_name}}/g, proposal.client_name)
-            .replace(
-              /{{portal_link}}/g,
-              `${settings.app_url || window.location.origin}/bride-portal/${weddingId}`,
-            );
-          await fetch(
-            `https://services.leadconnectorhq.com/conversations/messages`,
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${settings.hl_api_key}`,
-                Version: "2021-04-15",
-                "Content-Type": "application/json",
-                Accept: "application/json",
-              },
-              body: JSON.stringify({
-                email: proposal.client_email,
-                type: "Email",
-                subject,
-                html: msg,
-              }),
-            },
-          ).catch(console.error);
-        }
-
-        if (
-          settings?.hl_api_key &&
-          settings?.hl_location_id &&
-          proposal.client_email
-        ) {
-          const headers = {
-            Authorization: `Bearer ${settings.hl_api_key}`,
-            Version: "2021-07-28",
-            "Content-Type": "application/json",
-          };
-          try {
-            const searchRes = await fetch(
-              `https://services.leadconnectorhq.com/contacts/?locationId=${settings.hl_location_id}&query=${encodeURIComponent(proposal.client_email)}`,
-              { headers },
-            );
-            const searchData = await searchRes.json();
-            let contactId = searchData.contacts?.[0]?.id;
-            if (!contactId) {
-              const createPayload: any = {
-                locationId: settings.hl_location_id,
-                email: proposal.client_email,
-                name: proposal.client_name || "",
-                tags: ["booked", "payment-received"],
-              };
-              if (proposal.client_name) {
-                const parts = proposal.client_name.trim().split(" ");
-                createPayload.firstName = parts[0];
-                if (parts.length > 1)
-                  createPayload.lastName = parts.slice(1).join(" ");
-              }
-              const createRes = await fetch(
-                `https://services.leadconnectorhq.com/contacts/`,
-                {
-                  method: "POST",
-                  headers,
-                  body: JSON.stringify(createPayload),
-                },
-              );
-              const createData = await createRes.json();
-              contactId = createData.contact?.id;
-            }
-            if (contactId) {
-              const existingTags = searchData.contacts?.[0]?.tags || [];
-              const newTags = Array.from(
-                new Set([...existingTags, "booked", "payment-received"]),
-              );
-              const putRes = await fetch(
-                `https://services.leadconnectorhq.com/contacts/${contactId}`,
-                {
-                  method: "PUT",
-                  headers,
-                  body: JSON.stringify({ tags: newTags }),
-                },
-              );
-              if (!putRes.ok)
-                console.error("CRM Sync Error on PUT:", await putRes.text());
-            }
-          } catch (e) {
-            console.error("CRM Sync Error:", e);
-          }
-        }
-      }
-
-      api.logAdminActivity(
-        "Proposal Manually Booked",
-        `Marked proposal for ${proposal.client_name} as booked`,
-      );
-      toast({
-        title: "Success",
-        description: "Proposal marked as booked and wedding created!",
-      });
-      queryClient.invalidateQueries({ queryKey: ["weddings"] });
-      refresh();
-    } catch (error: any) {
-      console.error("Error marking as booked:", error);
-      api.logAdminActivity(
-        "Proposal Booking Error",
-        `Failed to manually book proposal for ${proposal.client_name}: ${error.message}`,
-      );
-      toast({
-        title: "Error",
-        description: "Failed to mark as booked: " + error.message,
-        variant: "destructive",
-      });
-    }
-  };
+  const handleMarkAsBooked = (proposal: any) =>
+    markProposalAsBooked(proposal, {
+      toast,
+      refresh,
+      invalidateWeddings: () =>
+        queryClient.invalidateQueries({ queryKey: ["weddings"] }),
+    });
 
   const getStatusBadge = (proposal: any) => {
+    if (isAwaitingCoverage(proposal)) {
+      return (
+        <Badge className="bg-amber-500/10 text-amber-700 border-amber-500/20">
+          <Users className="h-3 w-3 mr-1" />
+          Awaiting coverage
+        </Badge>
+      );
+    }
     if (isBooked(proposal)) {
       return (
         <Badge className="bg-green-500/10 text-green-700 border-green-500/20">
@@ -443,6 +254,9 @@ export default function ManagerProposals() {
             Waiting payment ({counts.waiting})
           </TabsTrigger>
           <TabsTrigger value="booked">Booked ({counts.booked})</TabsTrigger>
+          <TabsTrigger value="coverage">
+            Awaiting coverage ({counts.coverage || 0})
+          </TabsTrigger>
           <TabsTrigger value="superseded">
             Superseded ({counts.superseded})
           </TabsTrigger>
@@ -460,7 +274,9 @@ export default function ManagerProposals() {
                   ? "Waiting Payment"
                   : activeTab === "booked"
                     ? "Booked"
-                    : "Superseded"}
+                    : activeTab === "coverage"
+                      ? "Awaiting Coverage"
+                      : "Superseded"}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -499,6 +315,7 @@ export default function ManagerProposals() {
                       Number(
                         w?.offplatform_amount || proposal.offplatform_amount,
                       ) || 0;
+                    const awaiting = isAwaitingCoverage(proposal);
                     return (
                       <TableRow
                         key={proposal.id}
@@ -522,6 +339,14 @@ export default function ManagerProposals() {
                                 amount={ofAmount}
                                 claimedAt={proposal.offplatform_claimed_at}
                               />
+                            </div>
+                          )}
+                          {awaiting && (
+                            <div className="mt-1.5">
+                              <Badge className="bg-amber-500/10 text-amber-700 border-amber-500/20">
+                                <Users className="h-3 w-3 mr-1" />
+                                Awaiting coverage
+                              </Badge>
                             </div>
                           )}
                           <div className="text-xs text-muted-foreground mt-1">
@@ -595,53 +420,72 @@ export default function ManagerProposals() {
                           onClick={(e) => e.stopPropagation()}
                         >
                           <div className="flex items-center justify-end gap-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => copyLink(proposal.id)}
-                              title="Copy Link"
-                            >
-                              {copiedId === proposal.id ? (
-                                <CheckCircle2 className="w-4 h-4 text-green-500" />
-                              ) : (
-                                <Copy className="w-4 h-4" />
-                              )}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() =>
-                                navigate(`/edit-proposal/${proposal.id}`)
-                              }
-                              title="Edit Proposal"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </Button>
-                            {proposal.status !== "accepted" &&
-                              proposal.status !== "paid" &&
-                              proposal.status !== "superseded" && (
+                            {awaiting ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-xs"
+                                onClick={() =>
+                                  navigate(`/edit-proposal/${proposal.id}`)
+                                }
+                                title="Manage coverage / applicants"
+                              >
+                                <Users className="w-4 h-4 mr-1" />
+                                Manage
+                              </Button>
+                            ) : (
+                              <>
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  onClick={() => handleMarkAsBooked(proposal)}
-                                  title="Mark as Booked"
+                                  onClick={() => copyLink(proposal.id)}
+                                  title="Copy Link"
                                 >
-                                  <CheckCircle className="w-4 h-4 text-green-500" />
+                                  {copiedId === proposal.id ? (
+                                    <CheckCircle2 className="w-4 h-4 text-green-500" />
+                                  ) : (
+                                    <Copy className="w-4 h-4" />
+                                  )}
                                 </Button>
-                              )}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() =>
-                                window.open(
-                                  `/proposal/${proposal.id}`,
-                                  "_blank",
-                                )
-                              }
-                              title="Preview"
-                            >
-                              <ExternalLink className="w-4 h-4" />
-                            </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() =>
+                                    navigate(`/edit-proposal/${proposal.id}`)
+                                  }
+                                  title="Edit Proposal"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </Button>
+                                {proposal.status !== "accepted" &&
+                                  proposal.status !== "paid" &&
+                                  proposal.status !== "superseded" && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() =>
+                                        handleMarkAsBooked(proposal)
+                                      }
+                                      title="Mark as Booked"
+                                    >
+                                      <CheckCircle className="w-4 h-4 text-green-500" />
+                                    </Button>
+                                  )}
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() =>
+                                    window.open(
+                                      `/proposal/${proposal.id}`,
+                                      "_blank",
+                                    )
+                                  }
+                                  title="Preview"
+                                >
+                                  <ExternalLink className="w-4 h-4" />
+                                </Button>
+                              </>
+                            )}
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
                                 <Button
@@ -705,6 +549,39 @@ export default function ManagerProposals() {
                 </SheetDescription>
               </SheetHeader>
               <div className="mt-4 space-y-4">
+                {(() => {
+                  const awaiting = isAwaitingCoverage(detailProposal);
+                  if (!awaiting) return null;
+                  return (
+                    <Card className="bg-amber-500/5 border-amber-500/20">
+                      <CardContent className="pt-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-semibold">
+                            Coverage
+                          </span>
+                          <Badge className="bg-amber-500/10 text-amber-700 border-amber-500/20">
+                            <Users className="h-3 w-3 mr-1" />
+                            Awaiting coverage
+                          </Badge>
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          A contractor must be assigned before the bride can
+                          sign &amp; pay. Review applicants in Positions.
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          onClick={() =>
+                            navigate(`/edit-proposal/${detailProposal.id}`)
+                          }
+                        >
+                          <Users className="w-4 h-4 mr-1" /> Manage coverage
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  );
+                })()}
                 {(() => {
                   const w = resolveWedding(detailProposal);
                   const ofStatus =

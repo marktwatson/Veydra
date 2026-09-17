@@ -59,7 +59,7 @@ export function ProposalContractStep({
   const [resumeNonce, setResumeNonce] = useState(0);
   const coverage = useCoverageGate(proposal, proposal?.wedding_id);
 
-  if (resume.state !== "fresh") {
+  if (resume.state !== "fresh" && resume.state !== "signed_changed") {
     return (
       <ProposalResumeView
         key={resumeNonce}
@@ -81,9 +81,11 @@ export function ProposalContractStep({
 
   // Already signed at the proposal level but resume hook hasn't resolved a
   // wedding yet — show a "signed" checklist with a continue button so the
-  // bride can proceed to payment without re-signing.
+  // bride can proceed to payment without re-signing. Skip this when the
+  // snapshot changed — the pad below handles re-signing.
   const alreadySigned =
-    proposal?.contract_signed_at || proposal?.contract_status === "signed";
+    (proposal?.contract_signed_at || proposal?.contract_status === "signed") &&
+    resume.state !== "signed_changed";
   if (alreadySigned) {
     return (
       <div className="p-8 md:p-12 space-y-8 animate-in fade-in slide-in-from-right-8 duration-500">

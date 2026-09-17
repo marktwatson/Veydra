@@ -93,7 +93,7 @@ export async function signAndPayProposal(params: {
     }
   }
 
-  // 4. First amount due, capped at the remaining balance.
+  // First amount due, capped at the remaining balance.
   const firstDue = Math.max(
     0,
     Math.min(
@@ -101,6 +101,37 @@ export async function signAndPayProposal(params: {
       proposal.total_amount - (proposal.amount_paid_so_far || 0),
     ),
   );
+
+  // Ensure a weddings row exists BEFORE invoicing. A proposal often has no
+  // wedding_id yet; ghl-invoice requires a real weddings.id.
+  const weddingId = await ensureWeddingForProposal(proposal.id);
+  if (!weddingId) {
+    throw new Error(
+      "Could not create the wedding record for this proposal. Please try again or contact support.",
+    );
+  }
+
+  // Check if the wedding already has a primary GHL invoice. If it does AND
+  // this is NOT an addon/upgrade (which creates a second invoice), return
+  // the existing invoice URL instead of creating a duplicate. The original
+  // photography invoice is never re-created.
+  const isAddon = proposal.is_upgrade;
+  if (!isAddon && firstDue > 0) {
+    const { data: existingWedding } = await supabase
+      .from("weddings")
+      .select("ghl_invoice_id, ghl_invoice_url")
+      .eq("id", weddingId)
+      .maybeSingle();
+
+    if (existingWedding?.ghl_invoice_url) {
+      return {
+        invoiceUrl: existingWedding.ghl_invoice_url,
+        weddingId,
+        firstDue,
+        label: "",
+      };
+    }
+  }
 
   if (firstDue <= 0) {
     await api.updateProposal(proposal.id, {
@@ -110,16 +141,7 @@ export async function signAndPayProposal(params: {
     return { accepted: true };
   }
 
-  // 4. Ensure a weddings row exists BEFORE invoicing. A proposal often has no
-  //    wedding_id yet; ghl-invoice requires a real weddings.id.
-  const weddingId = await ensureWeddingForProposal(proposal.id);
-  if (!weddingId) {
-    throw new Error(
-      "Could not create the wedding record for this proposal. Please try again or contact support.",
-    );
-  }
-
-  // 5. Build the invoice label.
+  // Build the invoice label.
   const label = proposal.is_upgrade
     ? `Wedding Package Upgrade for ${proposal.client_name}`
     : paymentPlan === "custom"
@@ -136,10 +158,10 @@ export async function signAndPayProposal(params: {
     return { weddingId, firstDue, label };
   }
 
-  // 6. Create the GHL invoice (no Stripe).
-  //    Upgrades invoice ONLY the unpaid delta as a SECOND GHL invoice
-  //    (kind: "addon", forceNew) so the original photo ghl_invoice_id is
-  //    never overwritten.
+  // Create the GHL invoice (no Stripe).
+  // Upgrades invoice ONLY the unpaid delta as a SECOND GHL invoice
+  // (kind: "addon", forceNew) so the original photo ghl_invoice_id is
+  // never overwritten.
   const invoice = await createGhlInvoice({
     weddingId,
     amount: firstDue,

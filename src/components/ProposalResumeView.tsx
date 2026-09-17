@@ -242,6 +242,29 @@ export function ProposalResumeView({
     );
   }
 
+  // ---- signed_changed: snapshot changed, re-show the pad ----
+  if (resume.state === "signed_changed") {
+    return (
+      <div className="p-8 md:p-12 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+        <div className="text-center space-y-4">
+          <div className="w-16 h-16 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mx-auto">
+            <RefreshCw className="w-8 h-8 text-amber-600 dark:text-amber-400" />
+          </div>
+          <h2 className="text-3xl font-serif text-foreground">
+            Updated agreement
+          </h2>
+          <p className="text-muted-foreground max-w-md mx-auto">
+            The contract has been updated since you last signed. Please review
+            and sign the new version.
+          </p>
+        </div>
+        <p className="text-center text-sm text-muted-foreground max-w-md mx-auto">
+          Contact us if you have questions about the changes.
+        </p>
+      </div>
+    );
+  }
+
   // ---- signed: Pay step only ----
   // state === "signed"
   const weddingId = resume.weddingId || proposal.wedding_id || "";

@@ -72,9 +72,13 @@ export function ProposalPayStep({
   // Resume check — only when we have a proposal object to inspect.
   const resume = useProposalResume(proposal?.id, proposal);
 
-  // Non-fresh resume: show the resume view (signed / invoice / offplatform /
-  // confirmed). The nonce forces re-eval after "change payment method".
-  if (proposal && resume.state !== "fresh") {
+  // Non-fresh resume (but not signed_changed — that falls through to the
+  // normal pay step so the bride can re-sign): show the resume view.
+  if (
+    proposal &&
+    resume.state !== "fresh" &&
+    resume.state !== "signed_changed"
+  ) {
     return (
       <ProposalResumeView
         resume={resume}

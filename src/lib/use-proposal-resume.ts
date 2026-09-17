@@ -2,7 +2,12 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 
 export type ProposalResumeState =
-  "fresh" | "signed" | "invoice" | "offplatform" | "confirmed";
+  | "fresh"
+  | "signed"
+  | "signed_changed"
+  | "invoice"
+  | "offplatform"
+  | "confirmed";
 
 export interface ProposalResume {
   state: ProposalResumeState;
@@ -12,6 +17,9 @@ export interface ProposalResume {
   offplatformMethod: string | null;
   offplatformAmount: number | null;
   offplatformClaimedAt: string | null;
+  /** True when the contract was signed but the currently-rendered contract
+   *  HTML no longer matches the stored snapshot — the pad should re-show. */
+  contractSnapshotChanged: boolean;
 }
 
 const EMPTY: ProposalResume = {
@@ -22,18 +30,40 @@ const EMPTY: ProposalResume = {
   offplatformMethod: null,
   offplatformAmount: null,
   offplatformClaimedAt: null,
+  contractSnapshotChanged: false,
 };
+
+/**
+ * Compares the currently-rendered contract HTML in the DOM against the
+ * stored `custom_contract_snapshot` on the proposal. If they differ, the
+ * contract was changed after signing and the bride should re-sign.
+ *
+ * Returns true when the snapshot has changed (pad should re-show).
+ */
+function hasContractSnapshotChanged(proposal: any): boolean {
+  if (!proposal) return false;
+  if (!proposal.contract_signed_at && proposal.contract_status !== "signed")
+    return false;
+  // If there's no stored snapshot, we can't compare — assume unchanged.
+  if (!proposal.custom_contract_snapshot) return false;
+  const el = document.querySelector(".contract-content") as HTMLElement | null;
+  if (!el) return false;
+  return (
+    el.innerHTML.trim() !== String(proposal.custom_contract_snapshot).trim()
+  );
+}
 
 /**
  * Detects the resume state of a proposal so ProposalReview can skip
  * already-completed steps instead of restarting from scratch.
  *
  * States:
- * - confirmed: off-platform confirmed OR paid_amount >= total - 0.01
- * - offplatform: offplatform_status is promised or claimed
- * - invoice:    GHL invoice exists (ghl_invoice_id or ghl_invoice_url)
- * - signed:     contract signed but no invoice / no off-platform
- * - fresh:      nothing yet — show the normal 4-step flow
+ * - confirmed:    off-platform confirmed OR paid_amount >= total - 0.01
+ * - offplatform:   offplatform_status is promised or claimed
+ * - invoice:       GHL invoice exists (ghl_invoice_id or ghl_invoice_url)
+ * - signed_changed: signed but snapshot !== current render → re-show pad
+ * - signed:        signed, snapshot matches → pay step only (no pad)
+ * - fresh:         nothing yet — show the normal 4-step flow
  */
 export function useProposalResume(
   proposalId: string | undefined,
@@ -51,6 +81,8 @@ export function useProposalResume(
 
     const run = async () => {
       try {
+        const snapshotChanged = hasContractSnapshotChanged(proposal);
+
         // Resolve the wedding id for this proposal.
         let weddingId: string | null = proposal.is_upgrade
           ? proposal.original_wedding_id
@@ -106,6 +138,7 @@ export function useProposalResume(
                     ? Number(wedding.offplatform_amount)
                     : null,
                 offplatformClaimedAt: wedding.offplatform_claimed_at || null,
+                contractSnapshotChanged: snapshotChanged,
               });
               return;
             }
@@ -123,27 +156,27 @@ export function useProposalResume(
                     ? Number(wedding.offplatform_amount)
                     : null,
                 offplatformClaimedAt: wedding.offplatform_claimed_at || null,
+                contractSnapshotChanged: snapshotChanged,
               });
               return;
             }
 
             // GHL invoice exists.
-            const invoiceUrl =
-              wedding.ghl_invoice_url || (wedding.ghl_invoice_id ? null : null);
-            if (wedding.ghl_invoice_id || invoiceUrl) {
+            if (wedding.ghl_invoice_id || wedding.ghl_invoice_url) {
               setResume({
                 state: "invoice",
                 weddingId,
-                invoiceUrl: invoiceUrl || wedding.ghl_invoice_url || null,
+                invoiceUrl: wedding.ghl_invoice_url || null,
                 offplatformStatus: null,
                 offplatformMethod: null,
                 offplatformAmount: null,
                 offplatformClaimedAt: null,
+                contractSnapshotChanged: snapshotChanged,
               });
               return;
             }
 
-            // Signed but no invoice / no off-platform → pay step only.
+            // Signed but no invoice / no off-platform.
             const signed =
               wedding.contract_signed_at ||
               wedding.contract_status === "signed" ||
@@ -151,13 +184,14 @@ export function useProposalResume(
               proposal.contract_status === "signed";
             if (signed) {
               setResume({
-                state: "signed",
+                state: snapshotChanged ? "signed_changed" : "signed",
                 weddingId,
                 invoiceUrl: null,
                 offplatformStatus: null,
                 offplatformMethod: null,
                 offplatformAmount: null,
                 offplatformClaimedAt: null,
+                contractSnapshotChanged: snapshotChanged,
               });
               return;
             }
@@ -177,6 +211,7 @@ export function useProposalResume(
                 ? Number(proposal.offplatform_amount)
                 : null,
             offplatformClaimedAt: proposal.offplatform_claimed_at || null,
+            contractSnapshotChanged: snapshotChanged,
           });
           return;
         }
@@ -193,6 +228,7 @@ export function useProposalResume(
                 ? Number(proposal.offplatform_amount)
                 : null,
             offplatformClaimedAt: proposal.offplatform_claimed_at || null,
+            contractSnapshotChanged: snapshotChanged,
           });
           return;
         }
@@ -201,13 +237,14 @@ export function useProposalResume(
           proposal.contract_signed_at || proposal.contract_status === "signed";
         if (propSigned) {
           setResume({
-            state: "signed",
+            state: snapshotChanged ? "signed_changed" : "signed",
             weddingId,
             invoiceUrl: null,
             offplatformStatus: null,
             offplatformMethod: null,
             offplatformAmount: null,
             offplatformClaimedAt: null,
+            contractSnapshotChanged: snapshotChanged,
           });
           return;
         }
