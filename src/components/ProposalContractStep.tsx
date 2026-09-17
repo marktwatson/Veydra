@@ -14,6 +14,7 @@ import { formatDisplayDate } from "@/lib/utils";
 import { renderContractSnapshot } from "@/lib/booking-fallbacks";
 import { useProposalResume } from "@/lib/use-proposal-resume";
 import { ProposalResumeView } from "@/components/ProposalResumeView";
+import { useCoverageGate } from "@/lib/use-coverage-gate";
 
 /**
  * Step 3 of the proposal flow: the service agreement + electronic signature.
@@ -56,6 +57,7 @@ export function ProposalContractStep({
   // current state without re-signing.
   const resume = useProposalResume(proposal?.id, proposal);
   const [resumeNonce, setResumeNonce] = useState(0);
+  const coverage = useCoverageGate(proposal, proposal?.wedding_id);
 
   if (resume.state !== "fresh") {
     return (
@@ -455,6 +457,8 @@ export function ProposalContractStep({
             signature.trim().toLowerCase().replace(/\s+/g, "") !==
               proposal.client_name.toLowerCase().replace(/\s+/g, "") ||
             isSubmitting ||
+            coverage.blocked ||
+            coverage.loading ||
             (paymentPlan === "custom" &&
               proposal.custom_payment_plan?.enabled &&
               Math.abs(
@@ -479,6 +483,25 @@ export function ProposalContractStep({
             : `Sign & Pay $${calculatePaymentAmount().toLocaleString()}`}
         </Button>
       </div>
+      {coverage.blocked && (
+        <div className="rounded-sm border border-amber-300/70 bg-amber-50/70 dark:bg-amber-950/20 p-4 text-sm text-amber-800 dark:text-amber-300">
+          <p className="font-medium mb-1">Coverage confirmation required</p>
+          <p className="text-xs text-muted-foreground">
+            Your wedding date is coming up soon. Our team is confirming a
+            photographer
+            {coverage.status?.videoNeeded ? " and videographer" : ""} for this
+            date. Sign &amp; Pay will unlock once coverage is confirmed — we'll
+            be in touch shortly.
+          </p>
+        </div>
+      )}
+      {coverage.status?.required && coverage.status.confirmed && (
+        <div className="rounded-sm border border-emerald-300/70 bg-emerald-50/70 dark:bg-emerald-950/20 p-4 text-sm text-emerald-800 dark:text-emerald-300">
+          <p className="text-xs">
+            A team member is confirmed for this date. Sign and pay to book.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

@@ -8,6 +8,8 @@ import {
 } from "@/components/ui/accordion";
 import { api } from "@/lib/api";
 import { ApproveOffPlatformPaymentDialog } from "@/components/ApproveOffPlatformPaymentDialog";
+import { CoverageActionItems } from "@/components/CoverageActionItems";
+import { useCoverageConfirmWatcher } from "@/lib/use-coverage-confirm-watcher";
 
 const METHOD_LABELS: Record<string, string> = {
   venmo: "Venmo",
@@ -25,6 +27,7 @@ const METHOD_LABELS: Record<string, string> = {
  */
 export function OffPlatformActionItems() {
   const [selected, setSelected] = useState<any | null>(null);
+  useCoverageConfirmWatcher();
   const { data: weddings = [] } = useQuery({
     queryKey: ["weddings"],
     queryFn: api.getWeddings,
@@ -162,6 +165,8 @@ export function OffPlatformActionItems() {
         open={!!selected}
         onOpenChange={(o) => !o && setSelected(null)}
       />
+
+      <CoverageActionItems />
     </>
   );
 }

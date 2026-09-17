@@ -328,6 +328,15 @@ function JobCard({
               <Badge className="bg-primary/10 text-primary hover:bg-primary/20 border-none font-medium">
                 {job.role}
               </Badge>
+              {job.coverage_request === true && (
+                <Badge
+                  variant="outline"
+                  className="font-normal text-[10px] bg-amber-50/80 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400"
+                  title="Short-notice coverage request"
+                >
+                  Coverage request
+                </Badge>
+              )}
               {(job.drone_required === true || job.drone_required === "true") &&
                 !(
                   job.role?.toLowerCase().includes("photo") &&

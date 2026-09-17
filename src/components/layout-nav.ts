@@ -16,6 +16,7 @@ import {
   Globe,
   Crown,
   Shield,
+  GraduationCap,
 } from "lucide-react";
 
 export const contractorNavItems = [
@@ -73,6 +74,7 @@ export const managerNavGroups = [
   {
     label: "System Control",
     items: [
+      { icon: GraduationCap, label: "Training", path: "/manager/training" },
       { icon: Settings, label: "Settings", path: "/manager/settings" },
       { icon: Activity, label: "Activity Log", path: "/manager/activity" },
       { icon: Globe, label: "Territory Fleet", path: "/manager/territories" },

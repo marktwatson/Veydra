@@ -782,6 +782,10 @@ ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS hours NUMERIC DEFAULT 8;
 ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS addons TEXT[];
 ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS contractor_todos JSONB;
 ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS invited_contractors TEXT[];
+ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS coverage_request BOOLEAN DEFAULT false;
+ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS proposal_id UUID;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_requested_at TIMESTAMPTZ;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_confirmed_at TIMESTAMPTZ;
 
 -- 7. Applications
 CREATE TABLE IF NOT EXISTS public.applications (

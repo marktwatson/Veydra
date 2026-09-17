@@ -44,6 +44,7 @@ import ManagerMessages from "@/pages/manager/Messages";
 import ManagerSettings from "@/pages/manager/Settings";
 import ManagerActivityLog from "@/pages/manager/ActivityLog";
 import ManagerChangelog from "@/pages/manager/Changelog";
+import ManagerTraining from "@/pages/manager/Training";
 import ManagerProfile from "@/pages/manager/Profile";
 import ManagerPayouts from "@/pages/manager/Payouts";
 import ManagerTaxes from "@/pages/manager/Taxes";
@@ -374,6 +375,14 @@ const App = () => {
                   element={
                     <Mgr>
                       <ManagerChangelog />
+                    </Mgr>
+                  }
+                />
+                <Route
+                  path="/manager/training"
+                  element={
+                    <Mgr>
+                      <ManagerTraining />
                     </Mgr>
                   }
                 />
