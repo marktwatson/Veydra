@@ -171,10 +171,13 @@ export async function getCoverageStatus(
 
 /**
  * Request coverage for a short-notice proposal.
- * Ensures a wedding exists, inserts missing open jobs, and notifies contractors.
+ * Delegates to the canonical implementation in coverage-request.ts which
+ * accepts per-role pay_rate / hours / region / notes and never posts a
+ * pay_rate 0 job.
  */
 export async function requestCoverage(
   proposalId: string,
+  payload?: any,
 ): Promise<{ weddingId: string; createdJobs: string[]; notified: number }> {
   // Self-heal columns
   await healCoverageColumns();
@@ -192,74 +195,8 @@ export async function requestCoverage(
     .single();
   if (!proposal) throw new Error("Proposal not found.");
 
-  const req = coverageRequirements(proposal);
-
-  // Check existing jobs
-  const { data: existing } = await supabase
-    .from("jobs")
-    .select("id, role, contractor_id")
-    .eq("wedding_id", weddingId)
-    .in("role", [
-      "Photographer",
-      "Videographer",
-      "Lead Photographer",
-      "Lead Videographer",
-    ]);
-
-  const hasPhotoJob = (existing || []).some((j) => /photo/i.test(j.role));
-  const hasVideoJob = (existing || []).some((j) => /video/i.test(j.role));
-
-  const toInsert: any[] = [];
-  if (req.needsPhoto && !hasPhotoJob) {
-    toInsert.push({
-      wedding_id: weddingId,
-      role: "Photographer",
-      status: "open",
-      pay_rate: 0,
-      hours: req.hours || null,
-      contractor_id: null,
-      coverage_request: true,
-      proposal_id: proposalId,
-    });
-  }
-  if (req.needsVideo && !hasVideoJob) {
-    toInsert.push({
-      wedding_id: weddingId,
-      role: "Videographer",
-      status: "open",
-      pay_rate: 0,
-      hours: req.hours || null,
-      contractor_id: null,
-      coverage_request: true,
-      proposal_id: proposalId,
-    });
-  }
-
-  let createdJobs: string[] = [];
-  if (toInsert.length > 0) {
-    const { data: inserted, error } = await supabase
-      .from("jobs")
-      .insert(toInsert)
-      .select("id");
-    if (error) throw error;
-    createdJobs = (inserted || []).map((j) => j.id);
-  }
-
-  // Mark proposal
-  await supabase
-    .from("proposals")
-    .update({ coverage_requested_at: new Date().toISOString() })
-    .eq("id", proposalId);
-
-  // Notify matching contractors
-  let notified = 0;
-  try {
-    notified = await notifyCoverageContractors(weddingId, proposal, req);
-  } catch (e) {
-    console.error("Coverage notify error:", e);
-  }
-
-  return { weddingId, createdJobs, notified };
+  const { requestCoverage: doRequest } = await import("./coverage-request");
+  return doRequest(proposal, payload);
 }
 
 async function notifyCoverageContractors(

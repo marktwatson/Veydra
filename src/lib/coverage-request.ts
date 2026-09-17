@@ -7,15 +7,34 @@ import {
   extractCoverageHours,
 } from "./coverage";
 
+export interface CoverageRoleConfig {
+  enabled: boolean;
+  payRate: number;
+  hours: number;
+}
+
+export interface CoverageRequestPayload {
+  roles: {
+    photo?: CoverageRoleConfig;
+    video?: CoverageRoleConfig;
+  };
+  region: string;
+  notes: string;
+}
+
 /**
  * Request coverage for a proposal's wedding. Creates open jobs for the
- * required roles (Photographer always; Videographer when the package
- * includes video) if they don't already exist, flags them as
+ * selected roles with real pay_rate / hours / requirements, flags them as
  * coverage_request, notifies matching contractors, and stamps the proposal.
+ *
+ * Never posts a job with pay_rate 0.
  *
  * Does NOT create an invoice or charge Stripe.
  */
-export async function requestCoverage(proposal: any): Promise<{
+export async function requestCoverage(
+  proposal: any,
+  payload?: CoverageRequestPayload,
+): Promise<{
   weddingId: string | null;
   createdJobs: string[];
   notified: number;
@@ -23,19 +42,30 @@ export async function requestCoverage(proposal: any): Promise<{
   // Ensure a pending wedding exists so jobs can attach to it.
   const weddingId = await ensureWeddingForProposal(proposal.id);
 
+  // Determine which roles to create.
   const videoNeeded = packageIncludesVideo(proposal);
+  const photoCfg = payload?.roles?.photo;
+  const videoCfg = payload?.roles?.video;
+
+  const wantPhoto = photoCfg ? photoCfg.enabled && photoCfg.payRate > 0 : true;
+  const wantVideo = videoCfg
+    ? videoCfg.enabled && videoCfg.payRate > 0
+    : videoNeeded;
+
+  const coverageHours = extractCoverageHours(proposal);
+  const notes = payload?.notes || "";
 
   // Fetch existing jobs for this wedding.
   let existing: any[] = [];
   if (weddingId) {
     const { data } = await supabase
       .from("jobs")
-      .select("id, role, status, contractor_id")
+      .select("id, role, status, contractor_id, coverage_request")
       .eq("wedding_id", weddingId);
     existing = data || [];
   }
 
-  const wantsRole = (role: string, regex: RegExp) =>
+  const hasOpenRole = (regex: RegExp) =>
     existing.some(
       (j) =>
         regex.test(String(j.role || "").toLowerCase()) &&
@@ -43,26 +73,39 @@ export async function requestCoverage(proposal: any): Promise<{
     );
 
   const createdJobs: string[] = [];
-  const rolesToCreate: string[] = [];
-  if (!wantsRole("Photographer", /photo/)) rolesToCreate.push("Photographer");
-  if (videoNeeded && !wantsRole("Videographer", /video/))
-    rolesToCreate.push("Videographer");
+  const rolesToCreate: { role: string; payRate: number; hours: number }[] = [];
 
-  const coverageHours = extractCoverageHours(proposal);
+  if (wantPhoto && !hasOpenRole(/photo/)) {
+    rolesToCreate.push({
+      role: "Photographer",
+      payRate: photoCfg?.payRate || 0,
+      hours: photoCfg?.hours || coverageHours || 8,
+    });
+  }
+  if (wantVideo && !hasOpenRole(/video/)) {
+    rolesToCreate.push({
+      role: "Videographer",
+      payRate: videoCfg?.payRate || 0,
+      hours: videoCfg?.hours || coverageHours || 8,
+    });
+  }
 
   if (weddingId) {
-    for (const role of rolesToCreate) {
+    for (const r of rolesToCreate) {
+      // Never post a job with pay_rate 0.
+      if (r.payRate <= 0) continue;
       const { data, error } = await supabase
         .from("jobs")
         .insert({
           wedding_id: weddingId,
-          role,
+          role: r.role,
           status: "open",
-          pay_rate: 0,
-          hours: coverageHours || null,
+          pay_rate: r.payRate,
+          hours: r.hours || null,
           contractor_id: null,
           coverage_request: true,
           proposal_id: proposal.id,
+          requirements: notes || null,
         })
         .select()
         .single();
@@ -76,17 +119,30 @@ export async function requestCoverage(proposal: any): Promise<{
       const ids = existing
         .filter(
           (j) =>
-            (/photo|video/.test(String(j.role || "").toLowerCase()) &&
-              j.status !== "cancelled") ||
+            /photo|video/.test(String(j.role || "").toLowerCase()) &&
+            j.status !== "cancelled" &&
             j.coverage_request !== true,
         )
         .map((j) => j.id);
       if (ids.length) {
         await supabase
           .from("jobs")
-          .update({ coverage_request: true, proposal_id: proposal.id })
+          .update({
+            coverage_request: true,
+            proposal_id: proposal.id,
+            ...(notes ? { requirements: notes } : {}),
+          })
           .in("id", ids);
       }
+    }
+
+    // If a region was chosen, stamp it on the wedding so sendJobAlerts filters
+    // contractors by that region.
+    if (payload?.region) {
+      await supabase
+        .from("weddings")
+        .update({ region: payload.region })
+        .eq("id", weddingId);
     }
   }
 

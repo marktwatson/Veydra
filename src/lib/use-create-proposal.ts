@@ -4,7 +4,6 @@ import { api } from "./api";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 import { needsCoverage } from "./coverage";
-import { requestCoverage } from "./coverage-request";
 
 export interface CreateProposalArgs {
   id?: string | undefined;
@@ -22,6 +21,8 @@ export function useCreateProposal() {
   const [proposalLink, setProposalLink] = useState("");
   const [shareOpen, setShareOpen] = useState(false);
   const [coverageConfirmed, setCoverageConfirmed] = useState(false);
+  const [coverageModalOpen, setCoverageModalOpen] = useState(false);
+  const [savedProposal, setSavedProposal] = useState<any>(null);
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -177,6 +178,7 @@ export function useCreateProposal() {
 
         const link = `${window.location.origin}/proposal/${data.id}`;
         setProposalLink(link);
+        setSavedProposal(data);
         api.logAdminActivity(
           "Proposal Created",
           `Generated new proposal for ${formData.clientName} ($${totalPrice})`,
@@ -187,21 +189,14 @@ export function useCreateProposal() {
           !coverageConfirmed &&
           !sendAnyway
         ) {
-          try {
-            const res = await requestCoverage(data);
-            toast({
-              title: "Coverage requested",
-              description: `${res.notified} contractor(s) notified. Team can accept from Open Jobs. Don't send the link until coverage is confirmed.`,
-            });
-          } catch (covErr: any) {
-            toast({
-              title: "Proposal created — coverage request failed",
-              description:
-                covErr?.message ||
-                "Request coverage manually from the proposal detail.",
-              variant: "destructive",
-            });
-          }
+          // Save as draft, then open the coverage request modal — do NOT
+          // auto-request or open the share modal.
+          setCoverageModalOpen(true);
+          toast({
+            title: "Proposal saved",
+            description:
+              "Short-notice wedding — request coverage before sending the link.",
+          });
         } else {
           setShareOpen(true);
           toast({
@@ -233,6 +228,9 @@ export function useCreateProposal() {
     setShareOpen,
     coverageConfirmed,
     setCoverageConfirmed,
+    coverageModalOpen,
+    setCoverageModalOpen,
+    savedProposal,
     loadCoverageState,
     handleCreateProposal,
   };

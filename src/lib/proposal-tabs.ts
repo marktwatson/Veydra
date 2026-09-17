@@ -10,7 +10,8 @@
  * - superseded: an older proposal for the same wedding that a newer one replaced
  */
 
-export type ProposalTab = "all" | "draft" | "waiting" | "booked" | "superseded";
+export type ProposalTab =
+  "all" | "draft" | "waiting" | "booked" | "superseded" | "coverage";
 
 /** Resolve the wedding row attached to a proposal (handles upgrade fallback). */
 export function resolveWedding(p: any): any | null {
@@ -62,9 +63,17 @@ export function hasInvoice(p: any): boolean {
   return !!(w?.ghl_invoice_id || w?.ghl_invoice_url);
 }
 
+/** Coverage requested but not yet confirmed (and not booked). */
+export function isAwaitingCoverage(p: any): boolean {
+  if (isBooked(p)) return false;
+  if (p.status === "superseded") return false;
+  return !!p.coverage_requested_at && !p.coverage_confirmed_at;
+}
+
 export function classifyProposal(p: any): ProposalTab {
   if (p.status === "superseded") return "superseded";
   if (isBooked(p)) return "booked";
+  if (isAwaitingCoverage(p)) return "coverage";
   if (
     hasOffPlatformPending(p) ||
     (isSigned(p) && !hasInvoice(p) && !hasOffPlatformPending(p))
@@ -80,6 +89,7 @@ export function tabCounts(proposals: any[]): Record<ProposalTab, number> {
     draft: 0,
     waiting: 0,
     booked: 0,
+    coverage: 0,
     superseded: 0,
   };
   for (const p of proposals) c[classifyProposal(p)]++;
