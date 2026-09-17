@@ -14,6 +14,8 @@ export interface CreateProposalModalsProps {
   coveragePending: boolean;
   /** Called after coverage is requested successfully. */
   onCoverageDone?: () => void;
+  /** Called after a successful Send to client. */
+  onSent?: () => void;
 }
 
 /**
@@ -21,17 +23,24 @@ export interface CreateProposalModalsProps {
  * Coverage is now requested directly from the hook (no modal).
  */
 export function CreateProposalModals({
+  savedProposal,
+  formData,
   shareOpen,
   setShareOpen,
   proposalLink,
   coveragePending,
+  onSent,
 }: CreateProposalModalsProps) {
   return (
     <ProposalShareModal
       link={proposalLink}
       open={shareOpen}
       onClose={() => setShareOpen(false)}
+      proposalId={savedProposal?.id}
+      clientEmail={savedProposal?.client_email || formData?.clientEmail}
+      clientPhone={savedProposal?.client_phone || formData?.clientPhone}
       coveragePending={coveragePending}
+      onSent={onSent}
     />
   );
 }

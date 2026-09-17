@@ -259,6 +259,9 @@ export default function ManagerProposals() {
           <TabsTrigger value="coverage">
             Awaiting coverage ({counts.coverage || 0})
           </TabsTrigger>
+          <TabsTrigger value="expired">
+            Expired ({counts.expired || 0})
+          </TabsTrigger>
           <TabsTrigger value="superseded">
             Superseded ({counts.superseded})
           </TabsTrigger>
@@ -278,7 +281,9 @@ export default function ManagerProposals() {
                     ? "Booked"
                     : activeTab === "coverage"
                       ? "Awaiting Coverage"
-                      : "Superseded"}
+                      : activeTab === "expired"
+                        ? "Expired"
+                        : "Superseded"}
           </CardTitle>
         </CardHeader>
         <CardContent>

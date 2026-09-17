@@ -94,7 +94,6 @@ export function useCreateProposal() {
             installments: formData.customPaymentPlan.installments,
           }
         : { enabled: false, deposit: 0, installments: [] },
-      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       is_upgrade: !!upgradeWeddingId,
       original_wedding_id: upgradeWeddingId || null,
       amount_paid_so_far: amountPaidSoFar,
@@ -243,9 +242,6 @@ export function useCreateProposal() {
               installments: formData.customPaymentPlan.installments,
             }
           : { enabled: false, deposit: 0, installments: [] },
-        expires_at: new Date(
-          Date.now() + 7 * 24 * 60 * 60 * 1000,
-        ).toISOString(),
         is_upgrade: !!upgradeWeddingId,
         original_wedding_id: upgradeWeddingId || null,
         amount_paid_so_far: amountPaidSoFar,

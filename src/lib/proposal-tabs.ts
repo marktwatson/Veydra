@@ -11,7 +11,13 @@
  */
 
 export type ProposalTab =
-  "all" | "draft" | "waiting" | "booked" | "superseded" | "coverage";
+  | "all"
+  | "draft"
+  | "waiting"
+  | "booked"
+  | "superseded"
+  | "coverage"
+  | "expired";
 
 /** Resolve the wedding row attached to a proposal (handles upgrade fallback). */
 export function resolveWedding(p: any): any | null {
@@ -70,9 +76,18 @@ export function isAwaitingCoverage(p: any): boolean {
   return !!p.coverage_requested_at && !p.coverage_confirmed_at;
 }
 
+/** Sent + past expires_at + not booked/signed/paid/accepted. */
+export function isExpired(p: any): boolean {
+  if (isBooked(p)) return false;
+  if (p.status === "superseded") return false;
+  if (!p.sent_at || !p.expires_at) return false;
+  return new Date(p.expires_at) < new Date();
+}
+
 export function classifyProposal(p: any): ProposalTab {
   if (p.status === "superseded") return "superseded";
   if (isBooked(p)) return "booked";
+  if (isExpired(p)) return "expired";
   if (isAwaitingCoverage(p)) return "coverage";
   if (
     hasOffPlatformPending(p) ||
@@ -90,6 +105,7 @@ export function tabCounts(proposals: any[]): Record<ProposalTab, number> {
     waiting: 0,
     booked: 0,
     coverage: 0,
+    expired: 0,
     superseded: 0,
   };
   for (const p of proposals) c[classifyProposal(p)]++;

@@ -7,6 +7,13 @@ ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS contractor_id uuid;
 ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS region text;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_requested_at timestamptz;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_confirmed_at timestamptz;
+
+-- Proposal send-to-client tracking. sent_at starts the 48-hour clock on
+-- "Send to client" (never on generate/copy/preview). expires_at is sent_at +48h.
+-- sent_count increments on each resend. Ships with territory Sync.
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS sent_at timestamptz;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS expires_at timestamptz;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS sent_count int DEFAULT 0;
 DROP TRIGGER IF EXISTS trg_coverage_auto_assign ON public.applications;
 DROP FUNCTION IF EXISTS public.fn_coverage_auto_assign();
 

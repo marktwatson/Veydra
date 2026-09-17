@@ -19,15 +19,31 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Copy, CheckCircle2, ExternalLink, AlertTriangle } from "lucide-react";
+import {
+  Copy,
+  CheckCircle2,
+  ExternalLink,
+  AlertTriangle,
+  Send,
+  Loader2,
+} from "lucide-react";
 import { copyToClipboard } from "@/lib/clipboard";
+import { sendProposalToClient } from "@/lib/send-proposal-api";
+import { useToast } from "@/hooks/use-toast";
 
 interface Props {
   link: string;
   open: boolean;
   onClose: () => void;
+  /** The proposal id (for Send to client). */
+  proposalId?: string;
+  /** Client email + phone shown in the send confirm. */
+  clientEmail?: string;
+  clientPhone?: string;
   /** When true, show a warning that no contractor is assigned yet. */
   coveragePending?: boolean;
+  /** Called after a successful send so the parent can refresh. */
+  onSent?: () => void;
 }
 
 /** Post-create share modal for a generated proposal link. */
@@ -35,10 +51,16 @@ export default function ProposalShareModal({
   link,
   open,
   onClose,
+  proposalId,
+  clientEmail,
+  clientPhone,
   coveragePending,
+  onSent,
 }: Props) {
   const [copied, setCopied] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [sending, setSending] = useState(false);
+  const { toast } = useToast();
 
   const handleCopy = async () => {
     const ok = await copyToClipboard(link);
@@ -56,6 +78,40 @@ export default function ProposalShareModal({
     }
   };
 
+  const handleSend = async () => {
+    if (!proposalId) {
+      toast({
+        title: "Cannot send",
+        description: "Proposal id is missing.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setSending(true);
+    try {
+      const result = await sendProposalToClient(proposalId);
+      toast({
+        title: "Sent to client",
+        description: `Email + SMS sent. 48-hour clock started.${
+          result.expires_at
+            ? ` Expires ${new Date(result.expires_at).toLocaleString()}`
+            : ""
+        }`,
+      });
+      onSent?.();
+      setConfirmOpen(false);
+      onClose();
+    } catch (err: any) {
+      toast({
+        title: "Send failed",
+        description: err?.message || "Failed to send proposal.",
+        variant: "destructive",
+      });
+    } finally {
+      setSending(false);
+    }
+  };
+
   return (
     <>
       <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -63,7 +119,8 @@ export default function ProposalShareModal({
           <DialogHeader>
             <DialogTitle>Proposal Created</DialogTitle>
             <DialogDescription>
-              Share this link with the client to review and book their package.
+              Send to the client to start the 48-hour review clock, or copy the
+              link.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -93,20 +150,81 @@ export default function ProposalShareModal({
               </Button>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={onClose}>
-              Close
-            </Button>
-            <Button onClick={openProposal}>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button
+              variant="outline"
+              onClick={openProposal}
+              className="sm:flex-1"
+            >
               <ExternalLink className="w-4 h-4 mr-2" />
-              Open Proposal
+              Open
+            </Button>
+            <Button
+              onClick={() => setConfirmOpen(true)}
+              disabled={!proposalId || sending}
+              className="sm:flex-1"
+            >
+              {sending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Send className="w-4 h-4 mr-2" />
+              )}
+              Send to client
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
+      {/* Send-to-client confirm — shows email/phone + 48h warning */}
       <AlertDialog
-        open={confirmOpen}
+        open={confirmOpen && !coveragePending}
+        onOpenChange={(o) => !o && setConfirmOpen(false)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Send to client?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <span>
+                  This emails + texts the proposal link and starts a 48-hour
+                  review clock.
+                </span>
+                {(clientEmail || clientPhone) && (
+                  <div className="text-xs text-muted-foreground">
+                    {clientEmail && <div>Email: {clientEmail}</div>}
+                    {clientPhone && <div>Phone: {clientPhone}</div>}
+                  </div>
+                )}
+                <span className="block text-xs">
+                  Most proposals expire in 48 hours. Need more time? Contact
+                  your manager.
+                </span>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={sending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={sending}
+              onClick={(e) => {
+                e.preventDefault();
+                handleSend();
+              }}
+            >
+              {sending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Send className="w-4 h-4 mr-2" />
+              )}
+              Start 48-hour clock
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Coverage-pending confirm (Open path) */}
+      <AlertDialog
+        open={confirmOpen && coveragePending}
         onOpenChange={(o) => !o && setConfirmOpen(false)}
       >
         <AlertDialogContent>

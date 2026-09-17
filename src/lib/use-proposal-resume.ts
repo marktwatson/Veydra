@@ -7,7 +7,8 @@ export type ProposalResumeState =
   | "signed_changed"
   | "invoice"
   | "offplatform"
-  | "confirmed";
+  | "confirmed"
+  | "expired";
 
 export interface ProposalResume {
   state: ProposalResumeState;
@@ -82,6 +83,31 @@ export function useProposalResume(
     const run = async () => {
       try {
         const snapshotChanged = hasContractSnapshotChanged(proposal);
+
+        // Expired proposal (sent + past expires_at) and not booked → expired
+        // overlay. Checked first so the bride sees it before sign/pay.
+        if (
+          proposal.sent_at &&
+          proposal.expires_at &&
+          new Date(proposal.expires_at) < new Date() &&
+          proposal.status !== "accepted" &&
+          proposal.status !== "paid" &&
+          proposal.status !== "upcoming"
+        ) {
+          setResume({
+            state: "expired",
+            weddingId: proposal.is_upgrade
+              ? proposal.original_wedding_id
+              : proposal.wedding_id,
+            invoiceUrl: null,
+            offplatformStatus: null,
+            offplatformMethod: null,
+            offplatformAmount: null,
+            offplatformClaimedAt: null,
+            contractSnapshotChanged: snapshotChanged,
+          });
+          return;
+        }
 
         // Resolve the wedding id for this proposal.
         let weddingId: string | null = proposal.is_upgrade
