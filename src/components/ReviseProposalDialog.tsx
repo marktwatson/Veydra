@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -21,14 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Loader2, FileText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { reviseProposal } from "@/lib/revise-proposal";
-
-const PACKAGES = [
-  { id: "pearl", name: "Pearl" },
-  { id: "emerald", name: "Emerald" },
-  { id: "diamond", name: "Diamond Special" },
-  { id: "platinum", name: "Platinum" },
-  { id: "all_in_bride", name: "All-In Bride" },
-];
+import { api } from "@/lib/api";
 
 const COVERAGE_TYPES = [
   { value: "both", label: "Photo & Video" },
@@ -49,6 +42,7 @@ export function ReviseProposalDialog({
 }) {
   const { toast } = useToast();
   const [submitting, setSubmitting] = useState(false);
+  const [packages, setPackages] = useState<any[]>([]);
 
   // Local editable copies seeded from the proposal.
   const [packageId, setPackageId] = useState<string>(
@@ -73,6 +67,40 @@ export function ReviseProposalDialog({
     );
     setNotes(proposal.notes || "");
   }
+
+  // Load packages from DB (includeArchived false). If the current package
+  // is archived, fetch it separately so the select isn't blank.
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const pkgs = await api.getPackages(false);
+        if (!active) return;
+        let list = pkgs || [];
+        // Ensure the current package_id is present even if archived.
+        if (
+          proposal?.package_id &&
+          !list.some((p: any) => p.id === proposal.package_id)
+        ) {
+          try {
+            const archived = await api.getPackages(true);
+            const found = (archived || []).find(
+              (p: any) => p.id === proposal.package_id,
+            );
+            if (found) list = [...list, found];
+          } catch {
+            // ignore — select will just show the raw id
+          }
+        }
+        if (active) setPackages(list);
+      } catch {
+        if (active) setPackages([]);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [proposal?.package_id]);
 
   const handleRevise = async () => {
     if (!proposal) return;
@@ -136,7 +164,7 @@ export function ReviseProposalDialog({
                 <SelectValue placeholder="Select a package" />
               </SelectTrigger>
               <SelectContent>
-                {PACKAGES.map((p) => (
+                {packages.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
                     {p.name}
                   </SelectItem>

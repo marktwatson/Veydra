@@ -58,6 +58,7 @@ import {
 import { useProposalsData } from "@/lib/use-proposals-data";
 import { markProposalAsBooked } from "@/lib/mark-proposal-booked";
 import { ProposalSheetActions } from "@/components/ProposalSheetActions";
+import { CoverageApplicants } from "@/components/CoverageApplicants";
 
 const PACKAGES = [
   { id: "pearl", name: "Pearl", isArchived: true },
@@ -553,6 +554,8 @@ export default function ManagerProposals() {
                 {(() => {
                   const awaiting = isAwaitingCoverage(detailProposal);
                   if (!awaiting) return null;
+                  const w = resolveWedding(detailProposal);
+                  const wid = w?.id || detailProposal.wedding_id;
                   return (
                     <Card className="bg-amber-500/5 border-amber-500/20">
                       <CardContent className="pt-4 space-y-2">
@@ -565,20 +568,18 @@ export default function ManagerProposals() {
                             Awaiting coverage
                           </Badge>
                         </div>
-                        <div className="text-sm text-muted-foreground">
-                          A contractor must be assigned before the bride can
-                          sign &amp; pay. Review applicants in Positions.
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-full"
-                          onClick={() =>
-                            navigate(`/edit-proposal/${detailProposal.id}`)
-                          }
-                        >
-                          <Users className="w-4 h-4 mr-1" /> Manage coverage
-                        </Button>
+                        {wid ? (
+                          <CoverageApplicants
+                            proposal={detailProposal}
+                            weddingId={wid}
+                            onChanged={refresh}
+                          />
+                        ) : (
+                          <div className="text-sm text-muted-foreground">
+                            A contractor must be assigned before the bride can
+                            sign &amp; pay. Review applicants in Positions.
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
                   );

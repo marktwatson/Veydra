@@ -179,7 +179,7 @@ export async function requestCoverage(
   proposalId: string,
   payload?: any,
 ): Promise<{ weddingId: string; createdJobs: string[]; notified: number }> {
-  // Self-heal columns
+  // Self-heal columns FIRST so a stale PostgREST cache can't fake-fail.
   await healCoverageColumns();
 
   // Ensure wedding exists
@@ -362,6 +362,8 @@ export async function healCoverageColumns(): Promise<void> {
     const sql = `
       ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS coverage_request boolean DEFAULT false;
       ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS proposal_id uuid;
+      ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS contractor_id uuid;
+      ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS region text;
       ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_requested_at timestamptz;
       ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_confirmed_at timestamptz;
       DROP TRIGGER IF EXISTS trg_coverage_auto_assign ON public.applications;

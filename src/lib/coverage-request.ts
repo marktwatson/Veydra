@@ -5,6 +5,7 @@ import {
   packageIncludesVideo,
   getCoverageStatus,
   extractCoverageHours,
+  healCoverageColumns,
 } from "./coverage";
 
 export interface CoverageRoleConfig {
@@ -43,14 +44,38 @@ export async function requestCoverage(
     throw new Error("Save the proposal first");
   }
 
-  // Ensure a pending wedding exists so jobs can attach to it. Throws if the
-  // insert fails — never silently return null.
-  const weddingId = await ensureWeddingForProposal(proposal.id);
-  if (!weddingId) {
+  // Self-heal columns FIRST so a stale PostgREST cache can't fake-fail.
+  await healCoverageColumns();
+
+  // GUARD: if coverage was already requested OR an open photo/video job
+  // already exists for this wedding, do NOT insert again. Return the
+  // existing state so the caller can show state 2.
+  const existingWeddingId = await ensureWeddingForProposal(proposal.id);
+  if (!existingWeddingId) {
     throw new Error(
       "Could not create the wedding record for this proposal. Please try again or contact support.",
     );
   }
+  if (proposal.coverage_requested_at) {
+    const { data: existingJobs } = await supabase
+      .from("jobs")
+      .select("id")
+      .eq("wedding_id", existingWeddingId)
+      .in("role", [
+        "Photographer",
+        "Videographer",
+        "Lead Photographer",
+        "Lead Videographer",
+      ])
+      .neq("status", "cancelled");
+    return {
+      weddingId: existingWeddingId,
+      createdJobs: [],
+      notified: 0,
+    };
+  }
+
+  const weddingId = existingWeddingId;
 
   // Determine which roles to create.
   const videoNeeded = packageIncludesVideo(proposal);
@@ -100,21 +125,55 @@ export async function requestCoverage(
   for (const r of rolesToCreate) {
     // Never post a job with pay_rate 0.
     if (r.payRate <= 0) continue;
-    const { data, error } = await supabase
+    const insertRow = {
+      wedding_id: weddingId,
+      role: r.role,
+      status: "open",
+      pay_rate: r.payRate,
+      hours: r.hours || null,
+      coverage_request: true,
+      proposal_id: proposal.id,
+      requirements: notes || null,
+    };
+    let { data, error } = await supabase
       .from("jobs")
-      .insert({
-        wedding_id: weddingId,
-        role: r.role,
-        status: "open",
-        pay_rate: r.payRate,
-        hours: r.hours || null,
-        contractor_id: null,
-        coverage_request: true,
-        proposal_id: proposal.id,
-        requirements: notes || null,
-      })
+      .insert(insertRow)
       .select()
       .single();
+    // If the error is a stale PostgREST schema cache, heal + retry once.
+    if (
+      error &&
+      /schema cache|Could not find|column/i.test(error.message || "")
+    ) {
+      await new Promise((res) => setTimeout(res, 800));
+      // Force re-heal: the cached flag is private to coverage.ts, so we
+      // call the public function which re-runs if the cache was stale.
+      // We bypass the cache by calling the RPC directly here.
+      try {
+        await supabase.rpc("exec_sql", {
+          sql_text: `
+            ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS coverage_request boolean DEFAULT false;
+            ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS proposal_id uuid;
+            ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS contractor_id uuid;
+            ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS region text;
+            ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_requested_at timestamptz;
+            ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_confirmed_at timestamptz;
+            DROP TRIGGER IF EXISTS trg_coverage_auto_assign ON public.applications;
+            DROP FUNCTION IF EXISTS public.fn_coverage_auto_assign();
+            NOTIFY pgrst, 'reload schema';
+          `,
+        });
+      } catch {
+        // non-fatal — try the insert anyway
+      }
+      const retry = await supabase
+        .from("jobs")
+        .insert(insertRow)
+        .select()
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
     if (error) {
       throw new Error(
         `Failed to create ${r.role} job: ${error.message || JSON.stringify(error)}`,

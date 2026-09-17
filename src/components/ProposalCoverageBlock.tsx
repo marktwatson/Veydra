@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +30,7 @@ import {
 import { requestCoverage } from "@/lib/coverage-request";
 import { api } from "@/lib/api";
 import { FALLBACK_PACKAGES_SLIM } from "@/lib/booking-fallbacks";
+import { CoverageApplicants } from "@/components/CoverageApplicants";
 
 /**
  * Staff coverage block on proposal builder / detail.
@@ -81,8 +81,9 @@ export function ProposalCoverageBlock({
   const [status, setStatus] = useState<CoverageStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [requesting, setRequesting] = useState(false);
+  const [requested, setRequested] = useState(false);
   const { toast } = useToast();
-  const navigate = useNavigate();
+  // navigate removed — state 2 renders inline, no redirect needed.
 
   // Inline fields
   const [photoPay, setPhotoPay] = useState("");
@@ -96,6 +97,25 @@ export function ProposalCoverageBlock({
     setLoading(true);
     const s = await getCoverageStatus(weddingId, proposal);
     setStatus(s);
+    // State 2: requested if coverage_requested_at is set OR any coverage
+    // job exists for this proposal/wedding.
+    let hasCoverageJob = false;
+    if (weddingId) {
+      const { data: covJobs } = await supabase
+        .from("jobs")
+        .select("id, coverage_request, proposal_id")
+        .eq("wedding_id", weddingId)
+        .in("role", [
+          "Photographer",
+          "Videographer",
+          "Lead Photographer",
+          "Lead Videographer",
+        ]);
+      hasCoverageJob = (covJobs || []).some(
+        (j) => j.coverage_request || j.proposal_id === proposal?.id,
+      );
+    }
+    setRequested(!!proposal?.coverage_requested_at || hasCoverageJob);
     setLoading(false);
   };
 
@@ -108,10 +128,85 @@ export function ProposalCoverageBlock({
     proposal?.wedding_date,
     proposal?.coverage_type,
     proposal?.package_id,
+    proposal?.coverage_requested_at,
     JSON.stringify(proposal?.addons || []),
   ]);
 
-  if (!status || !status.required) return null;
+  if (loading || !status) return null;
+  if (!status.required) return null;
+
+  // STATE 3 — covered
+  if (status.confirmed) {
+    return (
+      <div className="rounded-xl border border-emerald-300/80 bg-emerald-50/70 dark:bg-emerald-950/20 p-4 shadow-sm space-y-3.5">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400">
+              <CheckCircle2 className="h-4 w-4" />
+            </div>
+            <div>
+              <h4 className="text-sm font-semibold text-foreground">
+                Short-Notice Coverage
+              </h4>
+              <p className="text-[11px] text-muted-foreground">
+                Wedding date is within 60 days
+              </p>
+            </div>
+          </div>
+          <Badge
+            variant="outline"
+            className="border-emerald-300 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 text-xs px-2.5 py-0.5 font-medium"
+          >
+            <CheckCircle2 className="h-3 w-3 mr-1 text-emerald-600 dark:text-emerald-400" />
+            Covered — ready to book
+          </Badge>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400 font-medium">
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+          <span>
+            All required coverage is confirmed. Couple can Sign &amp; Pay.
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // STATE 2 — requested, waiting for applicants
+  if (requested) {
+    return (
+      <div className="rounded-xl border border-amber-300/80 bg-amber-50/70 dark:bg-amber-950/20 p-4 shadow-sm space-y-3.5">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">
+              <Radio className="h-4 w-4 animate-pulse" />
+            </div>
+            <div>
+              <h4 className="text-sm font-semibold text-foreground">
+                Short-Notice Coverage
+              </h4>
+              <p className="text-[11px] text-muted-foreground">
+                Wedding date is within 60 days
+              </p>
+            </div>
+          </div>
+          <Badge
+            variant="outline"
+            className="border-amber-300 bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 text-xs px-2.5 py-0.5 font-medium"
+          >
+            <AlertCircle className="h-3 w-3 mr-1 text-amber-600 dark:text-amber-400" />
+            Awaiting coverage
+          </Badge>
+        </div>
+        <CoverageApplicants
+          proposal={proposal}
+          weddingId={weddingId}
+          onChanged={load}
+        />
+      </div>
+    );
+  }
+
+  // STATE 1 — not requested: show the request form
 
   const badge = coverageBadge(status);
 
@@ -167,7 +262,7 @@ export function ProposalCoverageBlock({
       });
       await load();
       onChanged?.();
-      navigate("/manager/proposals?tab=coverage");
+      // Stay on the proposal so the card renders state 2 (waiting).
     } catch (e: any) {
       toast({
         title: "Failed to request coverage",
@@ -309,104 +404,89 @@ export function ProposalCoverageBlock({
       </div>
 
       {/* Inline fields + Request button */}
-      {!status.confirmed && (
-        <div className="space-y-3">
-          <p className="text-[11px] text-muted-foreground leading-relaxed">
-            The bride's Sign &amp; Pay button stays locked until a contractor is
-            assigned. Team can apply from Open Positions.
-          </p>
+      <div className="space-y-3">
+        <p className="text-[11px] text-muted-foreground leading-relaxed">
+          The bride's Sign &amp; Pay button stays locked until a contractor is
+          assigned. Team can apply from Open Positions.
+        </p>
 
-          {/* Per-role pay + hours */}
-          <div className="space-y-2.5">
-            {status.needsPhoto && (
-              <RolePayRow
-                icon={<Camera className="h-3.5 w-3.5 text-primary" />}
-                label="Photographer"
-                pay={photoPay}
-                setPay={setPhotoPay}
-                hours={photoHours}
-                setHours={setPhotoHours}
-                defaultHours={
-                  packageHours || proposal?.second_shooter_hours || 8
-                }
-              />
-            )}
-            {status.needsVideo && (
-              <RolePayRow
-                icon={<Video className="h-3.5 w-3.5 text-primary" />}
-                label="Videographer"
-                pay={videoPay}
-                setPay={setVideoPay}
-                hours={videoHours}
-                setHours={setVideoHours}
-                defaultHours={
-                  packageHours || proposal?.second_shooter_hours || 8
-                }
-              />
-            )}
-          </div>
-
-          {/* Region */}
-          <div className="space-y-1">
-            <Label className="text-xs font-medium text-foreground">
-              Region
-            </Label>
-            <Select value={region} onValueChange={setRegion}>
-              <SelectTrigger className="h-9 text-xs">
-                <SelectValue placeholder="Select region" />
-              </SelectTrigger>
-              <SelectContent>
-                {regions.map((r) => (
-                  <SelectItem key={r} value={r} className="text-xs">
-                    {r}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Notes */}
-          <div className="space-y-1">
-            <Label className="text-xs font-medium text-foreground">
-              Notes / requirements
-            </Label>
-            <Textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Any special requirements for this coverage…"
-              className="text-xs min-h-[60px] resize-none"
+        {/* Per-role pay + hours */}
+        <div className="space-y-2.5">
+          {status.needsPhoto && (
+            <RolePayRow
+              icon={<Camera className="h-3.5 w-3.5 text-primary" />}
+              label="Photographer"
+              pay={photoPay}
+              setPay={setPhotoPay}
+              hours={photoHours}
+              setHours={setPhotoHours}
+              defaultHours={packageHours || proposal?.second_shooter_hours || 8}
             />
-          </div>
-
-          <Button
-            size="sm"
-            variant="default"
-            className="w-full h-9 text-xs font-medium"
-            disabled={!canRequest}
-            onClick={handleRequest}
-          >
-            {requesting ? (
-              <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />
-            ) : (
-              <Radio className="h-3.5 w-3.5 mr-2" />
-            )}
-            {requesting ? "Requesting…" : "Request Coverage Now"}
-          </Button>
-          {!canRequest && !requesting && (
-            <p className="text-[10px] text-muted-foreground text-center">
-              Enter pay rate for each required role and select a region to
-              continue.
-            </p>
+          )}
+          {status.needsVideo && (
+            <RolePayRow
+              icon={<Video className="h-3.5 w-3.5 text-primary" />}
+              label="Videographer"
+              pay={videoPay}
+              setPay={setVideoPay}
+              hours={videoHours}
+              setHours={setVideoHours}
+              defaultHours={packageHours || proposal?.second_shooter_hours || 8}
+            />
           )}
         </div>
-      )}
 
-      {status.confirmed && (
-        <div className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400 font-medium pt-0.5">
-          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
-          <span>All required coverage is confirmed. Couple can book.</span>
+        {/* Region */}
+        <div className="space-y-1">
+          <Label className="text-xs font-medium text-foreground">Region</Label>
+          <Select value={region} onValueChange={setRegion}>
+            <SelectTrigger className="h-9 text-xs">
+              <SelectValue placeholder="Select region" />
+            </SelectTrigger>
+            <SelectContent>
+              {regions.map((r) => (
+                <SelectItem key={r} value={r} className="text-xs">
+                  {r}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-      )}
+
+        {/* Notes */}
+        <div className="space-y-1">
+          <Label className="text-xs font-medium text-foreground">
+            Notes / requirements
+          </Label>
+          <Textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Any special requirements for this coverage…"
+            className="text-xs min-h-[60px] resize-none"
+          />
+        </div>
+
+        <Button
+          size="sm"
+          variant="default"
+          className="w-full h-9 text-xs font-medium"
+          disabled={!canRequest}
+          onClick={handleRequest}
+        >
+          {requesting ? (
+            <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />
+          ) : (
+            <Radio className="h-3.5 w-3.5 mr-2" />
+          )}
+          {requesting ? "Requesting…" : "Request Coverage Now"}
+        </Button>
+        {!canRequest && !requesting && (
+          <p className="text-[10px] text-muted-foreground text-center">
+            Enter pay rate for each required role and select a region to
+            continue.
+          </p>
+        )}
+      </div>
     </div>
   );
 }

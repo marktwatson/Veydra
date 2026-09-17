@@ -76,6 +76,16 @@ DROP POLICY IF EXISTS "pma_auth_insert" ON public.payment_manual_adjustments;
 DROP POLICY IF EXISTS "pma_auth_select" ON public.payment_manual_adjustments;
 CREATE POLICY "pma_auth_insert" ON public.payment_manual_adjustments FOR INSERT TO authenticated WITH CHECK (true);
 CREATE POLICY "pma_auth_select" ON public.payment_manual_adjustments FOR SELECT TO authenticated USING (true);
+-- Coverage (short-notice) columns — always applied so a stale ghl_invoice_schema
+-- can't leave a new area missing jobs.coverage_request / proposal_id / region.
+ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS coverage_request boolean DEFAULT false;
+ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS proposal_id uuid;
+ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS contractor_id uuid;
+ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS region text;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_requested_at timestamptz;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_confirmed_at timestamptz;
+DROP TRIGGER IF EXISTS trg_coverage_auto_assign ON public.applications;
+DROP FUNCTION IF EXISTS public.fn_coverage_auto_assign();
 NOTIFY pgrst, 'reload schema';
 `;
 

@@ -1,37 +1,14 @@
--- Coverage (short-notice) columns — ships with territory Sync
+-- Coverage (short-notice) columns — ships with territory Sync.
+-- No auto-assign trigger — coverage jobs use the normal application flow;
+-- the manager assigns from the applicants list (same as any open job).
 ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS coverage_request boolean DEFAULT false;
 ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS proposal_id uuid;
+ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS contractor_id uuid;
+ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS region text;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_requested_at timestamptz;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_confirmed_at timestamptz;
-
--- First-accept-wins for coverage jobs: when a contractor applies to a
--- coverage_request job that has no contractor_id yet, auto-assign them.
--- Second applicant is just a normal pending application ("Already covered").
-CREATE OR REPLACE FUNCTION public.fn_coverage_auto_assign()
-RETURNS trigger AS $$
-DECLARE
-  j record;
-BEGIN
-  SELECT contractor_id, coverage_request, status, wedding_id, proposal_id, role
-    INTO j FROM public.jobs WHERE id = NEW.job_id;
-  IF j.coverage_request AND j.contractor_id IS NULL THEN
-    UPDATE public.jobs
-      SET contractor_id = NEW.contractor_id,
-          status = 'assigned',
-          accepted_at = now()
-      WHERE id = NEW.job_id AND contractor_id IS NULL;
-    IF FOUND THEN
-      NEW.status := 'accepted';
-    END IF;
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
 DROP TRIGGER IF EXISTS trg_coverage_auto_assign ON public.applications;
-CREATE TRIGGER trg_coverage_auto_assign
-  BEFORE INSERT ON public.applications
-  FOR EACH ROW EXECUTE FUNCTION public.fn_coverage_auto_assign();
+DROP FUNCTION IF EXISTS public.fn_coverage_auto_assign();
 
 
 
