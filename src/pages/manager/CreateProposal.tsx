@@ -25,13 +25,12 @@ import { supabase } from "@/lib/supabase";
 import { api } from "@/lib/api";
 import { checkCustomPlanBalance } from "@/lib/custom-plan-balance";
 import CustomPlanBalanceIndicator from "@/components/CustomPlanBalanceIndicator";
-import { CreateProposalModals } from "@/components/CreateProposalModals";
-import ProposalShareModal from "@/components/ProposalShareModal";
 import { ProposalCoverageBlock } from "@/components/ProposalCoverageBlock";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Loader2, ChevronRight, Save, ArrowLeft } from "lucide-react";
 import { needsCoverage } from "@/lib/coverage";
 import { useCreateProposal } from "@/lib/use-create-proposal";
+import { CreateProposalModals } from "@/components/CreateProposalModals";
 
 // Fallbacks used while DB data loads or if DB is unreachable
 import {
@@ -972,7 +971,7 @@ export default function CreateProposal() {
                   </div>
                 </div>
               </CardContent>
-              <CardFooter className="bg-muted/30 border-t p-6 space-y-2">
+              <CardFooter className="bg-muted/30 border-t flex flex-col gap-2 items-stretch p-6">
                 {shortNotice && !coverageConfirmed && !id ? (
                   <>
                     <Button
@@ -995,23 +994,6 @@ export default function CreateProposal() {
                       {isSubmitting
                         ? "Generating..."
                         : "Generate & Request Coverage"}
-                    </Button>
-                    <Button
-                      onClick={() =>
-                        handleCreateProposal(createArgs, { sendAnyway: true })
-                      }
-                      variant="outline"
-                      className="w-full"
-                      size="lg"
-                      disabled={
-                        isSubmitting ||
-                        !formData.clientName ||
-                        !formData.weddingDate ||
-                        (!formData.packageId && customItems.length === 0) ||
-                        customPlanBlocked
-                      }
-                    >
-                      Send Anyway
                     </Button>
                   </>
                 ) : (
@@ -1061,5 +1043,6 @@ export default function CreateProposal() {
           if (savedProposal?.id) loadCoverageState(savedProposal.id);
         }}
       />
+    </div>
   );
 }
