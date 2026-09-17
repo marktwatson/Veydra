@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,11 +42,13 @@ export function ProposalCoverageBlock({
   weddingId,
   packages: propPackages,
   onChanged,
+  ensureSaved,
 }: {
   proposal: any;
   weddingId?: string | null;
   packages?: any[];
   onChanged?: () => void;
+  ensureSaved?: () => Promise<any>;
 }) {
   const [packages, setPackages] = useState<any[]>(propPackages || []);
   const [regions, setRegions] = useState<string[]>([]);
@@ -79,6 +82,7 @@ export function ProposalCoverageBlock({
   const [loading, setLoading] = useState(false);
   const [requesting, setRequesting] = useState(false);
   const { toast } = useToast();
+  const navigate = useNavigate();
 
   // Inline fields
   const [photoPay, setPhotoPay] = useState("");
@@ -134,7 +138,14 @@ export function ProposalCoverageBlock({
   const handleRequest = async () => {
     setRequesting(true);
     try {
-      const res = await requestCoverage(proposal, {
+      let p = proposal;
+      if (!p?.id && ensureSaved) {
+        p = await ensureSaved();
+      }
+      if (!p?.id) {
+        throw new Error("Save the proposal first");
+      }
+      const res = await requestCoverage(p, {
         roles: {
           photo: {
             enabled: status.needsPhoto,
@@ -156,6 +167,7 @@ export function ProposalCoverageBlock({
       });
       await load();
       onChanged?.();
+      navigate("/manager/proposals?tab=coverage");
     } catch (e: any) {
       toast({
         title: "Failed to request coverage",

@@ -96,8 +96,17 @@ export async function ensureWeddingForProposal(
         .select()
         .single();
 
-      if (weddingError) throw weddingError;
-      if (wedding) weddingId = wedding.id;
+      if (weddingError) {
+        throw new Error(
+          `Failed to create wedding record: ${weddingError.message || JSON.stringify(weddingError)}`,
+        );
+      }
+      if (!wedding) {
+        throw new Error(
+          "Wedding insert returned no data — the row may be blocked by a database policy.",
+        );
+      }
+      weddingId = wedding.id;
     }
 
     if (weddingId && weddingId !== proposal.wedding_id) {

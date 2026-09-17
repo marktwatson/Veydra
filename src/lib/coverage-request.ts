@@ -35,12 +35,22 @@ export async function requestCoverage(
   proposal: any,
   payload?: CoverageRequestPayload,
 ): Promise<{
-  weddingId: string | null;
+  weddingId: string;
   createdJobs: string[];
   notified: number;
 }> {
-  // Ensure a pending wedding exists so jobs can attach to it.
+  if (!proposal?.id) {
+    throw new Error("Save the proposal first");
+  }
+
+  // Ensure a pending wedding exists so jobs can attach to it. Throws if the
+  // insert fails — never silently return null.
   const weddingId = await ensureWeddingForProposal(proposal.id);
+  if (!weddingId) {
+    throw new Error(
+      "Could not create the wedding record for this proposal. Please try again or contact support.",
+    );
+  }
 
   // Determine which roles to create.
   const videoNeeded = packageIncludesVideo(proposal);
@@ -56,14 +66,11 @@ export async function requestCoverage(
   const notes = payload?.notes || "";
 
   // Fetch existing jobs for this wedding.
-  let existing: any[] = [];
-  if (weddingId) {
-    const { data } = await supabase
-      .from("jobs")
-      .select("id, role, status, contractor_id, coverage_request")
-      .eq("wedding_id", weddingId);
-    existing = data || [];
-  }
+  const { data: existingData } = await supabase
+    .from("jobs")
+    .select("id, role, status, contractor_id, coverage_request")
+    .eq("wedding_id", weddingId);
+  const existing: any[] = existingData || [];
 
   const hasOpenRole = (regex: RegExp) =>
     existing.some(
@@ -90,60 +97,72 @@ export async function requestCoverage(
     });
   }
 
-  if (weddingId) {
-    for (const r of rolesToCreate) {
-      // Never post a job with pay_rate 0.
-      if (r.payRate <= 0) continue;
-      const { data, error } = await supabase
+  for (const r of rolesToCreate) {
+    // Never post a job with pay_rate 0.
+    if (r.payRate <= 0) continue;
+    const { data, error } = await supabase
+      .from("jobs")
+      .insert({
+        wedding_id: weddingId,
+        role: r.role,
+        status: "open",
+        pay_rate: r.payRate,
+        hours: r.hours || null,
+        contractor_id: null,
+        coverage_request: true,
+        proposal_id: proposal.id,
+        requirements: notes || null,
+      })
+      .select()
+      .single();
+    if (error) {
+      throw new Error(
+        `Failed to create ${r.role} job: ${error.message || JSON.stringify(error)}`,
+      );
+    }
+    if (data) createdJobs.push(data.id);
+  }
+
+  // Mark any already-existing photo/video jobs as coverage requests too.
+  if (existing.length) {
+    const ids = existing
+      .filter(
+        (j) =>
+          /photo|video/.test(String(j.role || "").toLowerCase()) &&
+          j.status !== "cancelled" &&
+          j.coverage_request !== true,
+      )
+      .map((j) => j.id);
+    if (ids.length) {
+      await supabase
         .from("jobs")
-        .insert({
-          wedding_id: weddingId,
-          role: r.role,
-          status: "open",
-          pay_rate: r.payRate,
-          hours: r.hours || null,
-          contractor_id: null,
+        .update({
           coverage_request: true,
           proposal_id: proposal.id,
-          requirements: notes || null,
+          ...(notes ? { requirements: notes } : {}),
         })
-        .select()
-        .single();
-      if (!error && data) {
-        createdJobs.push(data.id);
-      }
+        .in("id", ids);
     }
+  }
 
-    // Mark any already-existing photo/video jobs as coverage requests too.
-    if (existing.length) {
-      const ids = existing
-        .filter(
-          (j) =>
-            /photo|video/.test(String(j.role || "").toLowerCase()) &&
-            j.status !== "cancelled" &&
-            j.coverage_request !== true,
-        )
-        .map((j) => j.id);
-      if (ids.length) {
-        await supabase
-          .from("jobs")
-          .update({
-            coverage_request: true,
-            proposal_id: proposal.id,
-            ...(notes ? { requirements: notes } : {}),
-          })
-          .in("id", ids);
-      }
-    }
+  // If no new jobs were created and there is no existing open photo/video job,
+  // something went wrong — surface it instead of a lying success toast.
+  const hasExistingOpen = existing.some(
+    (j) =>
+      /photo|video/.test(String(j.role || "").toLowerCase()) &&
+      j.status !== "cancelled",
+  );
+  if (createdJobs.length === 0 && !hasExistingOpen) {
+    throw new Error("No jobs created — check pay rate and region.");
+  }
 
-    // If a region was chosen, stamp it on the wedding so sendJobAlerts filters
-    // contractors by that region.
-    if (payload?.region) {
-      await supabase
-        .from("weddings")
-        .update({ region: payload.region })
-        .eq("id", weddingId);
-    }
+  // If a region was chosen, stamp it on the wedding so sendJobAlerts filters
+  // contractors by that region.
+  if (payload?.region) {
+    await supabase
+      .from("weddings")
+      .update({ region: payload.region })
+      .eq("id", weddingId);
   }
 
   // Stamp the proposal.

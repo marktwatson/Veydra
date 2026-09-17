@@ -25,7 +25,7 @@ import { supabase } from "@/lib/supabase";
 import { api } from "@/lib/api";
 import { checkCustomPlanBalance } from "@/lib/custom-plan-balance";
 import CustomPlanBalanceIndicator from "@/components/CustomPlanBalanceIndicator";
-import { ProposalCoverageBlock } from "@/components/ProposalCoverageBlock";
+import { CreateProposalCoverageBlock } from "@/components/CreateProposalCoverageBlock";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Loader2, ChevronRight, Save, ArrowLeft } from "lucide-react";
 import { needsCoverage } from "@/lib/coverage";
@@ -100,6 +100,7 @@ export default function CreateProposal() {
     savedProposal,
     loadCoverageState,
     handleCreateProposal,
+    saveDraft,
   } = useCreateProposal();
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -860,21 +861,14 @@ export default function CreateProposal() {
 
           <div className="space-y-6">
             {shortNotice && (
-              <ProposalCoverageBlock
-                proposal={{
-                  id: id,
-                  wedding_date: formData.weddingDate,
-                  coverage_type: formData.coverageType,
-                  addons: formData.addons,
-                  second_shooter_type: formData.secondShooterType,
-                  city: formData.city,
-                  coverage_confirmed_at: coverageConfirmed
-                    ? new Date().toISOString()
-                    : null,
-                }}
-                onChanged={() => {
-                  if (id) loadCoverageState(id);
-                }}
+              <CreateProposalCoverageBlock
+                id={id}
+                savedProposal={savedProposal}
+                formData={formData}
+                coverageConfirmed={coverageConfirmed}
+                loadCoverageState={loadCoverageState}
+                saveDraft={saveDraft}
+                createArgs={createArgs}
               />
             )}
             <Card className="sticky top-8">

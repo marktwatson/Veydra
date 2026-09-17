@@ -38,6 +38,96 @@ export function useCreateProposal() {
     }
   };
 
+  // Insert-or-update the proposal and return the saved row. Does NOT
+  // navigate or open the share modal — used by the coverage flow so the
+  // yellow card can request coverage against a real proposal id.
+  const saveDraft = async (args: CreateProposalArgs) => {
+    const {
+      id,
+      upgradeWeddingId,
+      formData,
+      customItems,
+      totalPrice,
+      amountPaidSoFar,
+    } = args;
+
+    let snapshotTemplate: string | null = null;
+    try {
+      const { data: settingsData } = await supabase
+        .from("portal_settings")
+        .select("wedding_contract_template")
+        .single();
+      if (settingsData && (settingsData as any).wedding_contract_template) {
+        snapshotTemplate = (settingsData as any).wedding_contract_template;
+      }
+    } catch (e) {
+      console.warn("Could not fetch wedding_contract_template snapshot:", e);
+    }
+
+    const payload = {
+      client_name: formData.clientName,
+      client_email: formData.clientEmail,
+      client_phone: formData.clientPhone,
+      partner_name: formData.partnerName,
+      wedding_date: formData.weddingDate,
+      is_lgbtq: formData.isLgbtq,
+      venue: formData.venue,
+      venue_address: formData.venueAddress,
+      city: formData.city,
+      state: formData.state,
+      coverage_type: formData.coverageType,
+      package_id: formData.packageId,
+      addons: formData.addons,
+      second_shooter_hours: formData.secondShooterHours,
+      second_shooter_type: formData.secondShooterType,
+      total_amount: totalPrice,
+      notes: formData.notes,
+      custom_prices: {
+        discount: formData.customDiscount,
+        discountType: formData.customDiscountType,
+        items: customItems,
+      },
+      custom_payment_plan: formData.customPaymentPlan.enabled
+        ? {
+            enabled: true,
+            deposit: formData.customPaymentPlan.deposit,
+            installments: formData.customPaymentPlan.installments,
+          }
+        : { enabled: false, deposit: 0, installments: [] },
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      is_upgrade: !!upgradeWeddingId,
+      original_wedding_id: upgradeWeddingId || null,
+      amount_paid_so_far: amountPaidSoFar,
+      ...(snapshotTemplate
+        ? { custom_contract_snapshot: snapshotTemplate }
+        : {}),
+    };
+
+    if (id) {
+      const { data, error } = await supabase
+        .from("proposals")
+        .update(payload)
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw new Error(error.message || JSON.stringify(error));
+      if (!data)
+        throw new Error(
+          "Update returned no data — the row may be blocked by a database policy.",
+        );
+      return data;
+    }
+
+    const { data, error } = await supabase
+      .from("proposals")
+      .insert([payload])
+      .select()
+      .single();
+    if (error) throw new Error(error.message || JSON.stringify(error));
+    if (!data) throw new Error("Proposal insert returned no data.");
+    return data;
+  };
+
   const handleCreateProposal = async (
     args: CreateProposalArgs,
     opts?: { sendAnyway?: boolean },
@@ -86,6 +176,30 @@ export function useCreateProposal() {
 
     setIsSubmitting(true);
     try {
+      // Short-notice + not confirmed: save as draft only. Pay rate / region
+      // are collected inline on the yellow card (ProposalCoverageBlock), not
+      // here. Navigate to the EDIT page for the saved proposal so staff can
+      // fill pay + region and click Request Coverage Now. Do NOT call
+      // requestCoverage here and do NOT jump to the empty coverage tab.
+      if (
+        needsCoverage(formData.weddingDate) &&
+        !coverageConfirmed &&
+        !sendAnyway
+      ) {
+        const saved = await saveDraft(args);
+        setSavedProposal(saved);
+        if (saved?.id) {
+          await loadCoverageState(saved.id);
+        }
+        toast({
+          title: "Proposal saved — awaiting coverage",
+          description:
+            "Fill pay + region on the yellow card, then Request Coverage Now.",
+        });
+        navigate(`/manager/proposals/${saved?.id || ""}`);
+        return;
+      }
+
       let snapshotTemplate: string | null = null;
       try {
         const { data: settingsData } = await supabase
@@ -183,28 +297,11 @@ export function useCreateProposal() {
           `Generated new proposal for ${formData.clientName} ($${totalPrice})`,
         );
 
-        if (
-          needsCoverage(formData.weddingDate) &&
-          !coverageConfirmed &&
-          !sendAnyway
-        ) {
-          // Short-notice + not confirmed: save as draft and leave the couple
-          // on the coverage block. Pay rate / region are collected inline on
-          // the yellow card (ProposalCoverageBlock) — not here. Do NOT open
-          // the bride share modal.
-          toast({
-            title: "Proposal saved — awaiting coverage",
-            description:
-              "Request coverage from the yellow card before sending the link.",
-          });
-          navigate("/manager/proposals?tab=coverage");
-        } else {
-          setShareOpen(true);
-          toast({
-            title: "Proposal Created",
-            description: "The proposal has been successfully generated.",
-          });
-        }
+        setShareOpen(true);
+        toast({
+          title: "Proposal Created",
+          description: "The proposal has been successfully generated.",
+        });
       }
     } catch (err: any) {
       console.error("Error creating proposal:", err);
@@ -232,5 +329,6 @@ export function useCreateProposal() {
     savedProposal,
     loadCoverageState,
     handleCreateProposal,
+    saveDraft,
   };
 }
