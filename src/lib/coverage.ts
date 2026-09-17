@@ -26,9 +26,22 @@ export function needsCoverage(weddingDate: string | null | undefined): boolean {
 export interface CoverageRequirement {
   needsPhoto: boolean;
   needsVideo: boolean;
+  hours: number | null;
+  packageName?: string | null;
 }
 
-/** Determine which roles are required based on package + addons. */
+/** Extract hours from package description or package_details/addons. */
+export function extractCoverageHours(proposal: any): number | null {
+  if (proposal?.hours && Number(proposal.hours) > 0) {
+    return Number(proposal.hours);
+  }
+  const text = `${proposal?.package_desc || ""} ${proposal?.package_description || ""} ${proposal?.notes || ""}`;
+  const match = text.match(/(\d+)\s*(?:hours|hrs|hour)/i);
+  if (match) return parseInt(match[1], 10);
+  return null;
+}
+
+/** Determine which roles and hours are required based on package + addons. */
 export function coverageRequirements(proposal: any): CoverageRequirement {
   const coverage = proposal?.coverage_type;
   const addons: string[] = proposal?.addons || [];
@@ -39,7 +52,13 @@ export function coverageRequirements(proposal: any): CoverageRequirement {
   const needsPhoto = coverage === "photo" || coverage === "both" || !coverage;
   const needsVideo =
     coverage === "video" || coverage === "both" || hasVideoAddon;
-  return { needsPhoto, needsVideo };
+  const hours = extractCoverageHours(proposal);
+  return {
+    needsPhoto,
+    needsVideo,
+    hours,
+    packageName: proposal?.package_name || null,
+  };
 }
 
 /** Whether the package/addons include video (needs a Videographer job). */
@@ -197,7 +216,7 @@ export async function requestCoverage(
       role: "Photographer",
       status: "open",
       pay_rate: 0,
-      hours: null,
+      hours: req.hours || null,
       contractor_id: null,
       coverage_request: true,
       proposal_id: proposalId,
@@ -209,7 +228,7 @@ export async function requestCoverage(
       role: "Videographer",
       status: "open",
       pay_rate: 0,
-      hours: null,
+      hours: req.hours || null,
       contractor_id: null,
       coverage_request: true,
       proposal_id: proposalId,
@@ -302,7 +321,7 @@ async function notifyCoverageContractors(
           body: JSON.stringify({
             contractorId: c.id,
             title: "Coverage request",
-            body: `Short-notice wedding ${dateStr}${city ? " · " + city : ""} — tap Open Jobs to accept.`,
+            body: `Short-notice wedding ${dateStr}${city ? " · " + city : ""}${req.hours ? ` (${req.hours} hrs)` : ""} — tap Open Jobs to accept.`,
             url: "/opportunities",
             tag: `coverage-${weddingId}`,
             category: "coverage",

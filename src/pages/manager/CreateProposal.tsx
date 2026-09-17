@@ -26,8 +26,11 @@ import { api } from "@/lib/api";
 import { checkCustomPlanBalance } from "@/lib/custom-plan-balance";
 import CustomPlanBalanceIndicator from "@/components/CustomPlanBalanceIndicator";
 import ProposalShareModal from "@/components/ProposalShareModal";
+import { ProposalCoverageBlock } from "@/components/ProposalCoverageBlock";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Loader2, ChevronRight, Save, ArrowLeft } from "lucide-react";
+import { needsCoverage } from "@/lib/coverage";
+import { useCreateProposal } from "@/lib/use-create-proposal";
 
 // Fallbacks used while DB data loads or if DB is unreachable
 import {
@@ -51,6 +54,7 @@ export default function CreateProposal() {
       })
       .catch(() => {});
   }, []);
+
   const [formData, setFormData] = useState({
     clientName: "",
     clientEmail: "",
@@ -87,9 +91,15 @@ export default function CreateProposal() {
   });
   const [amountPaidSoFar, setAmountPaidSoFar] = useState(0);
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [proposalLink, setProposalLink] = useState("");
-  const [shareOpen, setShareOpen] = useState(false);
+  const {
+    isSubmitting,
+    proposalLink,
+    shareOpen,
+    setShareOpen,
+    coverageConfirmed,
+    loadCoverageState,
+    handleCreateProposal,
+  } = useCreateProposal();
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -156,6 +166,8 @@ export default function CreateProposal() {
         .single();
 
       if (error) throw error;
+
+      if (id) loadCoverageState(id);
 
       const rawPlan = data.custom_payment_plan;
       const parsedPlan =
@@ -256,6 +268,9 @@ export default function CreateProposal() {
   const customPlanBlocked =
     formData.customPaymentPlan.enabled && !planBalance.balanced;
 
+  const shortNotice = needsCoverage(formData.weddingDate);
+  const coveragePending = shortNotice && !coverageConfirmed;
+
   const handleAddCustomItem = () => {
     if (!newCustomItem.name) return;
     setCustomItems([
@@ -269,155 +284,15 @@ export default function CreateProposal() {
     setCustomItems(customItems.filter((item) => item.id !== id));
   };
 
-  const handleCreateProposal = async () => {
-    if (
-      !formData.clientName ||
-      !formData.clientEmail ||
-      !formData.clientPhone ||
-      !formData.weddingDate ||
-      !formData.city ||
-      !formData.state ||
-      (!formData.packageId && customItems.length === 0)
-    ) {
-      toast({
-        title: "Missing Fields",
-        description:
-          "Please fill out all required fields (name, email, phone, wedding date, city, state) and select a package or add custom items.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (customPlanBlocked) {
-      toast({
-        title: "Custom plan doesn't match total",
-        description:
-          planBalance.short > 0
-            ? `Schedule the remaining $${planBalance.short.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} before saving.`
-            : `Installments exceed the contract by $${planBalance.over.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`,
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      // Snapshot the current wedding contract template from portal_settings at time of creation so existing proposals/contracts never change retroactively
-      let snapshotTemplate: string | null = null;
-      try {
-        const { data: settingsData } = await supabase
-          .from("portal_settings")
-          .select("wedding_contract_template")
-          .single();
-        if (settingsData && (settingsData as any).wedding_contract_template) {
-          snapshotTemplate = (settingsData as any).wedding_contract_template;
-        }
-      } catch (e) {
-        console.warn("Could not fetch wedding_contract_template snapshot:", e);
-      }
-
-      const payload = {
-        client_name: formData.clientName,
-        client_email: formData.clientEmail,
-        client_phone: formData.clientPhone,
-        partner_name: formData.partnerName,
-        wedding_date: formData.weddingDate,
-        is_lgbtq: formData.isLgbtq,
-        venue: formData.venue,
-        venue_address: formData.venueAddress,
-        city: formData.city,
-        state: formData.state,
-        coverage_type: formData.coverageType,
-        package_id: formData.packageId,
-        addons: formData.addons,
-        second_shooter_hours: formData.secondShooterHours,
-        second_shooter_type: formData.secondShooterType,
-        total_amount: totalPrice,
-        notes: formData.notes,
-        custom_prices: {
-          discount: formData.customDiscount,
-          discountType: formData.customDiscountType,
-          items: customItems,
-        },
-        custom_payment_plan: formData.customPaymentPlan.enabled
-          ? {
-              enabled: true,
-              deposit: formData.customPaymentPlan.deposit,
-              installments: formData.customPaymentPlan.installments,
-            }
-          : { enabled: false, deposit: 0, installments: [] },
-        expires_at: new Date(
-          Date.now() + 7 * 24 * 60 * 60 * 1000,
-        ).toISOString(),
-        is_upgrade: !!upgradeWeddingId,
-        original_wedding_id: upgradeWeddingId || null,
-        amount_paid_so_far: amountPaidSoFar,
-        ...(snapshotTemplate
-          ? { custom_contract_snapshot: snapshotTemplate }
-          : {}),
-      };
-
-      if (id) {
-        const { data: updateData, error } = await supabase
-          .from("proposals")
-          .update(payload)
-          .eq("id", id)
-          .select()
-          .single();
-
-        if (error) {
-          console.error("Supabase update error:", JSON.stringify(error));
-          throw new Error(error.message || JSON.stringify(error));
-        }
-        if (!updateData) {
-          throw new Error(
-            "Update returned no data — the row may be blocked by a database policy. Please run the SQL policy fix in Supabase.",
-          );
-        }
-        toast({
-          title: "Proposal Updated",
-          description: "The proposal has been successfully updated.",
-        });
-        api.logAdminActivity(
-          "Proposal Updated",
-          `Updated proposal for ${formData.clientName} ($${totalPrice})`,
-        );
-        navigate("/manager/proposals");
-      } else {
-        const { data, error } = await supabase
-          .from("proposals")
-          .insert([payload])
-          .select()
-          .single();
-
-        if (error) throw error;
-
-        const link = `${window.location.origin}/proposal/${data.id}`;
-        setProposalLink(link);
-        setShareOpen(true);
-        toast({
-          title: "Proposal Created",
-          description: "The proposal has been successfully generated.",
-        });
-        api.logAdminActivity(
-          "Proposal Created",
-          `Generated new proposal for ${formData.clientName} ($${totalPrice})`,
-        );
-      }
-    } catch (err: any) {
-      console.error("Error creating proposal:", err);
-      api.logAdminActivity(
-        "Proposal Error",
-        `Failed to create/update proposal for ${formData.clientName}: ${err.message}`,
-      );
-      toast({
-        title: "Error",
-        description: err.message || "Failed to create proposal.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
+  const createArgs = {
+    id,
+    upgradeWeddingId,
+    formData,
+    customItems,
+    totalPrice,
+    amountPaidSoFar,
+    customPlanBlocked,
+    planBalance,
   };
 
   if (loading) {
@@ -983,6 +858,24 @@ export default function CreateProposal() {
           </div>
 
           <div className="space-y-6">
+            {shortNotice && (
+              <ProposalCoverageBlock
+                proposal={{
+                  id: id,
+                  wedding_date: formData.weddingDate,
+                  coverage_type: formData.coverageType,
+                  addons: formData.addons,
+                  second_shooter_type: formData.secondShooterType,
+                  city: formData.city,
+                  coverage_confirmed_at: coverageConfirmed
+                    ? new Date().toISOString()
+                    : null,
+                }}
+                onChanged={() => {
+                  if (id) loadCoverageState(id);
+                }}
+              />
+            )}
             <Card className="sticky top-8">
               <CardHeader className="bg-muted/30 border-b">
                 <CardTitle className="text-lg">Investment Summary</CardTitle>
@@ -1075,34 +968,77 @@ export default function CreateProposal() {
                   </div>
                 </div>
               </CardContent>
-              <CardFooter className="bg-muted/30 border-t p-6">
-                <Button
-                  onClick={handleCreateProposal}
-                  className="w-full"
-                  size="lg"
-                  disabled={
-                    isSubmitting ||
-                    !formData.clientName ||
-                    !formData.weddingDate ||
-                    (!formData.packageId && customItems.length === 0) ||
-                    customPlanBlocked
-                  }
-                >
-                  {isSubmitting ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : id ? (
-                    <Save className="w-4 h-4 mr-2" />
-                  ) : (
-                    <ChevronRight className="w-4 h-4 mr-2" />
-                  )}
-                  {isSubmitting
-                    ? id
-                      ? "Saving..."
-                      : "Generating..."
-                    : id
-                      ? "Save Changes"
-                      : "Generate Proposal Link"}
-                </Button>
+              <CardFooter className="bg-muted/30 border-t p-6 space-y-2">
+                {shortNotice && !coverageConfirmed && !id ? (
+                  <>
+                    <Button
+                      onClick={() => handleCreateProposal(createArgs)}
+                      className="w-full"
+                      size="lg"
+                      disabled={
+                        isSubmitting ||
+                        !formData.clientName ||
+                        !formData.weddingDate ||
+                        (!formData.packageId && customItems.length === 0) ||
+                        customPlanBlocked
+                      }
+                    >
+                      {isSubmitting ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <ChevronRight className="w-4 h-4 mr-2" />
+                      )}
+                      {isSubmitting
+                        ? "Generating..."
+                        : "Generate & Request Coverage"}
+                    </Button>
+                    <Button
+                      onClick={() =>
+                        handleCreateProposal(createArgs, { sendAnyway: true })
+                      }
+                      variant="outline"
+                      className="w-full"
+                      size="lg"
+                      disabled={
+                        isSubmitting ||
+                        !formData.clientName ||
+                        !formData.weddingDate ||
+                        (!formData.packageId && customItems.length === 0) ||
+                        customPlanBlocked
+                      }
+                    >
+                      Send Anyway
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    onClick={() => handleCreateProposal(createArgs)}
+                    className="w-full"
+                    size="lg"
+                    disabled={
+                      isSubmitting ||
+                      !formData.clientName ||
+                      !formData.weddingDate ||
+                      (!formData.packageId && customItems.length === 0) ||
+                      customPlanBlocked
+                    }
+                  >
+                    {isSubmitting ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : id ? (
+                      <Save className="w-4 h-4 mr-2" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4 mr-2" />
+                    )}
+                    {isSubmitting
+                      ? id
+                        ? "Saving..."
+                        : "Generating..."
+                      : id
+                        ? "Save Changes"
+                        : "Generate Proposal Link"}
+                  </Button>
+                )}
               </CardFooter>
             </Card>
           </div>
@@ -1112,6 +1048,7 @@ export default function CreateProposal() {
         link={proposalLink}
         open={shareOpen}
         onClose={() => setShareOpen(false)}
+        coveragePending={coveragePending}
       />{" "}
     </div>
   );

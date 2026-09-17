@@ -1,7 +1,11 @@
 import { supabase } from "./supabase";
 import { api } from "./api";
 import { ensureWeddingForProposal } from "./proposal-wedding";
-import { packageIncludesVideo, getCoverageStatus } from "./coverage";
+import {
+  packageIncludesVideo,
+  getCoverageStatus,
+  extractCoverageHours,
+} from "./coverage";
 
 /**
  * Request coverage for a proposal's wedding. Creates open jobs for the
@@ -44,6 +48,8 @@ export async function requestCoverage(proposal: any): Promise<{
   if (videoNeeded && !wantsRole("Videographer", /video/))
     rolesToCreate.push("Videographer");
 
+  const coverageHours = extractCoverageHours(proposal);
+
   if (weddingId) {
     for (const role of rolesToCreate) {
       const { data, error } = await supabase
@@ -53,7 +59,7 @@ export async function requestCoverage(proposal: any): Promise<{
           role,
           status: "open",
           pay_rate: 0,
-          hours: null,
+          hours: coverageHours || null,
           contractor_id: null,
           coverage_request: true,
           proposal_id: proposal.id,

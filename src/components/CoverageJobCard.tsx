@@ -75,7 +75,8 @@ export function CoverageJobCard({
           )}
         </div>
         <p className="text-xs text-muted-foreground mt-1">
-          {job.role} · short-notice booking
+          {job.role}
+          {job.hours ? ` (${job.hours} hrs)` : ""} · short-notice booking
         </p>
       </div>
       <Button
