@@ -25,6 +25,7 @@ import { supabase } from "@/lib/supabase";
 import { api } from "@/lib/api";
 import { checkCustomPlanBalance } from "@/lib/custom-plan-balance";
 import CustomPlanBalanceIndicator from "@/components/CustomPlanBalanceIndicator";
+import { CreateProposalModals } from "@/components/CreateProposalModals";
 import ProposalShareModal from "@/components/ProposalShareModal";
 import { ProposalCoverageBlock } from "@/components/ProposalCoverageBlock";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -97,6 +98,9 @@ export default function CreateProposal() {
     shareOpen,
     setShareOpen,
     coverageConfirmed,
+    coverageModalOpen,
+    setCoverageModalOpen,
+    savedProposal,
     loadCoverageState,
     handleCreateProposal,
   } = useCreateProposal();
@@ -1044,12 +1048,18 @@ export default function CreateProposal() {
           </div>
         </div>
       </div>
-      <ProposalShareModal
-        link={proposalLink}
-        open={shareOpen}
-        onClose={() => setShareOpen(false)}
+      <CreateProposalModals
+        savedProposal={savedProposal}
+        formData={formData}
+        coverageModalOpen={coverageModalOpen}
+        setCoverageModalOpen={setCoverageModalOpen}
+        shareOpen={shareOpen}
+        setShareOpen={setShareOpen}
+        proposalLink={proposalLink}
         coveragePending={coveragePending}
-      />{" "}
-    </div>
+        onCoverageDone={() => {
+          if (savedProposal?.id) loadCoverageState(savedProposal.id);
+        }}
+      />
   );
 }
