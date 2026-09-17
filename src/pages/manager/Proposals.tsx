@@ -57,6 +57,7 @@ import {
 } from "@/lib/proposal-tabs";
 import { useProposalsData } from "@/lib/use-proposals-data";
 import { markProposalAsBooked } from "@/lib/mark-proposal-booked";
+import { ProposalSheetActions } from "@/components/ProposalSheetActions";
 
 const PACKAGES = [
   { id: "pearl", name: "Pearl", isArchived: true },
@@ -672,28 +673,14 @@ export default function ManagerProposals() {
                     {detailProposal.notes}
                   </div>
                 )}
-                <div className="flex gap-2 pt-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1"
-                    onClick={() =>
-                      navigate(`/edit-proposal/${detailProposal.id}`)
-                    }
-                  >
-                    <Pencil className="w-4 h-4 mr-1" /> Edit
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1"
-                    onClick={() =>
-                      window.open(`/proposal/${detailProposal.id}`, "_blank")
-                    }
-                  >
-                    <ExternalLink className="w-4 h-4 mr-1" /> Preview
-                  </Button>
-                </div>
+                <ProposalSheetActions
+                  proposal={detailProposal}
+                  onEdit={() => navigate(`/edit-proposal/${detailProposal.id}`)}
+                  onPreview={() =>
+                    window.open(`/proposal/${detailProposal.id}`, "_blank")
+                  }
+                  onRefresh={refresh}
+                />
               </div>
             </>
           )}
