@@ -3,12 +3,14 @@ import { acceptCoverageJob } from "@/lib/coverage";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, Loader2, Users } from "lucide-react";
+import { Loader2, Users } from "lucide-react";
 import { formatDisplayDate } from "@/lib/utils";
 
 /**
  * Renders inside the contractor Open Jobs list for coverage-request jobs.
- * Shows "Coverage request" label and an "I can take this" button.
+ * Shows "Coverage request" label and an "Apply Now" button — same as any
+ * open position. The contractor submits an application; the manager assigns
+ * from the applicants list.
  */
 export function CoverageJobCard({
   job,
@@ -20,12 +22,13 @@ export function CoverageJobCard({
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const accept = useMutation({
+  const apply = useMutation({
     mutationFn: () => acceptCoverageJob(job.id, contractorId),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       queryClient.invalidateQueries({ queryKey: ["openJobs"] });
       queryClient.invalidateQueries({ queryKey: ["opportunities"] });
+      queryClient.invalidateQueries({ queryKey: ["applications"] });
       if (res.alreadyCovered) {
         toast({
           title: "Already covered",
@@ -33,14 +36,15 @@ export function CoverageJobCard({
         });
       } else {
         toast({
-          title: "You're on it",
-          description: "Coverage accepted. The couple can now book.",
+          title: "Application submitted",
+          description:
+            "We'll notify you if you're selected for this assignment.",
         });
       }
     },
     onError: (err: any) => {
       toast({
-        title: "Could not accept",
+        title: "Could not apply",
         description: err.message,
         variant: "destructive",
       });
@@ -82,15 +86,13 @@ export function CoverageJobCard({
       <Button
         size="sm"
         className="h-8 text-xs shrink-0"
-        disabled={accept.isPending}
-        onClick={() => accept.mutate()}
+        disabled={apply.isPending}
+        onClick={() => apply.mutate()}
       >
-        {accept.isPending ? (
+        {apply.isPending ? (
           <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-        ) : (
-          <CheckCircle2 className="h-3 w-3 mr-1" />
-        )}
-        I can take this
+        ) : null}
+        Apply Now
       </Button>
     </div>
   );

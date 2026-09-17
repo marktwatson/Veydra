@@ -92,7 +92,7 @@ export function ProposalCoverageBlock({
       const res = await requestCoverage(proposal);
       toast({
         title: "Coverage requested",
-        description: `Team can accept from Open Jobs. ${res.notified} contractor(s) notified.`,
+        description: `Waiting on applications. ${res.notified} contractor(s) notified.`,
       });
       await load();
       onChanged?.();
@@ -240,8 +240,8 @@ export function ProposalCoverageBlock({
       {!status.confirmed && (
         <div className="space-y-2">
           <p className="text-[11px] text-muted-foreground leading-relaxed">
-            The bride's Sign &amp; Pay button stays locked until these roles are
-            accepted.
+            The bride's Sign &amp; Pay button stays locked until a contractor is
+            assigned. Team can apply from Open Positions.
           </p>
           <Button
             size="sm"
@@ -255,7 +255,7 @@ export function ProposalCoverageBlock({
             ) : (
               <Radio className="h-3.5 w-3.5 mr-2" />
             )}
-            {requesting ? "Notifying Team…" : "Request Coverage Now"}
+            {requesting ? "Requesting…" : "Request Coverage Now"}
           </Button>
         </div>
       )}

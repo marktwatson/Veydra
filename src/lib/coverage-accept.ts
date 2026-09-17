@@ -1,12 +1,11 @@
 import { supabase } from "./supabase";
 
 /**
- * Contractor "I can take this" for a coverage-request job.
+ * Contractor "Apply Now" for a coverage-request job.
  *
- * Sets contractor_id + status "assigned" + accepted_at on the job, creates or
- * updates an assignment row, and stamps coverage_confirmed_at on the linked
- * proposal when all required roles are now covered. First-accept wins: if the
- * job already has a different contractor_id, returns { alreadyCovered: true }.
+ * Inserts an application row (status pending) — same as the normal Open
+ * Positions → Apply flow. Does NOT write contractor_id on the job. Manager
+ * assigns from the applicants list. First-apply does NOT unlock Sign & Pay.
  *
  * Does NOT charge Stripe or create a GHL invoice.
  */
@@ -24,69 +23,38 @@ export async function acceptCoverageJob(
     .eq("id", jobId)
     .single();
   if (!job) throw new Error("Job not found");
-  if (job.contractor_id && job.contractor_id !== contractorId) {
-    return { ok: false, alreadyCovered: true };
-  }
   if (job.status === "cancelled") throw new Error("Job is cancelled");
 
-  const acceptedAt = new Date().toISOString();
-  const { error: jobErr } = await supabase
-    .from("jobs")
-    .update({
-      contractor_id: contractorId,
-      status: "assigned",
-      accepted_at: acceptedAt,
-    })
-    .eq("id", jobId);
-  if (jobErr) {
-    // accepted_at column may be missing on some areas — retry without it
-    const { error: jobErr2 } = await supabase
-      .from("jobs")
-      .update({ contractor_id: contractorId, status: "assigned" })
-      .eq("id", jobId);
-    if (jobErr2) throw jobErr2;
+  // If a manager already assigned someone, it's covered.
+  if (job.contractor_id) {
+    return { ok: false, alreadyCovered: true };
   }
 
-  // Create / update assignment row
-  try {
-    const { data: existingAsg } = await supabase
-      .from("assignments")
-      .select("id")
-      .eq("job_id", jobId)
-      .maybeSingle();
-    if (existingAsg) {
-      await supabase
-        .from("assignments")
-        .update({ contractor_id: contractorId, status: "Assigned" })
-        .eq("id", existingAsg.id);
-    } else {
-      await supabase.from("assignments").insert({
-        job_id: jobId,
-        contractor_id: contractorId,
-        status: "Assigned",
-      });
-    }
-  } catch (e) {
-    console.error("coverage accept assignment insert failed", e);
+  // Check for an existing application by this contractor.
+  const { data: existingApp } = await supabase
+    .from("applications")
+    .select("id, status")
+    .eq("job_id", jobId)
+    .eq("contractor_id", contractorId)
+    .maybeSingle();
+
+  if (existingApp) {
+    return { ok: true, alreadyCovered: false };
   }
 
-  // Confirm coverage on the proposal if all required roles are now covered
-  let coverageConfirmed = false;
-  try {
-    const { maybeConfirmCoverage } = await import("./coverage-request");
-    if (job.proposal_id) {
-      coverageConfirmed = await maybeConfirmCoverage(
-        job.wedding_id,
-        job.proposal_id,
-      );
-    } else if (job.wedding_id) {
-      coverageConfirmed = await maybeConfirmCoverage(job.wedding_id);
-    }
-  } catch (e) {
-    console.error("maybeConfirmCoverage failed", e);
+  // Insert a pending application — manager reviews from the applicants list.
+  const { error: appErr } = await supabase.from("applications").insert({
+    job_id: jobId,
+    contractor_id: contractorId,
+    status: "pending",
+    message: "Coverage request — I'm available for this date.",
+  });
+
+  if (appErr) {
+    throw new Error(appErr.message || "Could not submit application.");
   }
 
-  // Notify staff
+  // Notify staff that an application came in.
   try {
     const { data: contractor } = await supabase
       .from("contractors")
@@ -97,12 +65,12 @@ export async function acceptCoverageJob(
       ? `${contractor.first_name} ${contractor.last_name}`.trim()
       : "A contractor";
     await supabase.from("notifications").insert({
-      title: "Coverage accepted",
-      message: `${name} accepted ${job.role || "coverage"} for a wedding on ${job.wedding_id || ""}`,
+      title: "Coverage application",
+      message: `${name} applied for ${job.role || "coverage"} on a short-notice wedding.`,
       type: "job",
       read: false,
     });
   } catch {}
 
-  return { ok: true, coverageConfirmed };
+  return { ok: true, coverageConfirmed: false };
 }

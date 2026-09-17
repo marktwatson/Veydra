@@ -3,7 +3,12 @@ import { supabase } from "./supabase";
 import { api } from "./api";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
-import { needsCoverage } from "./coverage";
+import {
+  needsCoverage,
+  extractCoverageHours,
+  coverageRequirements,
+} from "./coverage";
+import { requestCoverage } from "./coverage-request";
 
 export interface CreateProposalArgs {
   id?: string | undefined;
@@ -21,7 +26,6 @@ export function useCreateProposal() {
   const [proposalLink, setProposalLink] = useState("");
   const [shareOpen, setShareOpen] = useState(false);
   const [coverageConfirmed, setCoverageConfirmed] = useState(false);
-  const [coverageModalOpen, setCoverageModalOpen] = useState(false);
   const [savedProposal, setSavedProposal] = useState<any>(null);
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -189,14 +193,51 @@ export function useCreateProposal() {
           !coverageConfirmed &&
           !sendAnyway
         ) {
-          // Save as draft, then open the coverage request modal — do NOT
-          // auto-request or open the share modal.
-          setCoverageModalOpen(true);
-          toast({
-            title: "Proposal saved",
-            description:
-              "Short-notice wedding — request coverage before sending the link.",
-          });
+          // Save as draft, then request coverage immediately (no modal).
+          // Pay rate from portal default contractor rate or 0; region from
+          // city/state; hours from the selected package if known.
+          try {
+            const req = coverageRequirements({
+              coverage_type: formData.coverageType,
+              addons: formData.addons,
+              second_shooter_type: formData.secondShooterType,
+              hours: extractCoverageHours({
+                hours: formData.secondShooterHours,
+              }),
+            });
+            const region = [formData.city, formData.state]
+              .filter(Boolean)
+              .join(", ");
+            await requestCoverage(data, {
+              roles: {
+                photo: {
+                  enabled: req.needsPhoto,
+                  payRate: 0,
+                  hours: req.hours || formData.secondShooterHours || 8,
+                },
+                video: {
+                  enabled: req.needsVideo,
+                  payRate: 0,
+                  hours: req.hours || formData.secondShooterHours || 8,
+                },
+              },
+              region,
+              notes: formData.notes || "",
+            });
+            toast({
+              title: "Coverage requested",
+              description:
+                "Waiting on applications. Team can apply from Open Positions.",
+            });
+            setCoverageConfirmed(false);
+          } catch (e: any) {
+            console.error("coverage request failed", e);
+            toast({
+              title: "Coverage request failed",
+              description: e.message || "Could not request coverage.",
+              variant: "destructive",
+            });
+          }
         } else {
           setShareOpen(true);
           toast({
@@ -228,8 +269,6 @@ export function useCreateProposal() {
     setShareOpen,
     coverageConfirmed,
     setCoverageConfirmed,
-    coverageModalOpen,
-    setCoverageModalOpen,
     savedProposal,
     loadCoverageState,
     handleCreateProposal,

@@ -276,7 +276,15 @@ async function notifyCoverageContractors(
   return count;
 }
 
-/** Contractor accepts a coverage job. First-accept wins. */
+/**
+ * Contractor "Apply Now" for a coverage-request job.
+ *
+ * Inserts an application row (status pending) — same as the normal Open
+ * Positions → Apply flow. Does NOT write contractor_id on the job. Manager
+ * assigns from the applicants list. First-apply does NOT unlock Sign & Pay.
+ *
+ * Does NOT charge Stripe or create a GHL invoice.
+ */
 export async function acceptCoverageJob(
   jobId: string,
   contractorId: string,
@@ -290,28 +298,34 @@ export async function acceptCoverageJob(
     .single();
   if (error || !job) throw new Error("Job not found.");
 
+  // If a manager already assigned someone, it's covered.
   if (job.contractor_id) {
     return { ok: false, alreadyCovered: true };
   }
 
-  const { error: updateErr } = await supabase
-    .from("jobs")
-    .update({
-      contractor_id: contractorId,
-      status: "assigned",
-      accepted_at: new Date().toISOString(),
-    })
-    .eq("id", jobId)
-    .eq("contractor_id", null); // race-safe: only if still null
+  // Check for an existing pending application by this contractor.
+  const { data: existingApp } = await supabase
+    .from("applications")
+    .select("id, status")
+    .eq("job_id", jobId)
+    .eq("contractor_id", contractorId)
+    .maybeSingle();
 
-  if (updateErr) {
-    // Likely someone else just took it
-    return { ok: false, alreadyCovered: true };
+  if (existingApp) {
+    return { ok: true, alreadyCovered: false };
   }
 
-  // Check if all required roles are now covered → stamp proposal
-  if (job.proposal_id) {
-    await maybeConfirmCoverage(job.proposal_id, job.wedding_id);
+  // Insert a pending application — manager reviews from the applicants list.
+  const { error: appErr } = await supabase.from("applications").insert({
+    job_id: jobId,
+    contractor_id: contractorId,
+    status: "pending",
+    message: "Coverage request — I'm available for this date.",
+  });
+
+  if (appErr) {
+    // If applications table shape differs, surface the error.
+    throw new Error(appErr.message || "Could not submit application.");
   }
 
   return { ok: true, alreadyCovered: false };
@@ -350,22 +364,8 @@ export async function healCoverageColumns(): Promise<void> {
       ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS proposal_id uuid;
       ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_requested_at timestamptz;
       ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_confirmed_at timestamptz;
-      CREATE OR REPLACE FUNCTION public.fn_coverage_auto_assign()
-      RETURNS trigger AS $$
-      DECLARE j record;
-      BEGIN
-        SELECT contractor_id, coverage_request INTO j FROM public.jobs WHERE id = NEW.job_id;
-        IF j.coverage_request AND j.contractor_id IS NULL THEN
-          UPDATE public.jobs SET contractor_id = NEW.contractor_id, status = 'assigned', accepted_at = now()
-            WHERE id = NEW.job_id AND contractor_id IS NULL;
-          IF FOUND THEN NEW.status := 'accepted'; END IF;
-        END IF;
-        RETURN NEW;
-      END;
-      $$ LANGUAGE plpgsql SECURITY DEFINER;
       DROP TRIGGER IF EXISTS trg_coverage_auto_assign ON public.applications;
-      CREATE TRIGGER trg_coverage_auto_assign BEFORE INSERT ON public.applications
-        FOR EACH ROW EXECUTE FUNCTION public.fn_coverage_auto_assign();
+      DROP FUNCTION IF EXISTS public.fn_coverage_auto_assign();
       NOTIFY pgrst, 'reload schema';
     `;
     await supabase.rpc("exec_sql", { sql_text: sql });

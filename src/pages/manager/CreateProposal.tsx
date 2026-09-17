@@ -97,8 +97,6 @@ export default function CreateProposal() {
     shareOpen,
     setShareOpen,
     coverageConfirmed,
-    coverageModalOpen,
-    setCoverageModalOpen,
     savedProposal,
     loadCoverageState,
     handleCreateProposal,
@@ -1033,8 +1031,6 @@ export default function CreateProposal() {
       <CreateProposalModals
         savedProposal={savedProposal}
         formData={formData}
-        coverageModalOpen={coverageModalOpen}
-        setCoverageModalOpen={setCoverageModalOpen}
         shareOpen={shareOpen}
         setShareOpen={setShareOpen}
         proposalLink={proposalLink}
