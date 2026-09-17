@@ -203,6 +203,14 @@ const App = () => {
                   }
                 />
                 <Route
+                  path="/manager/proposals/:id"
+                  element={
+                    <Mgr>
+                      <CreateProposal />
+                    </Mgr>
+                  }
+                />
+                <Route
                   path="/manager/positions"
                   element={
                     <Mgr>

@@ -451,9 +451,7 @@ export default function ManagerProposals() {
                                   variant="ghost"
                                   size="icon"
                                   onClick={() =>
-                                    navigate(
-                                      `/manager/proposals/${proposal.id}`,
-                                    )
+                                    navigate(`/edit-proposal/${proposal.id}`)
                                   }
                                   title="Edit Proposal"
                                 >
@@ -676,9 +674,7 @@ export default function ManagerProposals() {
                 )}
                 <ProposalSheetActions
                   proposal={detailProposal}
-                  onEdit={() =>
-                    navigate(`/manager/proposals/${detailProposal.id}`)
-                  }
+                  onEdit={() => navigate(`/edit-proposal/${detailProposal.id}`)}
                   onPreview={() =>
                     window.open(`/proposal/${detailProposal.id}`, "_blank")
                   }
