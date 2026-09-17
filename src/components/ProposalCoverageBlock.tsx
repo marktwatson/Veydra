@@ -81,9 +81,7 @@ export function ProposalCoverageBlock({
   const [status, setStatus] = useState<CoverageStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [requesting, setRequesting] = useState(false);
-  const [requested, setRequested] = useState(false);
   const { toast } = useToast();
-  // navigate removed — state 2 renders inline, no redirect needed.
 
   // Inline fields
   const [photoPay, setPhotoPay] = useState("");
@@ -97,25 +95,6 @@ export function ProposalCoverageBlock({
     setLoading(true);
     const s = await getCoverageStatus(weddingId, proposal);
     setStatus(s);
-    // State 2: requested if coverage_requested_at is set OR any coverage
-    // job exists for this proposal/wedding.
-    let hasCoverageJob = false;
-    if (weddingId) {
-      const { data: covJobs } = await supabase
-        .from("jobs")
-        .select("id, coverage_request, proposal_id")
-        .eq("wedding_id", weddingId)
-        .in("role", [
-          "Photographer",
-          "Videographer",
-          "Lead Photographer",
-          "Lead Videographer",
-        ]);
-      hasCoverageJob = (covJobs || []).some(
-        (j) => j.coverage_request || j.proposal_id === proposal?.id,
-      );
-    }
-    setRequested(!!proposal?.coverage_requested_at || hasCoverageJob);
     setLoading(false);
   };
 
@@ -129,8 +108,16 @@ export function ProposalCoverageBlock({
     proposal?.coverage_type,
     proposal?.package_id,
     proposal?.coverage_requested_at,
+    proposal?.coverage_confirmed_at,
     JSON.stringify(proposal?.addons || []),
   ]);
+
+  // Derive state 2 from status.jobs — no separate query needed.
+  const alreadyRequested =
+    !!proposal?.coverage_requested_at ||
+    (status?.jobs || []).some(
+      (j) => j.coverage_request || j.proposal_id === proposal?.id,
+    );
 
   if (loading || !status) return null;
   if (!status.required) return null;
@@ -172,7 +159,7 @@ export function ProposalCoverageBlock({
   }
 
   // STATE 2 — requested, waiting for applicants
-  if (requested) {
+  if (alreadyRequested) {
     return (
       <div className="rounded-xl border border-amber-300/80 bg-amber-50/70 dark:bg-amber-950/20 p-4 shadow-sm space-y-3.5">
         <div className="flex items-center justify-between gap-2 flex-wrap">

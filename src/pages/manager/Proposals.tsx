@@ -427,13 +427,11 @@ export default function ManagerProposals() {
                                 variant="ghost"
                                 size="sm"
                                 className="text-xs"
-                                onClick={() =>
-                                  navigate(`/edit-proposal/${proposal.id}`)
-                                }
-                                title="Manage coverage / applicants"
+                                onClick={() => setDetailProposal(proposal)}
+                                title="Review coverage / applicants"
                               >
                                 <Users className="w-4 h-4 mr-1" />
-                                Manage
+                                Review
                               </Button>
                             ) : (
                               <>
@@ -453,7 +451,9 @@ export default function ManagerProposals() {
                                   variant="ghost"
                                   size="icon"
                                   onClick={() =>
-                                    navigate(`/edit-proposal/${proposal.id}`)
+                                    navigate(
+                                      `/manager/proposals/${proposal.id}`,
+                                    )
                                   }
                                   title="Edit Proposal"
                                 >
@@ -676,7 +676,9 @@ export default function ManagerProposals() {
                 )}
                 <ProposalSheetActions
                   proposal={detailProposal}
-                  onEdit={() => navigate(`/edit-proposal/${detailProposal.id}`)}
+                  onEdit={() =>
+                    navigate(`/manager/proposals/${detailProposal.id}`)
+                  }
                   onPreview={() =>
                     window.open(`/proposal/${detailProposal.id}`, "_blank")
                   }
