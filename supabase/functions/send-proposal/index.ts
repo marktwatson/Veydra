@@ -40,6 +40,10 @@ ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS sent_count int DEFAULT 0;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_requested_at timestamptz;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_confirmed_at timestamptz;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS proposal_expiry_days integer DEFAULT 2;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS phone text;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_api_key text;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_location_id text;
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS contract_status text;
 NOTIFY pgrst, 'reload schema';
 `;
 
@@ -124,13 +128,25 @@ Deno.serve(async (req) => {
     proposal.status === "paid" ||
     proposal.status === "upcoming";
 
-  // Load portal settings.
-  const { data: pSettings } = await db
+  // Load portal settings. Try the full select first; on error, fall back to
+  // only the critical columns so a missing phone/company_name column doesn't
+  // make hl_api_key look empty and skip CRM.
+  const settingsCols = "hl_api_key, hl_location_id, company_name, app_url, phone, proposal_expiry_days";
+  let pSettings: any = null;
+  const { data: pSettingsFull, error: pSettingsErr } = await db
     .from("portal_settings")
-    .select(
-      "hl_api_key, hl_location_id, company_name, app_url, phone, proposal_expiry_days",
-    )
+    .select(settingsCols)
     .maybeSingle();
+  if (pSettingsErr) {
+    console.warn("[send-proposal] full settings select failed, falling back to minimal columns:", pSettingsErr?.message);
+    const { data: pSettingsMinimal } = await db
+      .from("portal_settings")
+      .select("hl_api_key, hl_location_id, company_name, app_url, proposal_expiry_days")
+      .maybeSingle();
+    pSettings = pSettingsMinimal;
+  } else {
+    pSettings = pSettingsFull;
+  }
 
   const hlApiKey = (pSettings?.hl_api_key || "").trim();
   const hlLocationId = (pSettings?.hl_location_id || "").trim();
