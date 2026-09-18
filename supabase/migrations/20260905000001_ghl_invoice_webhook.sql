@@ -14,6 +14,7 @@ ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_confirmed_at time
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS sent_at timestamptz;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS expires_at timestamptz;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS sent_count int DEFAULT 0;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS proposal_expiry_days integer DEFAULT 2;
 DROP TRIGGER IF EXISTS trg_coverage_auto_assign ON public.applications;
 DROP FUNCTION IF EXISTS public.fn_coverage_auto_assign();
 

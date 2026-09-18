@@ -3,6 +3,7 @@ import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
 import { ClockSchedulerSection } from "@/components/ClockSchedulerCard";
 import { InvoiceLinkDomainCard } from "@/components/InvoiceLinkDomainCard";
 import { OffPlatformPaymentCard } from "@/components/OffPlatformPaymentCard";
+import { ProposalSendSettingsCard } from "@/components/ProposalSendSettingsCard";
 import {
   Card,
   CardContent,
@@ -4292,6 +4293,7 @@ export default function ManagerSettings() {
             />
 
             <OffPlatformPaymentCard />
+            <ProposalSendSettingsCard />
 
             <Card className="md:col-span-2 max-w-3xl">
               <CardHeader>

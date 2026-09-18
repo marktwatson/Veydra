@@ -90,9 +90,11 @@ export default function ProposalShareModal({
     setSending(true);
     try {
       const result = await sendProposalToClient(proposalId);
+      const n = result.expiry_days || 2;
+      const dayLabel = `${n} day${n === 1 ? "" : "s"}`;
       toast({
         title: "Sent to client",
-        description: `Email + SMS sent. 48-hour clock started.${
+        description: `Email + SMS sent. ${dayLabel} review clock started.${
           result.expires_at
             ? ` Expires ${new Date(result.expires_at).toLocaleString()}`
             : ""
@@ -119,8 +121,8 @@ export default function ProposalShareModal({
           <DialogHeader>
             <DialogTitle>Proposal Created</DialogTitle>
             <DialogDescription>
-              Send to the client to start the 48-hour review clock, or copy the
-              link.
+              Send to the client to start the review clock, or copy the link.
+              Expiry is set in Settings → Proposal send.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -186,8 +188,8 @@ export default function ProposalShareModal({
             <AlertDialogDescription asChild>
               <div className="space-y-2">
                 <span>
-                  This emails + texts the proposal link and starts a 48-hour
-                  review clock.
+                  This emails + texts the proposal link and starts the review
+                  clock.
                 </span>
                 {(clientEmail || clientPhone) && (
                   <div className="text-xs text-muted-foreground">
@@ -196,8 +198,7 @@ export default function ProposalShareModal({
                   </div>
                 )}
                 <span className="block text-xs">
-                  Most proposals expire in 48 hours. Need more time? Contact
-                  your manager.
+                  Need more time? Contact your manager.
                 </span>
               </div>
             </AlertDialogDescription>
@@ -216,7 +217,7 @@ export default function ProposalShareModal({
               ) : (
                 <Send className="w-4 h-4 mr-2" />
               )}
-              Start 48-hour clock
+              Start review clock
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

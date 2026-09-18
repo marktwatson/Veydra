@@ -10,6 +10,7 @@ export interface SendProposalResult {
   message?: any;
   error?: string;
   expired?: boolean;
+  expiry_days?: number;
 }
 
 /**

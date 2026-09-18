@@ -135,7 +135,7 @@ export function ProposalSheetActions({
               disabled={sending}
               onClick={() => handleSend({ extend: true })}
             >
-              <Clock className="w-3 h-3 mr-1" /> Extend 48h
+              <Clock className="w-3 h-3 mr-1" /> Extend
             </Button>
           </div>
         )}
@@ -158,7 +158,7 @@ export function ProposalSheetActions({
             disabled={sending}
             onClick={() => handleSend({ extend: true })}
           >
-            <Clock className="w-4 h-4 mr-2" /> Extend 48 hours
+            <Clock className="w-4 h-4 mr-2" /> Extend deadline
           </Button>
         )}
       </div>

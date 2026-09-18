@@ -61,6 +61,7 @@ ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS accept_cashapp BOOLE
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS cashapp_cashtag TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS accept_zelle BOOLEAN DEFAULT false;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS zelle_target TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS proposal_expiry_days integer DEFAULT 2;
 CREATE TABLE IF NOT EXISTS public.payment_manual_adjustments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   wedding_id uuid NOT NULL,

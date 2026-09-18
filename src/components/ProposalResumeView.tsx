@@ -52,7 +52,7 @@ export function ProposalResumeView({
   const [creating, setCreating] = useState(false);
   const [changing, setChanging] = useState(false);
 
-  // ---- expired: proposal sent + past 48h, not booked ----
+  // ---- expired: proposal sent + past expires_at, not booked ----
   if (resume.state === "expired") {
     return (
       <div className="p-8 md:p-12 text-center space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -63,8 +63,8 @@ export function ProposalResumeView({
           This proposal has expired
         </h2>
         <p className="text-muted-foreground max-w-md mx-auto">
-          The 48-hour review window for this proposal has passed. Sign &amp; Pay
-          is currently unavailable. Please contact your studio to request an
+          The review window for this proposal has passed. Sign &amp; Pay is
+          currently unavailable. Please contact your studio to request an
           extension or a revised proposal.
         </p>
       </div>

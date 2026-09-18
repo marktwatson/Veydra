@@ -39,6 +39,7 @@ ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS expires_at timestamptz;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS sent_count int DEFAULT 0;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_requested_at timestamptz;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_confirmed_at timestamptz;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS proposal_expiry_days integer DEFAULT 2;
 NOTIFY pgrst, 'reload schema';
 `;
 
@@ -127,7 +128,7 @@ Deno.serve(async (req) => {
   const { data: pSettings } = await db
     .from("portal_settings")
     .select(
-      "hl_api_key, hl_location_id, company_name, app_url, phone",
+      "hl_api_key, hl_location_id, company_name, app_url, phone, proposal_expiry_days",
     )
     .maybeSingle();
 
@@ -136,6 +137,10 @@ Deno.serve(async (req) => {
   const companyName = pSettings?.company_name || "Veydra";
   const appUrl = (pSettings?.app_url || "").trim();
   const companyPhone = pSettings?.phone || "";
+
+  // Expiry is a setting (default 2 days), clamped to 1–30.
+  const expiryDays = Math.min(30, Math.max(1, Number(pSettings?.proposal_expiry_days) || 2));
+  const expiryHours = expiryDays * 24;
 
   const publicUrl = `${appUrl || supabaseUrl.replace(".supabase.co", "") || "https://veydra.app"}/proposal/${proposal.id}`;
 
@@ -147,9 +152,9 @@ Deno.serve(async (req) => {
   const isExpired =
     alreadySent && existingExpires && now > existingExpires && !isBooked;
 
-  // EXTEND path: push expires_at to now + 48h, optionally resend.
+  // EXTEND path: push expires_at to now + (expiryDays * 24h), optionally resend.
   if (extend) {
-    const newExpires = addHours(now, 48);
+    const newExpires = addHours(now, expiryHours);
     const patch: any = { expires_at: newExpires.toISOString() };
     if (resend) patch.sent_count = (proposal.sent_count || 0) + 1;
     await db.from("proposals").update(patch).eq("id", proposalId);
@@ -163,6 +168,7 @@ Deno.serve(async (req) => {
           companyName,
           companyPhone,
           publicUrl,
+          expiryDays,
         });
       } catch (e: any) {
         console.warn("[send-proposal] extend resend failed:", e?.message);
@@ -176,6 +182,7 @@ Deno.serve(async (req) => {
       expires_at: newExpires.toISOString(),
       sent_count: proposal.sent_count || 0,
       publicUrl,
+      expiry_days: expiryDays,
     });
   }
 
@@ -184,7 +191,7 @@ Deno.serve(async (req) => {
     return jsonResp(
       {
         error:
-          "This proposal has expired. Extend the deadline (adds 48 hours) or revise the package.",
+          `This proposal has expired. Extend the deadline (adds ${expiryDays} day${expiryDays === 1 ? "" : "s"}) or revise the package.`,
         expired: true,
         expires_at: existingExpires?.toISOString(),
       },
@@ -197,7 +204,7 @@ Deno.serve(async (req) => {
   const patch: any = {};
   if (isFirstSend) {
     patch.sent_at = now.toISOString();
-    patch.expires_at = addHours(now, 48).toISOString();
+    patch.expires_at = addHours(now, expiryHours).toISOString();
     patch.sent_count = 1;
   } else if (resend) {
     // Resend while not expired: do NOT move expires_at.
@@ -212,6 +219,7 @@ Deno.serve(async (req) => {
       expires_at: existingExpires?.toISOString(),
       sent_count: proposal.sent_count || 0,
       publicUrl,
+      expiry_days: expiryDays,
     });
   }
 
@@ -239,6 +247,7 @@ Deno.serve(async (req) => {
         companyName,
         companyPhone,
         publicUrl,
+        expiryDays,
       });
     } catch (e: any) {
       messageResult = { sent: false, error: e?.message };
@@ -253,6 +262,7 @@ Deno.serve(async (req) => {
     expires_at: patch.expires_at || existingExpires?.toISOString(),
     sent_count: patch.sent_count || proposal.sent_count || 0,
     publicUrl,
+    expiry_days: expiryDays,
     message: messageResult,
   });
 });
@@ -265,6 +275,7 @@ async function sendCrmMessages({
   companyName,
   companyPhone,
   publicUrl,
+  expiryDays,
 }: {
   hlApiKey: string;
   hlLocationId: string;
@@ -272,6 +283,7 @@ async function sendCrmMessages({
   companyName: string;
   companyPhone: string;
   publicUrl: string;
+  expiryDays: number;
 }): Promise<any> {
   const crmHeaders: Record<string, string> = {
     Authorization: `Bearer ${hlApiKey}`,
@@ -336,7 +348,8 @@ async function sendCrmMessages({
     }
   }
 
-  const subject = `Your ${companyName} proposal is ready — 48 hours to review`;
+  const expiryLabel = `${expiryDays} day${expiryDays === 1 ? "" : "s"}`;
+  const subject = `Your ${companyName} proposal is ready — ${expiryLabel} to review`;
   const html = `<!DOCTYPE html>
 <html><body style="font-family:Georgia,serif;background:#faf8f5;padding:24px;">
   <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;border:1px solid #ece4dc;">
@@ -354,7 +367,7 @@ async function sendCrmMessages({
         <a href="${publicUrl}" style="display:inline-block;padding:14px 32px;background:#2b2b2b;color:#fff;text-decoration:none;border-radius:6px;font-size:16px;font-weight:600;">Review, Sign &amp; Pay</a>
       </div>
       <p style="font-size:13px;color:#999;line-height:1.5;border-top:1px solid #ece4dc;padding-top:16px;">
-        Most proposals expire in 48 hours. Need more time? Contact your manager${companyPhone ? ` at ${companyPhone}` : ""}.
+        Most proposals expire in ${expiryLabel}. Need more time? Contact your manager${companyPhone ? ` at ${companyPhone}` : ""}.
       </p>
     </div>
   </div>
@@ -392,7 +405,7 @@ async function sendCrmMessages({
   // SMS via CRM conversations/messages.
   const phoneE164 = toE164(phone);
   if (contactId && phoneE164) {
-    const smsBody = `Hi ${firstName}, your ${companyName} proposal is ready: ${publicUrl} — expires in 48 hours.`;
+    const smsBody = `Hi ${firstName}, your ${companyName} proposal is ready: ${publicUrl} — expires in ${expiryLabel}.`;
     try {
       const smsRes = await fetch(
         "https://services.leadconnectorhq.com/conversations/messages",
