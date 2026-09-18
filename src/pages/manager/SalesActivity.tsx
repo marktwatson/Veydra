@@ -118,14 +118,29 @@ function RowList({
 export default function SalesActivity() {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [emailing, setEmailing] = useState(false);
   const [data, setData] = useState<SalesActivityResult | null>(null);
 
-  const run = async () => {
-    setLoading(true);
+  const run = async (sendEmail = false) => {
+    if (sendEmail) setEmailing(true);
+    else setLoading(true);
     try {
-      const result = await runSalesActivityReport();
+      const result = await runSalesActivityReport({ sendEmail });
       setData(result);
-      if (result.errors.length) {
+      if (sendEmail && result.emailResult) {
+        const sent = result.emailResult.recipients.filter(
+          (r) => r.status === "sent",
+        ).length;
+        const failed = result.emailResult.recipients.length - sent;
+        toast({
+          title: sent > 0 ? "Report emailed" : "Email failed",
+          description:
+            failed > 0
+              ? `${sent} sent, ${failed} failed — see report.`
+              : `Sent to ${sent} recipient(s).`,
+          variant: sent > 0 ? "default" : "destructive",
+        });
+      } else if (result.errors.length) {
         toast({
           title: "Report ran with warnings",
           description: `${result.errors.length} issue(s) — see errors.`,
@@ -140,6 +155,7 @@ export default function SalesActivity() {
       });
     } finally {
       setLoading(false);
+      setEmailing(false);
     }
   };
 
@@ -162,11 +178,19 @@ export default function SalesActivity() {
               Last run: {new Date(data.ranAt).toLocaleString()}
             </span>
           )}
-          <Button onClick={run} disabled={loading}>
+          <Button onClick={() => run(false)} disabled={loading || emailing}>
             <RefreshCw
               className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`}
             />
             {loading ? "Running…" : "Run report"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => run(true)}
+            disabled={loading || emailing || !data}
+          >
+            <Mail className="w-4 h-4 mr-2" />
+            {emailing ? "Sending…" : "Email report"}
           </Button>
         </div>
       </div>
@@ -174,6 +198,9 @@ export default function SalesActivity() {
       {data && (
         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
           <Badge variant="secondary">Pool: {data.poolSize} new leads</Badge>
+          {data.poolSource && (
+            <Badge variant="outline">Source: {data.poolSource}</Badge>
+          )}
           {data.errors.length > 0 && (
             <Badge className="bg-amber-500/10 text-amber-700 border-amber-500/20">
               {data.errors.length} warning(s)
@@ -315,7 +342,7 @@ export default function SalesActivity() {
                   <Phone className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
                   <p className="text-2xl font-semibold">{cm.calls}</p>
                   <p className="text-[11px] text-muted-foreground">
-                    Human calls
+                    Human calls ({cm.callPct}%)
                   </p>
                 </div>
                 <div className="rounded-lg border p-3 text-center">
@@ -341,6 +368,11 @@ export default function SalesActivity() {
 
               <div className="flex flex-wrap gap-2 text-xs">
                 <Badge variant="secondary">Call ratio: {cm.callRatio}</Badge>
+                {cm.contactedLast24h != null && (
+                  <Badge variant="outline">
+                    {cm.contactedLast24h} contacted in 24h
+                  </Badge>
+                )}
                 {cm.emailBlindSpotWarning && (
                   <Badge className="bg-amber-500/10 text-amber-700 border-amber-500/20">
                     <AlertTriangle className="h-3 w-3 mr-1" />
@@ -392,6 +424,54 @@ export default function SalesActivity() {
           </CardHeader>
           <CardContent>
             <RowList rows={data.optedOut} emptyMsg="None" />
+          </CardContent>
+        </Card>
+      )}
+
+      {data?.reportText && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Mail className="h-5 w-5 text-primary" />
+              Report Preview
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <pre className="text-xs whitespace-pre-wrap font-mono bg-muted/30 rounded-lg p-4 max-h-96 overflow-auto">
+              {data.reportText}
+            </pre>
+          </CardContent>
+        </Card>
+      )}
+
+      {data?.emailResult && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm text-muted-foreground">
+              Email Delivery — {data.emailResult.subject}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="text-xs space-y-1">
+              {data.emailResult.recipients.map((r, i) => (
+                <li key={i} className="flex items-center gap-2">
+                  <Badge
+                    variant="outline"
+                    className={
+                      r.status === "sent"
+                        ? "border-green-500/30 text-green-700"
+                        : "border-destructive/30 text-destructive"
+                    }
+                  >
+                    {r.status}
+                  </Badge>
+                  <span className="text-muted-foreground">{r.email}</span>
+                  {r.code && (
+                    <span className="text-muted-foreground">({r.code})</span>
+                  )}
+                </li>
+              ))}
+            </ul>
           </CardContent>
         </Card>
       )}

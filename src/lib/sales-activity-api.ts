@@ -27,14 +27,29 @@ export interface SalesChannelMix {
   manualSms: number;
   email: number;
   automation: number;
+  voicemail?: number;
+  callPct?: number;
   callRatio: number;
+  contactedLast24h?: number;
   automationOnly: SalesActivityRow[];
   emailBlindSpotWarning: boolean;
+}
+
+export interface SalesEmailRecipient {
+  email: string;
+  contactId?: string;
+  status: string;
+  code?: number;
+  body?: string;
+  error?: string;
 }
 
 export interface SalesActivityResult {
   ranAt: string;
   poolSize: number;
+  poolSource?: string;
+  reportText?: string;
+  emailResult?: { subject: string; recipients: SalesEmailRecipient[] } | null;
   priorities: SalesPriority[];
   needsReply: SalesActivityRow[];
   emailBlindSpot: SalesActivityRow[];
@@ -46,7 +61,9 @@ export interface SalesActivityResult {
   error?: string;
 }
 
-export async function runSalesActivityReport(): Promise<SalesActivityResult> {
+export async function runSalesActivityReport(opts?: {
+  sendEmail?: boolean;
+}): Promise<SalesActivityResult> {
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -58,7 +75,7 @@ export async function runSalesActivityReport(): Promise<SalesActivityResult> {
       Authorization: `Bearer ${session?.access_token || supabaseAnonKey}`,
       apikey: supabaseAnonKey,
     },
-    body: JSON.stringify({}),
+    body: JSON.stringify({ sendEmail: opts?.sendEmail ?? false }),
   });
   const result = await response
     .json()
