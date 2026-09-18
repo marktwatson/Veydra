@@ -80,28 +80,78 @@ Deno.serve(async (req) => {
     return jsonResp({ error: "Missing Supabase env" }, 500);
   }
 
+  // Service client for managers + portal_settings lookups.
   const db = createClient(supabaseUrl, serviceKey, {
     global: { headers: { Authorization: `Bearer ${serviceKey}` } },
   });
 
-  // ── Auth: require a logged-in user; only owner / super_admin ──────────
+  // ── Auth: require a logged-in user; only owner / owner_readonly / super_admin ──
+  // Veydra stores role on public.managers, NOT on auth user_metadata.
+  // NOTE: auth.getUser must run on a USER client — never the service client.
   const authHeader = req.headers.get("Authorization") || "";
   const token = authHeader.replace(/^Bearer\s+/i, "").trim();
   if (!token) {
     return jsonResp({ error: "Unauthorized — login required" }, 401);
   }
-  let userRole = "";
+
+  // Separate user client — NO service header. anon key only.
+  const userDb = createClient(supabaseUrl, anonKey);
+
+  let userId = "";
+  let userEmail = "";
   try {
-    const { data: ud, error: ue } = await db.auth.getUser(token);
+    const { data: ud, error: ue } = await userDb.auth.getUser(token);
     if (ue || !ud?.user) {
-      return jsonResp({ error: "Unauthorized — invalid session" }, 401);
+      return jsonResp(
+        {
+          error: "Unauthorized — invalid session",
+          detail: ue?.message || null,
+          tokenLen: token.length,
+          tokenPrefix: token.slice(0, 8),
+        },
+        401,
+      );
     }
-    userRole = String(ud.user.user_metadata?.role || ud.user.app_metadata?.role || "").toLowerCase();
+    userId = ud.user.id;
+    userEmail = ud.user.email || "";
   } catch (e: any) {
     return jsonResp({ error: "Unauthorized — " + (e?.message || "session check failed") }, 401);
   }
-  if (userRole !== "owner" && userRole !== "super_admin") {
-    return jsonResp({ error: "Forbidden — owner or super_admin only" }, 403);
+
+  // managers has NO user_id / auth_id. Columns: id uuid PK, email, role, status.
+  // Match by email first, then by id (UUID only — never pass a role string).
+  const loginEmail = userEmail.trim();
+  let manager: any = null;
+  if (loginEmail) {
+    const { data } = await db
+      .from("managers")
+      .select("id, email, role, status")
+      .ilike("email", loginEmail)
+      .maybeSingle();
+    manager = data;
+  }
+  if (!manager && userId) {
+    const { data } = await db
+      .from("managers")
+      .select("id, email, role, status")
+      .eq("id", userId)
+      .maybeSingle();
+    manager = data;
+  }
+
+  const roleFound = String(manager?.role || "").toLowerCase().trim();
+  const allowed = ["owner", "owner_readonly", "super_admin"];
+  if (!allowed.includes(roleFound)) {
+    return jsonResp(
+      {
+        error: "Forbidden — owner or super_admin only",
+        email: loginEmail,
+        userId,
+        managerRowFound: !!manager,
+        roleFound: roleFound || null,
+      },
+      403,
+    );
   }
 
   // ── Load portal settings ─────────────────────────────────────────────
