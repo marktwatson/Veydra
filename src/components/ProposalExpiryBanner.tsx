@@ -42,10 +42,21 @@ export function ProposalExpiryBanner({
 
   if (!sent || !proposal?.expires_at || isExpired) return null;
 
+  const ms = proposal?.expires_at
+    ? new Date(proposal.expires_at).getTime() - Date.now()
+    : 0;
+  const isUrgent = ms < 2 * 60 * 60 * 1000;
+
   return (
     <div className="mb-6 text-center">
-      <span className="inline-flex items-center gap-2 rounded-full bg-orange-500/10 border border-orange-500/20 px-4 py-2 text-sm text-orange-700 dark:text-orange-300 font-sans">
-        This proposal expires in {remaining}
+      <span
+        className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-sans whitespace-nowrap ${
+          isUrgent
+            ? "bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300"
+            : "bg-orange-500/10 border border-orange-500/20 text-orange-700 dark:text-orange-300"
+        }`}
+      >
+        {remaining}
       </span>
     </div>
   );

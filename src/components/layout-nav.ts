@@ -17,6 +17,7 @@ import {
   Crown,
   Shield,
   GraduationCap,
+  Target,
 } from "lucide-react";
 
 export const contractorNavItems = [
@@ -52,6 +53,11 @@ export const managerNavGroups = [
     label: "Intel & Growth",
     items: [
       { icon: TrendingUp, label: "Intelligence Hub", path: "/manager/growth" },
+      {
+        icon: Target,
+        label: "Sales Activity",
+        path: "/manager/sales-activity",
+      },
     ],
   },
   {

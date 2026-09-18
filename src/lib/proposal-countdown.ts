@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 
 /**
- * Formats the remaining time until `expiresAt` as a compact string.
+ * Formats the remaining time until `expiresAt` as a single-line string.
  * Returns "Expired" when the deadline has passed.
  *
- * Examples: "2d 5h 30m", "5h 12m", "12m", "Expired"
+ * Examples: "1d 23h left", "2h left", "1h 46m left", "46m left", "Expired"
+ * No "Expires in". No minutes when >= 2h. No newlines.
  */
 export function formatRemaining(expiresAt: string | null | undefined): string {
   if (!expiresAt) return "";
@@ -16,12 +17,16 @@ export function formatRemaining(expiresAt: string | null | undefined): string {
   const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
   const minutes = totalMinutes % 60;
 
-  const parts: string[] = [];
-  if (days > 0) parts.push(`${days}d`);
-  if (hours > 0 || days > 0) parts.push(`${hours}h`);
-  parts.push(`${minutes}m`);
-
-  return parts.join(" ");
+  // >= 2 hours: days + hours only (no minutes)
+  if (totalMinutes >= 120) {
+    const parts: string[] = [];
+    if (days > 0) parts.push(`${days}d`);
+    parts.push(`${hours}h`);
+    return `${parts.join(" ")} left`;
+  }
+  // < 2 hours: hours + minutes (or just minutes)
+  if (hours > 0) return `${hours}h ${minutes}m left`;
+  return `${minutes}m left`;
 }
 
 /**

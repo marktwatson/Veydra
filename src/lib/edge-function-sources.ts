@@ -28,6 +28,7 @@ import scheduler from "../../supabase/functions/scheduler/index.ts?raw";
 import ghlInvoice from "../../supabase/functions/ghl-invoice/index.ts?raw";
 import ghlInvoiceWebhook from "../../supabase/functions/ghl-invoice-webhook/index.ts?raw";
 import sendProposal from "../../supabase/functions/send-proposal/index.ts?raw";
+import salesActivity from "../../supabase/functions/sales-activity/index.ts?raw";
 import scheduledJobsSchema from "../../supabase/migrations/20260901000000_scheduled_jobs.sql?raw";
 import pushSchema from "../../supabase/migrations/20260829000001_push_subscriptions.sql?raw";
 import masterSql from "../../supabase/migrations/20260803000000_schema.sql?raw";
@@ -58,6 +59,7 @@ export const EDGE_FUNCTION_SOURCES: Record<string, string> = {
   "ghl-invoice": ghlInvoice,
   "ghl-invoice-webhook": ghlInvoiceWebhook,
   "send-proposal": sendProposal,
+  "sales-activity": salesActivity,
   master_sql: masterSql,
   ghl_invoice_schema: ghlInvoiceSchema,
   scheduled_jobs_schema: scheduledJobsSchema,

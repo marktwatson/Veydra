@@ -407,7 +407,7 @@ export default function ManagerProposals() {
                         </TableCell>
                         <TableCell>{planLabel(proposal)}</TableCell>
                         <TableCell>
-                          <div className="flex flex-col gap-1">
+                          <div className="flex flex-col items-start gap-0.5">
                             {getStatusBadge(proposal)}
                             <ProposalCountdownBadge proposal={proposal} />
                           </div>
@@ -666,7 +666,7 @@ export default function ManagerProposals() {
                   </div>
                   <div>
                     <span className="text-muted-foreground">Status</span>
-                    <div className="mt-0.5 flex flex-col gap-1">
+                    <div className="mt-0.5 flex flex-col items-start gap-0.5">
                       {getStatusBadge(detailProposal)}
                       <ProposalCountdownBadge proposal={detailProposal} />
                     </div>

@@ -47,6 +47,10 @@ export function ProposalSheetActions({
     proposal?.status !== "accepted" &&
     proposal?.status !== "paid" &&
     proposal?.status !== "upcoming";
+  const liveMs = proposal?.expires_at
+    ? new Date(proposal.expires_at).getTime() - Date.now()
+    : 0;
+  const liveUrgent = liveMs > 0 && liveMs < 2 * 60 * 60 * 1000;
 
   const handleSend = async (opts: { resend?: boolean; extend?: boolean }) => {
     if (!proposal?.id) return;
@@ -105,7 +109,9 @@ export function ProposalSheetActions({
 
         {sent && !expired && (
           <div className="flex items-center justify-between rounded-md border border-amber-300/60 bg-amber-50/70 dark:bg-amber-950/20 px-3 py-1.5 text-xs text-amber-800 dark:text-amber-300">
-            <span>Sent · {liveRemaining} left</span>
+            <span className="tabular-nums whitespace-nowrap">
+              {liveRemaining}
+            </span>
             <Button
               variant="ghost"
               size="sm"
