@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { ProposalCountdownBadge } from "@/components/ProposalCountdownBadge";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -405,7 +406,12 @@ export default function ManagerProposals() {
                           ${proposal.total_amount?.toLocaleString()}
                         </TableCell>
                         <TableCell>{planLabel(proposal)}</TableCell>
-                        <TableCell>{getStatusBadge(proposal)}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1">
+                            {getStatusBadge(proposal)}
+                            <ProposalCountdownBadge proposal={proposal} />
+                          </div>
+                        </TableCell>
                         <TableCell>
                           {proposal.viewed_at ? (
                             <span className="text-xs text-muted-foreground">
@@ -660,8 +666,9 @@ export default function ManagerProposals() {
                   </div>
                   <div>
                     <span className="text-muted-foreground">Status</span>
-                    <div className="mt-0.5">
+                    <div className="mt-0.5 flex flex-col gap-1">
                       {getStatusBadge(detailProposal)}
+                      <ProposalCountdownBadge proposal={detailProposal} />
                     </div>
                   </div>
                 </div>

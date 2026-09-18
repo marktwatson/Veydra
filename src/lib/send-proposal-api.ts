@@ -7,10 +7,36 @@ export interface SendProposalResult {
   expires_at?: string;
   sent_count?: number;
   publicUrl?: string;
-  message?: any;
+  message?: {
+    email?: string | null;
+    sms?: string | null;
+    contactId?: string | null;
+    tagStatus?: string;
+  };
+  crmWarning?: string;
   error?: string;
   expired?: boolean;
   expiry_days?: number;
+}
+
+/** Builds the toast description from a send result. */
+export function describeSendResult(result: SendProposalResult): string {
+  const n = result.expiry_days || 2;
+  const dayLabel = `${n} day${n === 1 ? "" : "s"}`;
+  const expires = result.expires_at
+    ? ` Expires ${new Date(result.expires_at).toLocaleString()}`
+    : "";
+  const msg = result.message;
+  const emailOk = msg?.email === "sent";
+  const smsOk = msg?.sms === "sent";
+
+  if (emailOk && smsOk) {
+    return `Email + SMS sent. ${dayLabel} review clock started.${expires}`;
+  }
+  if (result.crmWarning) {
+    return `Clock started. ${result.crmWarning}${expires}`;
+  }
+  return `Clock started. CRM: email=${msg?.email || "n/a"} sms=${msg?.sms || "n/a"} tag=${msg?.tagStatus || "n/a"}${expires}`;
 }
 
 /**

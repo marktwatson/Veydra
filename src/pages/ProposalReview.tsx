@@ -41,6 +41,7 @@ import {
 import { CustomPlanBalanceIndicator } from "@/components/CustomPlanBalanceIndicator";
 import { ProposalContractStep } from "@/components/ProposalContractStep";
 import { ProposalPayStep } from "@/components/ProposalPayStep";
+import { ProposalExpiryBanner } from "@/components/ProposalExpiryBanner";
 
 export default function ProposalReview() {
   const { id } = useParams();
@@ -380,6 +381,14 @@ export default function ProposalReview() {
   return (
     <div className="min-h-screen bg-stone-50 dark:bg-stone-950 py-12 px-4 selection:bg-primary/20 font-serif">
       <div className="max-w-4xl mx-auto">
+        <ProposalExpiryBanner
+          proposal={proposal}
+          isBooked={
+            proposal.status === "accepted" ||
+            proposal.status === "paid" ||
+            proposal.status === "upcoming"
+          }
+        />
         <div className="text-center space-y-6 mb-12">
           <img
             src={branding?.logo_url || DEFAULT_LOGO_URL}

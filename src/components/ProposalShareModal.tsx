@@ -28,7 +28,10 @@ import {
   Loader2,
 } from "lucide-react";
 import { copyToClipboard } from "@/lib/clipboard";
-import { sendProposalToClient } from "@/lib/send-proposal-api";
+import {
+  sendProposalToClient,
+  describeSendResult,
+} from "@/lib/send-proposal-api";
 import { useToast } from "@/hooks/use-toast";
 
 interface Props {
@@ -90,15 +93,9 @@ export default function ProposalShareModal({
     setSending(true);
     try {
       const result = await sendProposalToClient(proposalId);
-      const n = result.expiry_days || 2;
-      const dayLabel = `${n} day${n === 1 ? "" : "s"}`;
       toast({
         title: "Sent to client",
-        description: `Email + SMS sent. ${dayLabel} review clock started.${
-          result.expires_at
-            ? ` Expires ${new Date(result.expires_at).toLocaleString()}`
-            : ""
-        }`,
+        description: describeSendResult(result),
       });
       onSent?.();
       setConfirmOpen(false);

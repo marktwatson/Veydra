@@ -9,9 +9,12 @@ import {
   Loader2,
 } from "lucide-react";
 import { ReviseProposalDialog } from "@/components/ReviseProposalDialog";
-import { sendProposalToClient } from "@/lib/send-proposal-api";
+import {
+  sendProposalToClient,
+  describeSendResult,
+} from "@/lib/send-proposal-api";
+import { useCountdown } from "@/lib/proposal-countdown";
 import { useToast } from "@/hooks/use-toast";
-import { formatDisplayDate } from "@/lib/utils";
 
 /**
  * Renders the Edit + Preview buttons plus "Revise package", "Send to
@@ -35,10 +38,12 @@ export function ProposalSheetActions({
   const { toast } = useToast();
 
   const sent = !!proposal?.sent_at;
+  const { remaining: liveRemaining, isExpired: liveExpired } = useCountdown(
+    sent ? proposal?.expires_at : null,
+  );
   const expired =
     sent &&
-    proposal?.expires_at &&
-    new Date(proposal.expires_at) < new Date() &&
+    liveExpired &&
     proposal?.status !== "accepted" &&
     proposal?.status !== "paid" &&
     proposal?.status !== "upcoming";
@@ -54,9 +59,7 @@ export function ProposalSheetActions({
           : opts.resend
             ? "Re-sent to client"
             : "Sent to client",
-        description: result.expires_at
-          ? `Expires ${new Date(result.expires_at).toLocaleString()}`
-          : undefined,
+        description: describeSendResult(result),
       });
       onRefresh();
     } catch (err: any) {
@@ -102,12 +105,7 @@ export function ProposalSheetActions({
 
         {sent && !expired && (
           <div className="flex items-center justify-between rounded-md border border-amber-300/60 bg-amber-50/70 dark:bg-amber-950/20 px-3 py-1.5 text-xs text-amber-800 dark:text-amber-300">
-            <span>
-              Sent · expires{" "}
-              {proposal.expires_at
-                ? formatDisplayDate(proposal.expires_at)
-                : "—"}
-            </span>
+            <span>Sent · {liveRemaining} left</span>
             <Button
               variant="ghost"
               size="sm"

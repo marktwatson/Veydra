@@ -159,19 +159,31 @@ Deno.serve(async (req) => {
     if (resend) patch.sent_count = (proposal.sent_count || 0) + 1;
     await db.from("proposals").update(patch).eq("id", proposalId);
 
-    if (resend && hlApiKey && hlLocationId && proposal.client_email) {
-      try {
-        await sendCrmMessages({
-          hlApiKey,
-          hlLocationId,
-          proposal,
-          companyName,
-          companyPhone,
-          publicUrl,
-          expiryDays,
-        });
-      } catch (e: any) {
-        console.warn("[send-proposal] extend resend failed:", e?.message);
+    let messageResult: any = { email: null, sms: null, contactId: null, tagStatus: "skipped" };
+    let crmWarning: string | undefined;
+    if (resend) {
+      if (!hlApiKey || !hlLocationId) {
+        crmWarning = "Ovanta API key/location not set — no email/SMS.";
+      } else if (proposal.client_email) {
+        try {
+          messageResult = await sendCrmMessages({
+            hlApiKey,
+            hlLocationId,
+            proposal,
+            companyName,
+            companyPhone,
+            publicUrl,
+            expiryDays,
+          });
+        } catch (e: any) {
+          messageResult = { email: `error:${e?.message}`, sms: null, contactId: null, tagStatus: "error" };
+          console.warn("[send-proposal] extend resend failed:", e?.message);
+        }
+      }
+      const emailOk = messageResult?.email === "sent";
+      const smsOk = messageResult?.sms === "sent";
+      if (!emailOk && !smsOk && !crmWarning) {
+        crmWarning = `CRM: email=${messageResult?.email || "n/a"} sms=${messageResult?.sms || "n/a"} tag=${messageResult?.tagStatus || "n/a"}`;
       }
     }
 
@@ -183,6 +195,13 @@ Deno.serve(async (req) => {
       sent_count: proposal.sent_count || 0,
       publicUrl,
       expiry_days: expiryDays,
+      message: {
+        email: messageResult?.email || null,
+        sms: messageResult?.sms || null,
+        contactId: messageResult?.contactId || null,
+        tagStatus: messageResult?.tagStatus || "skipped",
+      },
+      crmWarning,
     });
   }
 
@@ -237,8 +256,14 @@ Deno.serve(async (req) => {
   }
 
   // Send email + SMS via CRM if configured.
-  let messageResult: any = { sent: false };
-  if (hlApiKey && hlLocationId && proposal.client_email) {
+  let messageResult: any = { sent: false, email: null, sms: null, contactId: null, tagStatus: "skipped" };
+  let crmWarning: string | undefined;
+  if (!hlApiKey || !hlLocationId) {
+    crmWarning = "Ovanta API key/location not set — no email/SMS.";
+    console.warn("[send-proposal]", crmWarning);
+  } else if (!proposal.client_email) {
+    crmWarning = "No client email on the proposal — no email/SMS.";
+  } else {
     try {
       messageResult = await sendCrmMessages({
         hlApiKey,
@@ -250,9 +275,16 @@ Deno.serve(async (req) => {
         expiryDays,
       });
     } catch (e: any) {
-      messageResult = { sent: false, error: e?.message };
+      messageResult = { sent: false, email: `error:${e?.message}`, sms: null, contactId: null, tagStatus: "error" };
       console.warn("[send-proposal] CRM send failed:", e?.message);
     }
+  }
+
+  // If clock started but email AND sms both failed, flag a warning.
+  const emailOk = messageResult?.email === "sent";
+  const smsOk = messageResult?.sms === "sent";
+  if (!emailOk && !smsOk && !crmWarning) {
+    crmWarning = `CRM: email=${messageResult?.email || "n/a"} sms=${messageResult?.sms || "n/a"} tag=${messageResult?.tagStatus || "n/a"}`;
   }
 
   return jsonResp({
@@ -263,7 +295,13 @@ Deno.serve(async (req) => {
     sent_count: patch.sent_count || proposal.sent_count || 0,
     publicUrl,
     expiry_days: expiryDays,
-    message: messageResult,
+    message: {
+      email: messageResult?.email || null,
+      sms: messageResult?.sms || null,
+      contactId: messageResult?.contactId || null,
+      tagStatus: messageResult?.tagStatus || "skipped",
+    },
+    crmWarning,
   });
 });
 
@@ -332,10 +370,11 @@ async function sendCrmMessages({
     }
   }
 
-  // Tag "proposal sent" (idempotent).
+  // Tag "proposal sent" (idempotent). Log status; PUT fallback on 4xx.
+  let tagStatus = "skipped";
   if (contactId) {
     try {
-      await fetch(
+      const tagRes = await fetch(
         `https://services.leadconnectorhq.com/contacts/${contactId}/tags`,
         {
           method: "POST",
@@ -343,8 +382,56 @@ async function sendCrmMessages({
           body: JSON.stringify({ tags: ["proposal sent"] }),
         },
       );
-    } catch (_e) {
-      /* swallow */
+      if (tagRes.ok) {
+        tagStatus = "sent";
+      } else {
+        const tagErrText = await tagRes.text();
+        console.warn(
+          `[send-proposal] tag POST ${tagRes.status}:`,
+          tagErrText.slice(0, 500),
+        );
+        // Fallback: PUT /contacts/{id} with tags appended.
+        if (tagRes.status >= 400 && tagRes.status < 500) {
+          try {
+            const getRes = await fetch(
+              `https://services.leadconnectorhq.com/contacts/${contactId}`,
+              { headers: crmHeaders },
+            );
+            if (getRes.ok) {
+              const cData = await getRes.json();
+              const existingTags: string[] = cData.contact?.tags || [];
+              const merged = Array.from(
+                new Set([...existingTags, "proposal sent"]),
+              );
+              const putRes = await fetch(
+                `https://services.leadconnectorhq.com/contacts/${contactId}`,
+                {
+                  method: "PUT",
+                  headers: crmHeaders,
+                  body: JSON.stringify({ tags: merged }),
+                },
+              );
+              tagStatus = putRes.ok ? "sent-via-put" : `error:${putRes.status}`;
+              if (!putRes.ok) {
+                const putErrText = await putRes.text();
+                console.warn(
+                  `[send-proposal] tag PUT ${putRes.status}:`,
+                  putErrText.slice(0, 500),
+                );
+              }
+            } else {
+              tagStatus = `error:${getRes.status}`;
+            }
+          } catch (e: any) {
+            tagStatus = `error:${e?.message}`;
+          }
+        } else {
+          tagStatus = `error:${tagRes.status}`;
+        }
+      }
+    } catch (e: any) {
+      tagStatus = `error:${e?.message}`;
+      console.warn("[send-proposal] tag failed:", e?.message);
     }
   }
 
@@ -372,8 +459,9 @@ async function sendCrmMessages({
     </div>
   </div>
 </body></html>`;
+  const plainText = `Hi ${firstName}, your ${companyName} wedding proposal is ready for review. Review, sign, and pay here: ${publicUrl}. Most proposals expire in ${expiryLabel}. Need more time? Contact your manager${companyPhone ? ` at ${companyPhone}` : ""}.`;
 
-  const results: any = { email: null, sms: null, contactId };
+  const results: any = { email: null, sms: null, contactId, tagStatus };
 
   // Email via CRM conversations/messages.
   if (contactId) {
@@ -389,23 +477,27 @@ async function sendCrmMessages({
             type: "Email",
             subject,
             html,
+            message: plainText,
           }),
         },
       );
       results.email = emailRes.ok ? "sent" : `error:${emailRes.status}`;
       if (!emailRes.ok) {
         const t = await emailRes.text();
-        console.warn("[send-proposal] email send failed:", t.slice(0, 300));
+        console.warn(
+          `[send-proposal] email send failed ${emailRes.status}:`,
+          t.slice(0, 500),
+        );
       }
     } catch (e: any) {
       results.email = `error:${e?.message}`;
     }
   }
 
-  // SMS via CRM conversations/messages.
+  // SMS via CRM conversations/messages. Field is "message", NOT "body".
   const phoneE164 = toE164(phone);
   if (contactId && phoneE164) {
-    const smsBody = `Hi ${firstName}, your ${companyName} proposal is ready: ${publicUrl} — expires in ${expiryLabel}.`;
+    const smsText = `Hi ${firstName}, your ${companyName} proposal is ready: ${publicUrl} — expires in ${expiryLabel}.`;
     try {
       const smsRes = await fetch(
         "https://services.leadconnectorhq.com/conversations/messages",
@@ -416,11 +508,18 @@ async function sendCrmMessages({
             locationId: hlLocationId,
             contactId,
             type: "SMS",
-            body: smsBody,
+            message: smsText,
           }),
         },
       );
       results.sms = smsRes.ok ? "sent" : `error:${smsRes.status}`;
+      if (!smsRes.ok) {
+        const t = await smsRes.text();
+        console.warn(
+          `[send-proposal] sms send failed ${smsRes.status}:`,
+          t.slice(0, 500),
+        );
+      }
     } catch (e: any) {
       results.sms = `error:${e?.message}`;
     }
