@@ -112,6 +112,7 @@ ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS accept_cashapp BOOLE
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS cashapp_cashtag TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS accept_zelle BOOLEAN DEFAULT false;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS zelle_target TEXT;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS proposal_expiry_days INTEGER DEFAULT 2;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS fb_access_token TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS fb_ad_account_id TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS excluded_campaign_ids TEXT[] DEFAULT '{}';
@@ -784,8 +785,12 @@ ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS contractor_todos JSONB;
 ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS invited_contractors TEXT[];
 ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS coverage_request BOOLEAN DEFAULT false;
 ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS proposal_id UUID;
+ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS contractor_id UUID;
+ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS region TEXT;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_requested_at TIMESTAMPTZ;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_confirmed_at TIMESTAMPTZ;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS sent_count INT DEFAULT 0;
 
 -- 7. Applications
 CREATE TABLE IF NOT EXISTS public.applications (

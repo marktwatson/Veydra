@@ -4140,6 +4140,7 @@ export default function ManagerSettings() {
                   )}
                 </CardContent>
               </Card>
+              <ProposalSendSettingsCard />
             </>
           )}
         </TabsContent>
@@ -4293,7 +4294,6 @@ export default function ManagerSettings() {
             />
 
             <OffPlatformPaymentCard />
-            <ProposalSendSettingsCard />
 
             <Card className="md:col-span-2 max-w-3xl">
               <CardHeader>
