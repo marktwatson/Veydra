@@ -28,8 +28,10 @@ export interface SalesChannelMix {
   email: number;
   automation: number;
   voicemail?: number;
+  total?: number;
   callPct?: number;
   callRatio: number;
+  outreachPct?: number;
   contactedLast24h?: number;
   automationOnly: SalesActivityRow[];
   emailBlindSpotWarning: boolean;
@@ -48,6 +50,7 @@ export interface SalesActivityResult {
   ranAt: string;
   poolSize: number;
   poolSource?: string;
+  companyName?: string;
   reportText?: string;
   emailResult?: { subject: string; recipients: SalesEmailRecipient[] } | null;
   priorities: SalesPriority[];
@@ -61,12 +64,31 @@ export interface SalesActivityResult {
   error?: string;
 }
 
+export interface SalesRecipientChoice {
+  email: string;
+  name?: string;
+  role?: string;
+}
+
 export async function runSalesActivityReport(opts?: {
   sendEmail?: boolean;
+  recipients?: SalesRecipientChoice[];
 }): Promise<SalesActivityResult> {
   const {
     data: { session },
   } = await supabase.auth.getSession();
+
+  let userEmail = session?.user?.email || "";
+  if (!userEmail) {
+    try {
+      const imp = localStorage.getItem("impersonated_user");
+      if (imp) {
+        const parsed = JSON.parse(imp);
+        if (parsed.email) userEmail = parsed.email;
+      }
+    } catch (_e) {}
+  }
+
   const functionUrl = `${supabaseUrl}/functions/v1/sales-activity`;
   const response = await fetch(functionUrl, {
     method: "POST",
@@ -74,8 +96,13 @@ export async function runSalesActivityReport(opts?: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${session?.access_token || supabaseAnonKey}`,
       apikey: supabaseAnonKey,
+      "x-user-email": userEmail,
     },
-    body: JSON.stringify({ sendEmail: opts?.sendEmail ?? false }),
+    body: JSON.stringify({
+      sendEmail: opts?.sendEmail ?? false,
+      recipients: opts?.recipients ?? undefined,
+      callerEmail: userEmail,
+    }),
   });
   const result = await response
     .json()
