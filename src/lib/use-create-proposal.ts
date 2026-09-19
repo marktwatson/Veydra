@@ -3,7 +3,6 @@ import { supabase } from "./supabase";
 import { api } from "./api";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
-import { needsCoverage } from "./coverage";
 
 export interface CreateProposalArgs {
   id?: string | undefined;
@@ -127,11 +126,7 @@ export function useCreateProposal() {
     return data;
   };
 
-  const handleCreateProposal = async (
-    args: CreateProposalArgs,
-    opts?: { sendAnyway?: boolean },
-  ) => {
-    const sendAnyway = opts?.sendAnyway ?? false;
+  const handleCreateProposal = async (args: CreateProposalArgs) => {
     const {
       id,
       upgradeWeddingId,
@@ -175,30 +170,10 @@ export function useCreateProposal() {
 
     setIsSubmitting(true);
     try {
-      // Short-notice + not confirmed: save as draft only. Pay rate / region
-      // are collected inline on the yellow card (ProposalCoverageBlock), not
-      // here. Navigate to the EDIT page for the saved proposal so staff can
-      // fill pay + region and click Request Coverage Now. Do NOT call
-      // requestCoverage here and do NOT jump to the empty coverage tab.
-      if (
-        needsCoverage(formData.weddingDate) &&
-        !coverageConfirmed &&
-        !sendAnyway
-      ) {
-        const saved = await saveDraft(args);
-        setSavedProposal(saved);
-        if (saved?.id) {
-          await loadCoverageState(saved.id);
-        }
-        toast({
-          title: "Proposal saved — awaiting coverage",
-          description:
-            "Fill pay + region on the yellow card, then Request Coverage Now.",
-        });
-        navigate(`/manager/proposals/${saved?.id || ""}`);
-        return;
-      }
-
+      // Coverage is now OPT-IN. Generate no longer branches on daysUntil —
+      // a short-notice proposal that hasn't requested coverage behaves like
+      // a normal proposal: Generate opens the share modal. "Request coverage
+      // first" is a separate secondary action on the builder.
       let snapshotTemplate: string | null = null;
       try {
         const { data: settingsData } = await supabase

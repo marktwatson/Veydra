@@ -123,8 +123,9 @@ export function CoverageApplicants({
           .update({ status: "accepted" })
           .eq("job_id", jobId)
           .eq("contractor_id", contractorId);
-        // Stamp coverage_confirmed_at if all required roles covered
-        await maybeConfirmCoverage(job.wedding_id, proposal?.id);
+        // Stamp coverage_confirmed_at if all required roles covered.
+        // Arg order: (proposalId, weddingId) — never swap.
+        await maybeConfirmCoverage(proposal?.id, job.wedding_id);
       }
       toast({
         title: "Contractor assigned",

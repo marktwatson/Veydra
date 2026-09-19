@@ -15,9 +15,16 @@ export function daysUntilWedding(
   return Math.round((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
 
-/** Short-notice threshold. <= this many days requires coverage first. */
+/** Short-notice threshold (kept for labeling/hints only). No longer a blocker. */
 export const COVERAGE_THRESHOLD_DAYS = 60;
 
+/**
+ * Whether the wedding date falls within the short-notice window.
+ * NOTE: As of the opt-in coverage change this is NOT a blocker — it only
+ * informs UI hints. Generate / Send / Sign & Pay are unlocked unless the
+ * staff explicitly requested coverage (coverage_requested_at set) and it
+ * has not been confirmed (coverage_confirmed_at null).
+ */
 export function needsCoverage(weddingDate: string | null | undefined): boolean {
   const d = daysUntilWedding(weddingDate);
   return d > 0 && d <= COVERAGE_THRESHOLD_DAYS;
@@ -66,9 +73,9 @@ export function packageIncludesVideo(proposal: any): boolean {
   return coverageRequirements(proposal).needsVideo;
 }
 
-/** Whether this proposal's date falls within the short-notice window. */
+/** Whether staff has requested coverage that is not yet confirmed. */
 export function isCoverageRequired(proposal: any): boolean {
-  return needsCoverage(proposal?.wedding_date);
+  return !!proposal?.coverage_requested_at && !proposal?.coverage_confirmed_at;
 }
 
 export interface CoverageStatus {
@@ -121,9 +128,12 @@ export async function getCoverageStatus(
     (j) => /video/i.test(j.role || "") && j.contractor_id,
   );
 
-  const required = isCoverageRequired(proposal);
+  // Coverage is now OPT-IN. It is only "required" (i.e. blocks Sign & Pay)
+  // when staff explicitly requested it (coverage_requested_at set) and it has
+  // not been confirmed yet. The wedding date alone never blocks.
+  const requested = !!proposal?.coverage_requested_at;
+  const required = requested && !proposal?.coverage_confirmed_at;
 
-  // If the proposal date isn't short-notice, coverage is not required.
   if (!required) {
     return {
       required: false,

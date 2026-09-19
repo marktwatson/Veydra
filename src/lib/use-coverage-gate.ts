@@ -1,10 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
-import {
-  needsCoverage,
-  coverageRequirements,
-  healCoverageColumns,
-} from "./coverage";
+import { coverageRequirements, healCoverageColumns } from "./coverage";
 
 export interface CoverageGateStatus {
   required: boolean;
@@ -22,10 +18,10 @@ export interface CoverageGate {
 }
 
 /**
- * Determines whether Sign & Pay should be blocked for a proposal based on
- * short-notice coverage rules:
- * - daysUntil > 60 → not required, never blocked
- * - daysUntil <= 60 and > 0 → blocked until required roles have contractor_id
+ * Determines whether Sign & Pay should be blocked for a proposal.
+ * Coverage is OPT-IN: blocked ONLY when staff explicitly requested
+ * coverage (coverage_requested_at set) AND it is not confirmed
+ * (coverage_confirmed_at null). The wedding date alone never blocks.
  */
 export function useCoverageGate(
   proposal: any,
@@ -41,8 +37,11 @@ export function useCoverageGate(
       try {
         await healCoverageColumns();
 
-        const required = needsCoverage(proposal?.wedding_date);
-        if (!required) {
+        // OPT-IN coverage: only block when staff explicitly requested
+        // coverage (coverage_requested_at set) and it is not confirmed.
+        // The wedding date alone never blocks Sign & Pay.
+        const requested = !!proposal?.coverage_requested_at;
+        if (!requested) {
           if (!cancelled)
             setStatus({
               required: false,
@@ -127,7 +126,11 @@ export function useCoverageGate(
     return () => {
       cancelled = true;
     };
-  }, [proposal?.wedding_date, proposal?.coverage_confirmed_at, weddingId]);
+  }, [
+    proposal?.coverage_requested_at,
+    proposal?.coverage_confirmed_at,
+    weddingId,
+  ]);
 
   const blocked = !loading && !!status?.required && !status.confirmed;
 

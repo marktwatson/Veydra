@@ -1,7 +1,6 @@
 import { useMemo, useEffect, useState } from "react";
 export { ProposalCoverageBlock } from "@/components/ProposalCoverageBlock";
 import { ProposalCoverageBlock } from "@/components/ProposalCoverageBlock";
-import { needsCoverage } from "@/lib/coverage";
 import { supabase } from "@/lib/supabase";
 import type { CreateProposalArgs } from "@/lib/use-create-proposal";
 
@@ -32,7 +31,8 @@ export function CreateProposalCoverageBlock({
   saveDraft: (args: CreateProposalArgs) => Promise<any>;
   createArgs: CreateProposalArgs;
 }) {
-  const shortNotice = needsCoverage(formData.weddingDate);
+  // Coverage is opt-in — available on any proposal, not just short-notice.
+  const shortNotice = true;
 
   // Extra columns that may be missing from savedProposal (e.g. right after
   // insert). Load them from the DB so the block shows state 2, not state 1.

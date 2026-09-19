@@ -25,10 +25,8 @@ import { supabase } from "@/lib/supabase";
 import { api } from "@/lib/api";
 import { checkCustomPlanBalance } from "@/lib/custom-plan-balance";
 import CustomPlanBalanceIndicator from "@/components/CustomPlanBalanceIndicator";
-import { CreateProposalCoverageBlock } from "@/components/CreateProposalCoverageBlock";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Loader2, ChevronRight, Save, ArrowLeft } from "lucide-react";
-import { needsCoverage } from "@/lib/coverage";
 import { useCreateProposal } from "@/lib/use-create-proposal";
 import { CreateProposalModals } from "@/components/CreateProposalModals";
 
@@ -96,11 +94,9 @@ export default function CreateProposal() {
     proposalLink,
     shareOpen,
     setShareOpen,
-    coverageConfirmed,
     savedProposal,
     loadCoverageState,
     handleCreateProposal,
-    saveDraft,
   } = useCreateProposal();
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -269,9 +265,6 @@ export default function CreateProposal() {
   );
   const customPlanBlocked =
     formData.customPaymentPlan.enabled && !planBalance.balanced;
-
-  const shortNotice = needsCoverage(formData.weddingDate);
-  const coveragePending = shortNotice && !coverageConfirmed;
 
   const handleAddCustomItem = () => {
     if (!newCustomItem.name) return;
@@ -860,17 +853,6 @@ export default function CreateProposal() {
           </div>
 
           <div className="space-y-6">
-            {shortNotice && (
-              <CreateProposalCoverageBlock
-                id={id}
-                savedProposal={savedProposal}
-                formData={formData}
-                coverageConfirmed={coverageConfirmed}
-                loadCoverageState={loadCoverageState}
-                saveDraft={saveDraft}
-                createArgs={createArgs}
-              />
-            )}
             <Card className="sticky top-8">
               <CardHeader className="bg-muted/30 border-b">
                 <CardTitle className="text-lg">Investment Summary</CardTitle>
@@ -964,59 +946,33 @@ export default function CreateProposal() {
                 </div>
               </CardContent>
               <CardFooter className="bg-muted/30 border-t flex flex-col gap-2 items-stretch p-6">
-                {shortNotice && !coverageConfirmed && !id ? (
-                  <>
-                    <Button
-                      onClick={() => handleCreateProposal(createArgs)}
-                      className="w-full"
-                      size="lg"
-                      disabled={
-                        isSubmitting ||
-                        !formData.clientName ||
-                        !formData.weddingDate ||
-                        (!formData.packageId && customItems.length === 0) ||
-                        customPlanBlocked
-                      }
-                    >
-                      {isSubmitting ? (
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      ) : (
-                        <ChevronRight className="w-4 h-4 mr-2" />
-                      )}
-                      {isSubmitting
-                        ? "Generating..."
-                        : "Generate & Request Coverage"}
-                    </Button>
-                  </>
-                ) : (
-                  <Button
-                    onClick={() => handleCreateProposal(createArgs)}
-                    className="w-full"
-                    size="lg"
-                    disabled={
-                      isSubmitting ||
-                      !formData.clientName ||
-                      !formData.weddingDate ||
-                      (!formData.packageId && customItems.length === 0) ||
-                      customPlanBlocked
-                    }
-                  >
-                    {isSubmitting ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : id ? (
-                      <Save className="w-4 h-4 mr-2" />
-                    ) : (
-                      <ChevronRight className="w-4 h-4 mr-2" />
-                    )}
-                    {isSubmitting
-                      ? id
-                        ? "Saving..."
-                        : "Generating..."
-                      : id
-                        ? "Save Changes"
-                        : "Generate Proposal Link"}
-                  </Button>
-                )}
+                <Button
+                  onClick={() => handleCreateProposal(createArgs)}
+                  className="w-full"
+                  size="lg"
+                  disabled={
+                    isSubmitting ||
+                    !formData.clientName ||
+                    !formData.weddingDate ||
+                    (!formData.packageId && customItems.length === 0) ||
+                    customPlanBlocked
+                  }
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : id ? (
+                    <Save className="w-4 h-4 mr-2" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 mr-2" />
+                  )}
+                  {isSubmitting
+                    ? id
+                      ? "Saving..."
+                      : "Generating..."
+                    : id
+                      ? "Save Changes"
+                      : "Generate Proposal Link"}
+                </Button>
               </CardFooter>
             </Card>
           </div>
@@ -1028,7 +984,7 @@ export default function CreateProposal() {
         shareOpen={shareOpen}
         setShareOpen={setShareOpen}
         proposalLink={proposalLink}
-        coveragePending={coveragePending}
+        coveragePending={false}
         onCoverageDone={() => {
           if (savedProposal?.id) loadCoverageState(savedProposal.id);
         }}

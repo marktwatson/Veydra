@@ -133,10 +133,10 @@ export function ProposalCoverageBlock({
             </div>
             <div>
               <h4 className="text-sm font-semibold text-foreground">
-                Short-Notice Coverage
+                Coverage
               </h4>
               <p className="text-[11px] text-muted-foreground">
-                Wedding date is within 60 days
+                Team is confirmed for this date
               </p>
             </div>
           </div>
@@ -169,10 +169,10 @@ export function ProposalCoverageBlock({
             </div>
             <div>
               <h4 className="text-sm font-semibold text-foreground">
-                Short-Notice Coverage
+                Coverage
               </h4>
               <p className="text-[11px] text-muted-foreground">
-                Wedding date is within 60 days
+                Waiting on applications
               </p>
             </div>
           </div>
@@ -275,10 +275,10 @@ export function ProposalCoverageBlock({
           </div>
           <div>
             <h4 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
-              Short-Notice Coverage
+              Request Coverage
             </h4>
             <p className="text-[11px] text-muted-foreground">
-              Wedding date is within 60 days
+              Optional — assign a team before sending
             </p>
           </div>
         </div>

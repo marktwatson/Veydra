@@ -22,6 +22,61 @@ ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS contract_status text;
 DROP TRIGGER IF EXISTS trg_coverage_auto_assign ON public.applications;
 DROP FUNCTION IF EXISTS public.fn_coverage_auto_assign();
 
+-- Coverage confirm backstop: when a contractor_id is written onto a
+-- photo/video job (manual assign from Positions), backfill proposal_id from
+-- the wedding's latest non-superseded proposal if missing, then stamp
+-- coverage_confirmed_at on that proposal once all required roles are
+-- assigned. This is the authoritative assign->confirm path; the Realtime
+-- watcher in the app is a backup only. Does NOT auto-send or start the
+-- expiry clock. Does NOT auto-assign from applications.
+CREATE OR REPLACE FUNCTION public.fn_coverage_confirm()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  pid uuid;
+  need_photo boolean;
+  need_video boolean;
+  got_photo boolean;
+  got_video boolean;
+BEGIN
+  IF NEW.contractor_id IS NULL THEN RETURN NEW; END IF;
+  pid := NEW.proposal_id;
+  IF pid IS NULL THEN
+    SELECT p.id INTO pid FROM proposals p
+    WHERE p.wedding_id = NEW.wedding_id
+      AND coalesce(p.status,'') <> 'superseded'
+    ORDER BY p.created_at DESC NULLS LAST
+    LIMIT 1;
+    IF pid IS NOT NULL THEN NEW.proposal_id := pid; END IF;
+  END IF;
+  IF pid IS NULL THEN RETURN NEW; END IF;
+
+  SELECT
+    (coalesce(coverage_type,'both') IN ('photo','both')),
+    (coalesce(coverage_type,'') IN ('video','both'))
+  INTO need_photo, need_video
+  FROM proposals WHERE id = pid;
+
+  SELECT
+    EXISTS (SELECT 1 FROM jobs WHERE wedding_id = NEW.wedding_id
+            AND contractor_id IS NOT NULL AND role ILIKE '%photo%'),
+    EXISTS (SELECT 1 FROM jobs WHERE wedding_id = NEW.wedding_id
+            AND contractor_id IS NOT NULL AND role ILIKE '%video%')
+  INTO got_photo, got_video;
+
+  IF (NOT need_photo OR got_photo) AND (NOT need_video OR got_video) THEN
+    UPDATE proposals
+    SET coverage_confirmed_at = coalesce(coverage_confirmed_at, now())
+    WHERE id = pid AND coverage_confirmed_at IS NULL;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_coverage_confirm ON public.jobs;
+CREATE TRIGGER trg_coverage_confirm
+BEFORE INSERT OR UPDATE OF contractor_id, proposal_id ON public.jobs
+FOR EACH ROW EXECUTE FUNCTION public.fn_coverage_confirm();
+
 
 
 -- GHL invoice webhook + schedule support.

@@ -255,13 +255,17 @@ export async function requestCoverage(
 }
 
 /**
- * Called after a contractor accepts a coverage job. If all required roles
- * now have a contractor_id, stamp coverage_confirmed_at on the proposal so
- * Sign & Pay unlocks.
+ * Called after a contractor is assigned to a coverage job. If all required
+ * roles now have a contractor_id, stamp coverage_confirmed_at on the proposal
+ * so Sign & Pay unlocks.
+ *
+ * Arg order: (proposalId, weddingId) — NEVER swap. proposalId is primary;
+ * weddingId is a fallback used to look up the proposal when proposalId is
+ * missing.
  */
 export async function maybeConfirmCoverage(
-  weddingId: string,
   proposalId?: string | null,
+  weddingId?: string | null,
 ): Promise<boolean> {
   let proposal: any = null;
   if (proposalId) {

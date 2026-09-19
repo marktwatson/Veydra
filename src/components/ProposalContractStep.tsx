@@ -487,13 +487,11 @@ export function ProposalContractStep({
       </div>
       {coverage.blocked && (
         <div className="rounded-sm border border-amber-300/70 bg-amber-50/70 dark:bg-amber-950/20 p-4 text-sm text-amber-800 dark:text-amber-300">
-          <p className="font-medium mb-1">Coverage confirmation required</p>
+          <p className="font-medium mb-1">We're confirming coverage</p>
           <p className="text-xs text-muted-foreground">
-            Your wedding date is coming up soon. Our team is confirming a
-            photographer
-            {coverage.status?.videoNeeded ? " and videographer" : ""} for this
-            date. Sign &amp; Pay will unlock once coverage is confirmed — we'll
-            be in touch shortly.
+            Your manager requested a team member for this date. Sign &amp; Pay
+            will unlock as soon as coverage is confirmed — we'll be in touch
+            shortly.
           </p>
         </div>
       )}

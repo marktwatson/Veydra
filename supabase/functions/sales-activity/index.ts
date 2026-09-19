@@ -6,7 +6,8 @@ import { createClient } from "jsr:@supabase/supabase-js";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-user-email",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
 const json = (b: any, s = 200) =>
