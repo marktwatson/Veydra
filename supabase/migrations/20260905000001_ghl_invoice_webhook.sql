@@ -37,34 +37,30 @@ DECLARE
   need_video boolean;
   got_photo boolean;
   got_video boolean;
+  ctype text;
 BEGIN
   IF NEW.contractor_id IS NULL THEN RETURN NEW; END IF;
   pid := NEW.proposal_id;
   IF pid IS NULL THEN
-    SELECT p.id INTO pid FROM proposals p
+    SELECT p.id INTO pid FROM public.proposals p
     WHERE p.wedding_id = NEW.wedding_id
       AND coalesce(p.status,'') <> 'superseded'
     ORDER BY p.created_at DESC NULLS LAST
     LIMIT 1;
-    IF pid IS NOT NULL THEN NEW.proposal_id := pid; END IF;
+    IF pid IS NOT NULL THEN
+      UPDATE public.jobs SET proposal_id = pid WHERE id = NEW.id AND proposal_id IS NULL;
+    END IF;
   END IF;
   IF pid IS NULL THEN RETURN NEW; END IF;
-
+  SELECT coalesce(coverage_type, 'both') INTO ctype FROM public.proposals WHERE id = pid;
+  need_photo := ctype IN ('photo', 'both');
+  need_video := ctype IN ('video', 'both');
   SELECT
-    (coalesce(coverage_type,'both') IN ('photo','both')),
-    (coalesce(coverage_type,'') IN ('video','both'))
-  INTO need_photo, need_video
-  FROM proposals WHERE id = pid;
-
-  SELECT
-    EXISTS (SELECT 1 FROM jobs WHERE wedding_id = NEW.wedding_id
-            AND contractor_id IS NOT NULL AND role ILIKE '%photo%'),
-    EXISTS (SELECT 1 FROM jobs WHERE wedding_id = NEW.wedding_id
-            AND contractor_id IS NOT NULL AND role ILIKE '%video%')
+    EXISTS (SELECT 1 FROM public.jobs WHERE wedding_id = NEW.wedding_id AND contractor_id IS NOT NULL AND role ILIKE '%photo%'),
+    EXISTS (SELECT 1 FROM public.jobs WHERE wedding_id = NEW.wedding_id AND contractor_id IS NOT NULL AND role ILIKE '%video%')
   INTO got_photo, got_video;
-
   IF (NOT need_photo OR got_photo) AND (NOT need_video OR got_video) THEN
-    UPDATE proposals
+    UPDATE public.proposals
     SET coverage_confirmed_at = coalesce(coverage_confirmed_at, now())
     WHERE id = pid AND coverage_confirmed_at IS NULL;
   END IF;
@@ -74,7 +70,7 @@ $$;
 
 DROP TRIGGER IF EXISTS trg_coverage_confirm ON public.jobs;
 CREATE TRIGGER trg_coverage_confirm
-BEFORE INSERT OR UPDATE OF contractor_id, proposal_id ON public.jobs
+AFTER INSERT OR UPDATE OF contractor_id, proposal_id ON public.jobs
 FOR EACH ROW EXECUTE FUNCTION public.fn_coverage_confirm();
 
 
