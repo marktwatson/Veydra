@@ -58,7 +58,10 @@ import {
 } from "@/lib/proposal-tabs";
 import { useProposalsData } from "@/lib/use-proposals-data";
 import { markProposalAsBooked } from "@/lib/mark-proposal-booked";
-import { ProposalSheetActions } from "@/components/ProposalSheetActions";
+import {
+  ProposalSheetActions,
+  ProposalCoverageBlock,
+} from "@/components/ProposalSheetActions";
 import { CoverageApplicants } from "@/components/CoverageApplicants";
 
 const PACKAGES = [
@@ -561,10 +564,17 @@ export default function ManagerProposals() {
               </SheetHeader>
               <div className="mt-4 space-y-4">
                 {(() => {
-                  const awaiting = isAwaitingCoverage(detailProposal);
-                  if (!awaiting) return null;
                   const w = resolveWedding(detailProposal);
                   const wid = w?.id || detailProposal.wedding_id;
+                  if (detailProposal.coverage_confirmed_at) return null;
+                  if (!detailProposal.coverage_requested_at)
+                    return (
+                      <ProposalCoverageBlock
+                        proposal={detailProposal}
+                        weddingId={wid}
+                        onChanged={refresh}
+                      />
+                    );
                   return (
                     <Card className="bg-amber-500/5 border-amber-500/20">
                       <CardContent className="pt-4 space-y-2">
@@ -573,8 +583,7 @@ export default function ManagerProposals() {
                             Coverage
                           </span>
                           <Badge className="bg-amber-500/10 text-amber-700 border-amber-500/20">
-                            <Users className="h-3 w-3 mr-1" />
-                            Awaiting coverage
+                            <Users className="h-3 w-3 mr-1" /> Awaiting coverage
                           </Badge>
                         </div>
                         {wid ? (
@@ -586,7 +595,7 @@ export default function ManagerProposals() {
                         ) : (
                           <div className="text-sm text-muted-foreground">
                             A contractor must be assigned before the bride can
-                            sign &amp; pay. Review applicants in Positions.
+                            sign &amp; pay.
                           </div>
                         )}
                       </CardContent>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,13 +44,18 @@ export function ProposalCoverageBlock({
   packages: propPackages,
   onChanged,
   ensureSaved,
+  navigateOnRequest,
 }: {
   proposal: any;
   weddingId?: string | null;
   packages?: any[];
   onChanged?: () => void;
   ensureSaved?: () => Promise<any>;
+  /** When true (CreateProposal), navigate to the coverage tab after a
+   * successful request. When false (detail sheet), just refresh in place. */
+  navigateOnRequest?: boolean;
 }) {
+  const navigate = useNavigate();
   const [packages, setPackages] = useState<any[]>(propPackages || []);
   const [regions, setRegions] = useState<string[]>([]);
 
@@ -245,11 +251,13 @@ export function ProposalCoverageBlock({
       });
       toast({
         title: "Coverage requested",
-        description: `Waiting on applications. ${res.notified} contractor(s) notified.`,
+        description: "Assign positions before sending.",
       });
       await load();
       onChanged?.();
-      // Stay on the proposal so the card renders state 2 (waiting).
+      if (navigateOnRequest) {
+        navigate("/manager/proposals?tab=coverage");
+      }
     } catch (e: any) {
       toast({
         title: "Failed to request coverage",

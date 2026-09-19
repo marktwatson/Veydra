@@ -3,6 +3,7 @@ import { supabase } from "./supabase";
 import { api } from "./api";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
+import { requestCoverage } from "./coverage-request";
 
 export interface CreateProposalArgs {
   id?: string | undefined;
@@ -290,6 +291,42 @@ export function useCreateProposal() {
     }
   };
 
+  // Request coverage for the current proposal (opt-in). Saves the draft if
+  // needed so jobs get a real proposal id, then calls requestCoverage. Does
+  // NOT open the share modal or set sent_at/expires_at. Navigates to the
+  // coverage tab so staff can see the awaiting-coverage row.
+  const requestCoverageFromProposal = async (
+    args: CreateProposalArgs,
+    payload?: Parameters<typeof requestCoverage>[1],
+  ) => {
+    setIsSubmitting(true);
+    try {
+      let p = savedProposal;
+      if (!p?.id) {
+        p = await saveDraft(args);
+        setSavedProposal(p);
+      }
+      if (!p?.id) {
+        throw new Error("Save the proposal first");
+      }
+      await requestCoverage(p, payload);
+      if (p.id) await loadCoverageState(p.id);
+      toast({
+        title: "Coverage requested",
+        description: "Assign positions before sending.",
+      });
+      navigate("/manager/proposals?tab=coverage");
+    } catch (e: any) {
+      toast({
+        title: "Failed to request coverage",
+        description: e.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return {
     isSubmitting,
     proposalLink,
@@ -301,5 +338,6 @@ export function useCreateProposal() {
     loadCoverageState,
     handleCreateProposal,
     saveDraft,
+    requestCoverageFromProposal,
   };
 }

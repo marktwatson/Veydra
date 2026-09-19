@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { ProposalOffPlatformReview } from "@/components/ProposalOffPlatformReview";
+export { confirmCoverageOnAssign } from "@/lib/assign-coverage-confirm";
 
 const METHOD_LABELS: Record<string, string> = {
   venmo: "Venmo",

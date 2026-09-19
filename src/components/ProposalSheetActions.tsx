@@ -9,6 +9,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { ReviseProposalDialog } from "@/components/ReviseProposalDialog";
+export { ProposalCoverageBlock } from "@/components/ProposalCoverageBlock";
 import {
   sendProposalToClient,
   describeSendResult,

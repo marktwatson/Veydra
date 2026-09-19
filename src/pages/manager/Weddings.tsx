@@ -139,7 +139,10 @@ import { useBartendingModule } from "@/hooks/use-bartending-module";
 import { ChangePendingBadge } from "@/components/ChangePendingBadge";
 import { WeddingActionsMenu } from "@/components/WeddingActionsMenu";
 import { VIDEO_PRICING, PACKAGES, ADDONS } from "@/lib/wedding-constants";
-import { OffPlatformBadge } from "@/components/OffPlatformBadge";
+import {
+  OffPlatformBadge,
+  confirmCoverageOnAssign,
+} from "@/components/OffPlatformBadge";
 
 // Module-level cache that sub-components can reference; updated by ManagerWeddings on DB load
 let DB_PACKAGES: any[] = PACKAGES;
@@ -1541,6 +1544,9 @@ export function ManageWeddingSheet({
                 contractor_id: job.contractor_id,
                 status: "Upcoming",
               });
+              confirmCoverageOnAssign(currentJobId, job.role, wedding.id).catch(
+                () => {},
+              );
             }
           } else if (existingAssignment) {
             await api.updateAssignmentStatus(

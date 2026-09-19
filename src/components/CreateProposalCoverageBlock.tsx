@@ -22,6 +22,7 @@ export function CreateProposalCoverageBlock({
   loadCoverageState,
   saveDraft,
   createArgs,
+  onChanged,
 }: {
   id?: string;
   savedProposal: any;
@@ -30,6 +31,7 @@ export function CreateProposalCoverageBlock({
   loadCoverageState: (proposalId: string) => Promise<void>;
   saveDraft: (args: CreateProposalArgs) => Promise<any>;
   createArgs: CreateProposalArgs;
+  onChanged?: () => void;
 }) {
   // Coverage is opt-in — available on any proposal, not just short-notice.
   const shortNotice = true;
@@ -122,9 +124,11 @@ export function CreateProposalCoverageBlock({
       proposal={proposal}
       weddingId={weddingId}
       ensureSaved={async () => saveDraft(createArgs)}
+      navigateOnRequest
       onChanged={() => {
         const p = id || savedProposal?.id;
         if (p) loadCoverageState(p);
+        onChanged?.();
       }}
     />
   );
