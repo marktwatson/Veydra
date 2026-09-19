@@ -87,6 +87,9 @@ export interface CoverageStatus {
   needsPhoto: boolean;
   needsVideo: boolean;
   jobs: any[];
+  /** True when staff has NOT requested coverage and it is not confirmed —
+   *  the request form should be shown (opt-in). */
+  showRequestForm: boolean;
 }
 
 /** Short label for a coverage status, or null when coverage isn't required. */
@@ -133,6 +136,7 @@ export async function getCoverageStatus(
   // not been confirmed yet. The wedding date alone never blocks.
   const requested = !!proposal?.coverage_requested_at;
   const required = requested && !proposal?.coverage_confirmed_at;
+  const showRequestForm = !requested && !proposal?.coverage_confirmed_at;
 
   if (!required) {
     return {
@@ -144,6 +148,7 @@ export async function getCoverageStatus(
       needsPhoto: req.needsPhoto,
       needsVideo: req.needsVideo,
       jobs,
+      showRequestForm,
     };
   }
 
@@ -158,6 +163,7 @@ export async function getCoverageStatus(
       needsPhoto: req.needsPhoto,
       needsVideo: req.needsVideo,
       jobs,
+      showRequestForm: false,
     };
   }
 
@@ -176,6 +182,7 @@ export async function getCoverageStatus(
     needsPhoto: req.needsPhoto,
     needsVideo: req.needsVideo,
     jobs,
+    showRequestForm: false,
   };
 }
 

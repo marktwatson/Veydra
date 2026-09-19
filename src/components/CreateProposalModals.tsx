@@ -1,5 +1,6 @@
 import ProposalShareModal from "@/components/ProposalShareModal";
 import { CreateProposalCoverageBlock } from "@/components/CreateProposalCoverageBlock";
+export { CreateProposalFooter } from "@/components/CreateProposalFooter";
 import { supabase } from "@/lib/supabase";
 
 export interface CreateProposalModalsProps {

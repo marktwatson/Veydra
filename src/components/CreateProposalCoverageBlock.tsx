@@ -119,6 +119,20 @@ export function CreateProposalCoverageBlock({
 
   if (!shortNotice) return null;
 
+  // On CreateProposal the request form lives in the footer ("Request coverage
+  // first"). Only render the inline block once coverage has been requested
+  // (state 2 / 3) so staff sees the waiting/covered state without a duplicate
+  // request form.
+  const requestedAt =
+    savedProposal?.coverage_requested_at ??
+    extra?.coverage_requested_at ??
+    null;
+  const confirmedAt =
+    savedProposal?.coverage_confirmed_at ??
+    extra?.coverage_confirmed_at ??
+    (coverageConfirmed ? new Date().toISOString() : null);
+  if (!requestedAt && !confirmedAt) return null;
+
   return (
     <ProposalCoverageBlock
       proposal={proposal}

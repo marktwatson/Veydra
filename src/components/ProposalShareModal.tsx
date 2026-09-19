@@ -63,6 +63,7 @@ export default function ProposalShareModal({
   const [copied, setCopied] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [sending, setSending] = useState(false);
+  const [sentResult, setSentResult] = useState<any>(null);
   const { toast } = useToast();
 
   const handleCopy = async () => {
@@ -93,13 +94,14 @@ export default function ProposalShareModal({
     setSending(true);
     try {
       const result = await sendProposalToClient(proposalId);
+      setSentResult(result);
       toast({
         title: "Sent to client",
         description: describeSendResult(result),
       });
       onSent?.();
       setConfirmOpen(false);
-      onClose();
+      // Keep the modal open so the expiry line is visible after send.
     } catch (err: any) {
       toast({
         title: "Send failed",
@@ -129,6 +131,15 @@ export default function ProposalShareModal({
                 <span>
                   No contractor assigned yet. They won't be able to pay until
                   coverage is confirmed.
+                </span>
+              </div>
+            )}
+            {sentResult?.expires_at && (
+              <div className="flex items-center gap-2 rounded-lg border border-emerald-300/70 bg-emerald-50/70 dark:bg-emerald-950/20 p-3 text-sm text-emerald-800 dark:text-emerald-300">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                <span>
+                  Review clock started · expires{" "}
+                  {new Date(sentResult.expires_at).toLocaleString()}
                 </span>
               </div>
             )}

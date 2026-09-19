@@ -8,7 +8,6 @@ import {
   CardHeader,
   CardTitle,
   CardDescription,
-  CardFooter,
 } from "@/components/ui/card";
 import {
   Select,
@@ -26,9 +25,12 @@ import { api } from "@/lib/api";
 import { checkCustomPlanBalance } from "@/lib/custom-plan-balance";
 import CustomPlanBalanceIndicator from "@/components/CustomPlanBalanceIndicator";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Loader2, ChevronRight, Save, ArrowLeft } from "lucide-react";
+import { Loader2, ArrowLeft } from "lucide-react";
 import { useCreateProposal } from "@/lib/use-create-proposal";
-import { CreateProposalModals } from "@/components/CreateProposalModals";
+import {
+  CreateProposalModals,
+  CreateProposalFooter,
+} from "@/components/CreateProposalModals";
 
 // Fallbacks used while DB data loads or if DB is unreachable
 import {
@@ -97,6 +99,7 @@ export default function CreateProposal() {
     savedProposal,
     loadCoverageState,
     handleCreateProposal,
+    saveDraft,
   } = useCreateProposal();
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -277,17 +280,6 @@ export default function CreateProposal() {
 
   const removeCustomItem = (id: string) => {
     setCustomItems(customItems.filter((item) => item.id !== id));
-  };
-
-  const createArgs = {
-    id,
-    upgradeWeddingId,
-    formData,
-    customItems,
-    totalPrice,
-    amountPaidSoFar,
-    customPlanBlocked,
-    planBalance,
   };
 
   if (loading) {
@@ -945,46 +937,48 @@ export default function CreateProposal() {
                   </div>
                 </div>
               </CardContent>
-              <CardFooter className="bg-muted/30 border-t flex flex-col gap-2 items-stretch p-6">
-                <Button
-                  onClick={() => handleCreateProposal(createArgs)}
-                  className="w-full"
-                  size="lg"
-                  disabled={
-                    isSubmitting ||
-                    !formData.clientName ||
-                    !formData.weddingDate ||
-                    (!formData.packageId && customItems.length === 0) ||
-                    customPlanBlocked
-                  }
-                >
-                  {isSubmitting ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : id ? (
-                    <Save className="w-4 h-4 mr-2" />
-                  ) : (
-                    <ChevronRight className="w-4 h-4 mr-2" />
-                  )}
-                  {isSubmitting
-                    ? id
-                      ? "Saving..."
-                      : "Generating..."
-                    : id
-                      ? "Save Changes"
-                      : "Generate Proposal Link"}
-                </Button>
-              </CardFooter>
+              <CreateProposalFooter
+                id={id}
+                isSubmitting={isSubmitting}
+                formData={formData}
+                customItems={customItems}
+                totalPrice={totalPrice}
+                amountPaidSoFar={amountPaidSoFar}
+                customPlanBlocked={customPlanBlocked}
+                planBalance={planBalance}
+                upgradeWeddingId={upgradeWeddingId}
+                onGenerate={() =>
+                  handleCreateProposal({
+                    id,
+                    upgradeWeddingId,
+                    formData,
+                    customItems,
+                    totalPrice,
+                    amountPaidSoFar,
+                    customPlanBlocked,
+                    planBalance,
+                  })
+                }
+                saveDraft={saveDraft}
+                onCoverageDone={() => {
+                  if (savedProposal?.id) loadCoverageState(savedProposal.id);
+                }}
+              />
             </Card>
           </div>
         </div>
       </div>
       <CreateProposalModals
+        id={id}
         savedProposal={savedProposal}
         formData={formData}
         shareOpen={shareOpen}
         setShareOpen={setShareOpen}
         proposalLink={proposalLink}
-        coveragePending={false}
+        coveragePending={
+          !!savedProposal?.coverage_requested_at &&
+          !savedProposal?.coverage_confirmed_at
+        }
         onCoverageDone={() => {
           if (savedProposal?.id) loadCoverageState(savedProposal.id);
         }}

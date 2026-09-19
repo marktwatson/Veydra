@@ -126,10 +126,9 @@ export function ProposalCoverageBlock({
     );
 
   if (loading || !status) return null;
-  if (!status.required) return null;
 
   // STATE 3 — covered
-  if (status.confirmed) {
+  if (status.confirmed && !status.showRequestForm) {
     return (
       <div className="rounded-xl border border-emerald-300/80 bg-emerald-50/70 dark:bg-emerald-950/20 p-4 shadow-sm space-y-3.5">
         <div className="flex items-center justify-between gap-2 flex-wrap">
