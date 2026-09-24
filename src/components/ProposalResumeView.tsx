@@ -359,17 +359,21 @@ export function ProposalResumeView({
                     installments.unshift({ date: todayStr, amount: deposit });
                 }
               }
-              const isRevised = !isUpgrade && installments.length > 1;
+              // forceNew is ONLY for addon/upgrade. A normal/revised photo
+              // proposal reuses the existing ghl_invoice_url via the edge
+              // function's skipReuse=false path — never forceNew for custom
+              // photography plans (that creates a duplicate invoice).
               const invoice = await createGhlInvoice({
                 weddingId,
                 amount: firstDue,
                 label,
                 kind: isUpgrade ? "addon" : undefined,
-                forceNew: isUpgrade ? true : isRevised ? true : undefined,
+                forceNew: isUpgrade ? true : undefined,
                 installments:
                   isUpgrade && installments.length > 1
                     ? installments
                     : undefined,
+                proposalEmail: proposal?.client_email,
               });
               return { invoiceUrl: invoice.invoiceUrl, firstDue };
             } finally {

@@ -140,18 +140,19 @@ export function ProposalPayStep({
             else installments.unshift({ date: todayStr, amount: deposit });
           }
         }
-        const isRevised = !isUpgrade && installments.length > 1;
+        // forceNew is ONLY for addon/upgrade. A normal/revised photo proposal
+        // must reuse the existing ghl_invoice_url (the edge function handles
+        // skipReuse=false for multi-row plans). Never pass forceNew for a
+        // custom photography plan — that bypasses reuse and creates a dupe.
         const invoice = await createGhlInvoice({
           weddingId: deferred.weddingId,
           amount: deferred.firstDue,
           label: deferred.label,
           kind: isUpgrade ? "addon" : undefined,
-          forceNew: isUpgrade ? true : isRevised ? true : undefined,
-          // Only pass installments on the ADDON/upgrade path. The PHOTO path
-          // rebuilds planRows from wedding.custom_payment_plan in the edge
-          // function — passing them here would make it treat the rows as addon.
+          forceNew: isUpgrade ? true : undefined,
           installments:
             isUpgrade && installments.length > 1 ? installments : undefined,
+          proposalEmail: proposal?.client_email,
         });
         return { invoiceUrl: invoice.invoiceUrl, firstDue: deferred.firstDue };
       }}

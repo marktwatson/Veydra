@@ -255,6 +255,7 @@ export interface DbPortalSettings {
   hl_api_key?: string | null;
   hl_location_id?: string | null;
   hl_user_id?: string | null;
+  hl_proposal_link_field_id?: string | null;
   ghl_invoice_base_url?: string | null;
   fb_access_token?: string | null;
   fb_ad_account_id?: string | null;

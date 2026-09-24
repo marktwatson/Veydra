@@ -35,23 +35,24 @@ const EMPTY: ProposalResume = {
 };
 
 /**
- * Compares the currently-rendered contract HTML in the DOM against the
- * stored `custom_contract_snapshot` on the proposal. If they differ, the
- * contract was changed after signing and the bride should re-sign.
+ * A signed contract only needs re-signing when staff used Revise (which
+ * creates a brand-new proposal row with its own id) — NOT when the live
+ * rendered HTML differs by whitespace/date formatting. We intentionally
+ * do NOT compare innerHTML against custom_contract_snapshot, because
+ * that comparison is fragile and always mismatches.
  *
- * Returns true when the snapshot has changed (pad should re-show).
+ * Returns true only when the proposal itself indicates a revision
+ * (contract_revision integer incremented by staff). For now this is
+ * always false — Revise creates a new proposal id, which is a fresh
+ * record with no contract_signed_at, so it naturally shows the pad.
  */
 function hasContractSnapshotChanged(proposal: any): boolean {
   if (!proposal) return false;
   if (!proposal.contract_signed_at && proposal.contract_status !== "signed")
     return false;
-  // If there's no stored snapshot, we can't compare — assume unchanged.
-  if (!proposal.custom_contract_snapshot) return false;
-  const el = document.querySelector(".contract-content") as HTMLElement | null;
-  if (!el) return false;
-  return (
-    el.innerHTML.trim() !== String(proposal.custom_contract_snapshot).trim()
-  );
+  // Only re-show the pad if staff explicitly bumped contract_revision.
+  const rev = Number(proposal.contract_revision) || 0;
+  return rev > 0;
 }
 
 /**

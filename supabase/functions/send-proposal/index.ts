@@ -43,6 +43,7 @@ ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS proposal_expiry_days
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS phone text;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_api_key text;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_location_id text;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_proposal_link_field_id text;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS contract_status text;
 NOTIFY pgrst, 'reload schema';
 `;
@@ -131,7 +132,7 @@ Deno.serve(async (req) => {
   // Load portal settings. Try the full select first; on error, fall back to
   // only the critical columns so a missing phone/company_name column doesn't
   // make hl_api_key look empty and skip CRM.
-  const settingsCols = "hl_api_key, hl_location_id, company_name, app_url, phone, proposal_expiry_days";
+  const settingsCols = "hl_api_key, hl_location_id, hl_proposal_link_field_id, company_name, app_url, phone, proposal_expiry_days";
   let pSettings: any = null;
   const { data: pSettingsFull, error: pSettingsErr } = await db
     .from("portal_settings")
@@ -141,7 +142,7 @@ Deno.serve(async (req) => {
     console.warn("[send-proposal] full settings select failed, falling back to minimal columns:", pSettingsErr?.message);
     const { data: pSettingsMinimal } = await db
       .from("portal_settings")
-      .select("hl_api_key, hl_location_id, company_name, app_url, proposal_expiry_days")
+      .select("hl_api_key, hl_location_id, hl_proposal_link_field_id, company_name, app_url, proposal_expiry_days")
       .maybeSingle();
     pSettings = pSettingsMinimal;
   } else {
@@ -150,6 +151,7 @@ Deno.serve(async (req) => {
 
   const hlApiKey = (pSettings?.hl_api_key || "").trim();
   const hlLocationId = (pSettings?.hl_location_id || "").trim();
+  const hlProposalLinkFieldId = (pSettings?.hl_proposal_link_field_id || "").trim();
   const companyName = pSettings?.company_name || "Veydra";
   const appUrl = (pSettings?.app_url || "").trim();
   const companyPhone = pSettings?.phone || "";
@@ -185,6 +187,7 @@ Deno.serve(async (req) => {
           messageResult = await sendCrmMessages({
             hlApiKey,
             hlLocationId,
+            hlProposalLinkFieldId,
             proposal,
             companyName,
             companyPhone,
@@ -284,6 +287,7 @@ Deno.serve(async (req) => {
       messageResult = await sendCrmMessages({
         hlApiKey,
         hlLocationId,
+        hlProposalLinkFieldId,
         proposal,
         companyName,
         companyPhone,
@@ -325,6 +329,7 @@ Deno.serve(async (req) => {
 async function sendCrmMessages({
   hlApiKey,
   hlLocationId,
+  hlProposalLinkFieldId,
   proposal,
   companyName,
   companyPhone,
@@ -333,6 +338,7 @@ async function sendCrmMessages({
 }: {
   hlApiKey: string;
   hlLocationId: string;
+  hlProposalLinkFieldId: string;
   proposal: any;
   companyName: string;
   companyPhone: string;
@@ -451,6 +457,43 @@ async function sendCrmMessages({
     }
   }
 
+  // Write the proposal URL onto the contact as a custom field so CRM
+  // workflows can email/SMS that link. Do NOT send tags in this PUT.
+  let linkFieldStatus = "skipped";
+  if (contactId) {
+    if (!hlProposalLinkFieldId) {
+      linkFieldStatus = "no field id";
+    } else {
+      try {
+        const linkRes = await fetch(
+          `https://services.leadconnectorhq.com/contacts/${contactId}`,
+          {
+            method: "PUT",
+            headers: crmHeaders,
+            body: JSON.stringify({
+              customFields: [
+                { id: hlProposalLinkFieldId, field_value: publicUrl },
+              ],
+            }),
+          },
+        );
+        if (linkRes.ok) {
+          linkFieldStatus = "sent";
+        } else {
+          const linkErrText = await linkRes.text();
+          linkFieldStatus = `error:${linkRes.status}`;
+          console.warn(
+            `[send-proposal] custom field PUT ${linkRes.status}:`,
+            linkErrText.slice(0, 300),
+          );
+        }
+      } catch (e: any) {
+        linkFieldStatus = `error:${e?.message}`;
+        console.warn("[send-proposal] custom field PUT failed:", e?.message);
+      }
+    }
+  }
+
   const expiryLabel = `${expiryDays} day${expiryDays === 1 ? "" : "s"}`;
   const subject = `Your ${companyName} proposal is ready — ${expiryLabel} to review`;
   const html = `<!DOCTYPE html>
@@ -477,7 +520,7 @@ async function sendCrmMessages({
 </body></html>`;
   const plainText = `Hi ${firstName}, your ${companyName} wedding proposal is ready for review. Review, sign, and pay here: ${publicUrl}. Most proposals expire in ${expiryLabel}. Need more time? Contact your manager${companyPhone ? ` at ${companyPhone}` : ""}.`;
 
-  const results: any = { email: null, sms: null, contactId, tagStatus };
+  const results: any = { email: null, sms: null, contactId, tagStatus, linkFieldStatus };
 
   // Email via CRM conversations/messages.
   if (contactId) {

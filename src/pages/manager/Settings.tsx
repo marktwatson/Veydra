@@ -490,6 +490,7 @@ export default function ManagerSettings() {
   const [hlApiKey, setHlApiKey] = useState("");
   const [hlLocationId, setHlLocationId] = useState("");
   const [hlUserId, setHlUserId] = useState("");
+  const [hlProposalLinkFieldId, setHlProposalLinkFieldId] = useState("");
   const [hlInvoiceBaseUrl, setHlInvoiceBaseUrl] = useState("");
   const [ghlWebhookSecret, setGhlWebhookSecret] = useState("");
   const [fbAccessToken, setFbAccessToken] = useState("");
@@ -1980,6 +1981,8 @@ export default function ManagerSettings() {
           if (settings.hl_api_key) setHlApiKey(settings.hl_api_key);
           if (settings.hl_location_id) setHlLocationId(settings.hl_location_id);
           if (settings.hl_user_id) setHlUserId(settings.hl_user_id);
+          if (settings.hl_proposal_link_field_id)
+            setHlProposalLinkFieldId(settings.hl_proposal_link_field_id);
           if (settings.ghl_invoice_base_url)
             setHlInvoiceBaseUrl(settings.ghl_invoice_base_url);
           if (settings.ghl_webhook_secret)
@@ -2514,6 +2517,7 @@ export default function ManagerSettings() {
         hl_api_key: hlApiKey || null,
         hl_location_id: hlLocationId || null,
         hl_user_id: hlUserId || null,
+        hl_proposal_link_field_id: hlProposalLinkFieldId || null,
         fb_access_token: fbAccessToken || null,
         ghl_invoice_base_url: hlInvoiceBaseUrl || null,
         fb_ad_account_id: fbAdAccountId || null,
@@ -4234,11 +4238,25 @@ export default function ManagerSettings() {
                     onChange={(e) => setHlUserId(e.target.value)}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Required to send invoices. If blank, the system will look it
-                    up automatically.
+                    Required to send invoices. If blank, looked up
+                    automatically.
                   </p>
                 </div>
-
+                <div className="grid gap-2 pt-4 border-t mt-2">
+                  <Label htmlFor="hl-proposal-link-field-id">
+                    Proposal Link field ID
+                  </Label>
+                  <Input
+                    id="hl-proposal-link-field-id"
+                    placeholder="Custom field id for the proposal URL"
+                    value={hlProposalLinkFieldId}
+                    onChange={(e) => setHlProposalLinkFieldId(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    GHL custom field id for the proposal URL. Create a Contact
+                    text field named Proposal Link and paste its id.
+                  </p>
+                </div>
                 <div className="flex gap-2 mt-4">
                   <Button
                     onClick={handleSaveIntegrations}

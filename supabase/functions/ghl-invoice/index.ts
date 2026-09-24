@@ -82,7 +82,7 @@ Deno.serve(async (req) => {
       return jsonResp({ error: "Invalid JSON body" }, 400);
     }
 
-    const { weddingId, amount, label, action, kind, installments, forceNew } = body;
+    const { weddingId, amount, label, action, kind, installments, forceNew, proposalEmail } = body;
     if (!weddingId) {
       return jsonResp({ error: "Missing weddingId" }, 400);
     }
@@ -112,15 +112,13 @@ Deno.serve(async (req) => {
       return jsonResp({ error: "Wedding not found", weddingId }, 404);
     }
 
-    const email =
-      wedding.client_email ||
-      wedding.questionnaire_data?.contact_info?.email;
-    if (!email) {
-      return jsonResp(
-        { error: "Client email is missing on this wedding record." },
-        400,
-      );
-    }
+    const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+    const pe = (proposalEmail || "").trim().toLowerCase();
+    const we = (wedding.client_email || "").trim().toLowerCase();
+    const qe = (wedding.questionnaire_data?.contact_info?.email || "").trim().toLowerCase();
+    const email = pe && EMAIL_RE.test(pe) ? pe : we && EMAIL_RE.test(we) ? we : qe && EMAIL_RE.test(qe) ? qe : "";
+    if (!email) return jsonResp({ error: "Client email on the wedding is invalid", email: we || pe || qe || null }, 400);
+    if (we && !EMAIL_RE.test(we)) { try { await db.from("weddings").update({ client_email: email }).eq("id", weddingId); } catch (_e) {} }
 
     const rawPhone =
       wedding.client_phone ||
@@ -371,9 +369,10 @@ Deno.serve(async (req) => {
     }
 
     // 2b. Idempotency — reuse today's draft/sent invoice for same amount.
-    // Skip reuse for multi-row plans, addons, and forceNew (never resurrect
-    // the photography invoice or an old firstDue-only draft).
-    const skipReuse = hasMultiPlan || isAddon || forceNew;
+    // Skip reuse ONLY for addons and explicit forceNew. Multi-row photography
+    // plans must reuse today's invoice / existing url so a returning bride
+    // never gets a second invoice. hasMultiPlan alone does NOT skip reuse.
+    const skipReuse = isAddon || forceNew;
     const today = ymd(0);
     const existingId = wedding.ghl_invoice_id;
     const existingAmount = Number(wedding.ghl_invoice_amount);

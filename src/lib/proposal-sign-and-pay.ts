@@ -8,6 +8,7 @@ import { checkCustomPlanBalance } from "./custom-plan-balance";
 export interface ProposalLike {
   id: string;
   client_name: string;
+  client_email?: string;
   total_amount: number;
   amount_paid_so_far?: number;
   is_upgrade?: boolean;
@@ -200,26 +201,27 @@ export async function signAndPayProposal(params: {
   }
 
   // Create the GHL invoice (no Stripe).
-  // Upgrades invoice ONLY the unpaid delta as a SECOND GHL invoice
-  // (kind: "addon", forceNew) so the original photo ghl_invoice_id is
-  // never overwritten. A revised (non-upgrade) photo proposal also needs
-  // forceNew because revise-proposal cleared the old invoice state.
+  // forceNew is ONLY for addon/upgrade invoices (a SECOND GHL invoice for
+  // the unpaid delta). A normal or revised photo proposal must NEVER pass
+  // forceNew — it reuses the existing ghl_invoice_url when present (the
+  // reuse check above already returned if one exists). Multi-row custom
+  // photography plans reuse today's invoice / existing url via the edge
+  // function's skipReuse=false path.
   // NOTE: the edge function PHOTO path rebuilds planRows from
   // wedding.custom_payment_plan — the installments array here is only used
-  // to signal forceNew. Do NOT pass installments on the PHOTO path to avoid
-  // the edge function treating them as addon rows.
-  const isRevised = !proposal.is_upgrade && installments.length > 1;
+  // to signal addon rows. Do NOT pass installments on the PHOTO path.
   try {
     const invoice = await createGhlInvoice({
       weddingId,
       amount: firstDue,
       label,
       kind: proposal.is_upgrade ? "addon" : undefined,
-      forceNew: proposal.is_upgrade ? true : isRevised ? true : undefined,
+      forceNew: proposal.is_upgrade ? true : undefined,
       installments:
         proposal.is_upgrade && installments.length > 1
           ? installments
           : undefined,
+      proposalEmail: proposal.client_email,
     });
     return { invoiceUrl: invoice.invoiceUrl };
   } catch (e: any) {

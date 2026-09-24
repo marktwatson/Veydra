@@ -13,6 +13,7 @@ export async function createGhlInvoice({
   kind,
   installments,
   forceNew,
+  proposalEmail,
 }: {
   weddingId: string;
   amount: number;
@@ -20,6 +21,7 @@ export async function createGhlInvoice({
   kind?: "addon";
   installments?: GhlAddonInstallment[];
   forceNew?: boolean;
+  proposalEmail?: string;
 }) {
   const {
     data: { session },
@@ -39,6 +41,7 @@ export async function createGhlInvoice({
       kind,
       installments,
       forceNew,
+      proposalEmail,
     }),
   });
   const result = await response.json();

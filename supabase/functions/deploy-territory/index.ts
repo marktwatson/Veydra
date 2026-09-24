@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS public.sales_activity_runs (id uuid PRIMARY KEY DEFAU
 ALTER TABLE public.sales_activity_runs ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "sar_auth_all" ON public.sales_activity_runs;
 CREATE POLICY "sar_auth_all" ON public.sales_activity_runs FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE INDEX IF NOT EXISTS idx_sales_activity_runs_ran_at ON public.sales_activity_runs(ran_at);
+CREATE INDEX IF NOT EXISTS idx_sales_activity_runs_ran_at ON public.sales_activity_runs(ran_at); ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_proposal_link_field_id text;
 NOTIFY pgrst, 'reload schema';
 `;
 
