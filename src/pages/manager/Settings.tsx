@@ -4244,17 +4244,16 @@ export default function ManagerSettings() {
                 </div>
                 <div className="grid gap-2 pt-4 border-t mt-2">
                   <Label htmlFor="hl-proposal-link-field-id">
-                    Proposal Link field ID
+                    Proposal Link field key
                   </Label>
                   <Input
                     id="hl-proposal-link-field-id"
-                    placeholder="Custom field id for the proposal URL"
+                    placeholder="contact.proposal_link"
                     value={hlProposalLinkFieldId}
                     onChange={(e) => setHlProposalLinkFieldId(e.target.value)}
                   />
                   <p className="text-xs text-muted-foreground">
-                    GHL custom field id for the proposal URL. Create a Contact
-                    text field named Proposal Link and paste its id.
+                    Same on every area. Default contact.proposal_link.
                   </p>
                 </div>
                 <div className="flex gap-2 mt-4">

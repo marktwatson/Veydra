@@ -151,7 +151,7 @@ Deno.serve(async (req) => {
 
   const hlApiKey = (pSettings?.hl_api_key || "").trim();
   const hlLocationId = (pSettings?.hl_location_id || "").trim();
-  const hlProposalLinkFieldId = (pSettings?.hl_proposal_link_field_id || "").trim();
+  const hlProposalLinkFieldId = (pSettings?.hl_proposal_link_field_id || "contact.proposal_link").trim();
   const companyName = pSettings?.company_name || "Veydra";
   const appUrl = (pSettings?.app_url || "").trim();
   const companyPhone = pSettings?.phone || "";
@@ -459,37 +459,42 @@ async function sendCrmMessages({
 
   // Write the proposal URL onto the contact as a custom field so CRM
   // workflows can email/SMS that link. Do NOT send tags in this PUT.
+  // Try three payload shapes until one returns 2xx (different CRM versions
+  // accept different field-key/value naming).
   let linkFieldStatus = "skipped";
   if (contactId) {
-    if (!hlProposalLinkFieldId) {
-      linkFieldStatus = "no field id";
-    } else {
+    const payloads = [
+      { customFields: [{ key: hlProposalLinkFieldId, fieldValue: publicUrl }] },
+      { customFields: [{ key: hlProposalLinkFieldId, field_value: publicUrl }] },
+      { customFields: [{ id: hlProposalLinkFieldId, fieldValue: publicUrl }] },
+    ];
+    for (let pi = 0; pi < payloads.length; pi++) {
       try {
         const linkRes = await fetch(
           `https://services.leadconnectorhq.com/contacts/${contactId}`,
           {
             method: "PUT",
             headers: crmHeaders,
-            body: JSON.stringify({
-              customFields: [
-                { id: hlProposalLinkFieldId, field_value: publicUrl },
-              ],
-            }),
+            body: JSON.stringify(payloads[pi]),
           },
         );
         if (linkRes.ok) {
           linkFieldStatus = "sent";
-        } else {
-          const linkErrText = await linkRes.text();
+          break;
+        }
+        const linkErrText = await linkRes.text();
+        console.warn(
+          `[send-proposal] custom field PUT payload ${pi + 1} ${linkRes.status}:`,
+          linkErrText.slice(0, 300),
+        );
+        if (pi === payloads.length - 1) {
           linkFieldStatus = `error:${linkRes.status}`;
-          console.warn(
-            `[send-proposal] custom field PUT ${linkRes.status}:`,
-            linkErrText.slice(0, 300),
-          );
         }
       } catch (e: any) {
-        linkFieldStatus = `error:${e?.message}`;
-        console.warn("[send-proposal] custom field PUT failed:", e?.message);
+        console.warn(`[send-proposal] custom field PUT payload ${pi + 1} failed:`, e?.message);
+        if (pi === payloads.length - 1) {
+          linkFieldStatus = `error:${e?.message}`;
+        }
       }
     }
   }
