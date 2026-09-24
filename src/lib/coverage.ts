@@ -466,41 +466,41 @@ export async function healCoverageColumns(): Promise<void> {
         pid := NEW.proposal_id;
         IF pid IS NULL THEN
           SELECT p.id INTO pid FROM public.proposals p
-          WHERE p.wedding_id = wid
+          WHERE p.wedding_id::text = wid::text
             AND coalesce(p.status,'') <> 'superseded'
           ORDER BY p.created_at DESC NULLS LAST
           LIMIT 1;
           IF pid IS NOT NULL THEN
-            UPDATE public.jobs SET proposal_id = pid WHERE id = NEW.id AND proposal_id IS NULL;
+            UPDATE public.jobs SET proposal_id = pid WHERE id::text = NEW.id::text AND proposal_id IS NULL;
           END IF;
         END IF;
         IF pid IS NULL THEN RETURN NEW; END IF;
-        SELECT coalesce(coverage_type, 'both') INTO ctype FROM public.proposals WHERE id = pid;
+        SELECT coalesce(coverage_type, 'both') INTO ctype FROM public.proposals WHERE id::text = pid::text;
         need_photo := ctype IN ('photo', 'both');
         need_video := ctype IN ('video', 'both');
         SELECT
           EXISTS (
             SELECT 1 FROM public.jobs j
-            WHERE j.wedding_id = wid
+            WHERE j.wedding_id::text = wid::text
               AND j.role ILIKE '%photo%'
               AND (
                 j.contractor_id IS NOT NULL
                 OR EXISTS (
                   SELECT 1 FROM public.assignments a
-                  WHERE a.job_id = j.id
+                  WHERE a.job_id::text = j.id::text
                     AND lower(coalesce(a.status,'')) IN ('upcoming','accepted','confirmed','assigned')
                 )
               )
           ),
           EXISTS (
             SELECT 1 FROM public.jobs j
-            WHERE j.wedding_id = wid
+            WHERE j.wedding_id::text = wid::text
               AND j.role ILIKE '%video%'
               AND (
                 j.contractor_id IS NOT NULL
                 OR EXISTS (
                   SELECT 1 FROM public.assignments a
-                  WHERE a.job_id = j.id
+                  WHERE a.job_id::text = j.id::text
                     AND lower(coalesce(a.status,'')) IN ('upcoming','accepted','confirmed','assigned')
                 )
               )
@@ -509,7 +509,7 @@ export async function healCoverageColumns(): Promise<void> {
         IF (NOT need_photo OR got_photo) AND (NOT need_video OR got_video) THEN
           UPDATE public.proposals
           SET coverage_confirmed_at = coalesce(coverage_confirmed_at, now())
-          WHERE id = pid AND coverage_confirmed_at IS NULL;
+          WHERE id::text = pid::text AND coverage_confirmed_at IS NULL;
         END IF;
         RETURN NEW;
       END;
@@ -517,25 +517,22 @@ export async function healCoverageColumns(): Promise<void> {
 
       CREATE OR REPLACE FUNCTION public.fn_coverage_confirm_job_assign()
       RETURNS trigger LANGUAGE plpgsql AS $$
-      DECLARE
-        jrow record;
       BEGIN
-        SELECT id, wedding_id, proposal_id, role INTO jrow
-        FROM public.jobs WHERE id = NEW.job_id;
-        IF NOT FOUND THEN RETURN NEW; END IF;
-        PERFORM public.fn_coverage_confirm(jrow);
+        UPDATE public.jobs
+        SET proposal_id = proposal_id
+        WHERE id::text = NEW.job_id::text;
         RETURN NEW;
       END;
       $$;
 
       DROP TRIGGER IF EXISTS trg_coverage_confirm ON public.jobs;
       CREATE TRIGGER trg_coverage_confirm
-      AFTER INSERT OR UPDATE OF contractor_id, proposal_id, status ON public.jobs
+      AFTER INSERT OR UPDATE OF contractor_id, proposal_id ON public.jobs
       FOR EACH ROW EXECUTE FUNCTION public.fn_coverage_confirm();
 
       DROP TRIGGER IF EXISTS trg_coverage_confirm_assign ON public.assignments;
       CREATE TRIGGER trg_coverage_confirm_assign
-      AFTER INSERT OR UPDATE OF status, contractor_id ON public.assignments
+      AFTER INSERT OR UPDATE OF contractor_id ON public.assignments
       FOR EACH ROW EXECUTE FUNCTION public.fn_coverage_confirm_job_assign();
 
       NOTIFY pgrst, 'reload schema';
