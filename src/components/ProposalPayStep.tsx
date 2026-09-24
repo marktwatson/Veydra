@@ -104,12 +104,54 @@ export function ProposalPayStep({
       onInvoiceUrl={onInvoiceUrl}
       onCreateInvoice={async () => {
         if (deferred.firstDue <= 0) return { invoiceUrl: "", firstDue: 0 };
+        // Build installments from the proposal's custom_payment_plan (not the
+        // stale wedding row) so a revised proposal's GHL invoice uses the new
+        // schedule. Merge same-day rows, clamp dates >= today.
+        const cpp = proposal?.custom_payment_plan;
+        const installments: { date: string; amount: number }[] = [];
+        if (cpp?.enabled && Array.isArray(cpp.installments)) {
+          const todayStr = new Date().toISOString().slice(0, 10);
+          const byDay: Record<string, number> = {};
+          const dayOrder: string[] = [];
+          for (const inst of cpp.installments) {
+            let due = inst.date || inst.dueDate || "";
+            if (!due) continue;
+            if (due < todayStr) due = todayStr;
+            const amt = Number(inst.amount || 0);
+            if (amt <= 0) continue;
+            if (!byDay[due]) {
+              byDay[due] = 0;
+              dayOrder.push(due);
+            }
+            byDay[due] += amt;
+          }
+          for (const d of dayOrder)
+            installments.push({
+              date: d,
+              amount: Math.round(byDay[d] * 100) / 100,
+            });
+          installments.sort((a, b) =>
+            a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
+          );
+          const deposit = Number(cpp.deposit) || 0;
+          if (deposit > 0 && installments.length > 0) {
+            if (installments[0].date === todayStr)
+              installments[0].amount += deposit;
+            else installments.unshift({ date: todayStr, amount: deposit });
+          }
+        }
+        const isRevised = !isUpgrade && installments.length > 1;
         const invoice = await createGhlInvoice({
           weddingId: deferred.weddingId,
           amount: deferred.firstDue,
           label: deferred.label,
           kind: isUpgrade ? "addon" : undefined,
-          forceNew: isUpgrade ? true : undefined,
+          forceNew: isUpgrade ? true : isRevised ? true : undefined,
+          // Only pass installments on the ADDON/upgrade path. The PHOTO path
+          // rebuilds planRows from wedding.custom_payment_plan in the edge
+          // function — passing them here would make it treat the rows as addon.
+          installments:
+            isUpgrade && installments.length > 1 ? installments : undefined,
         });
         return { invoiceUrl: invoice.invoiceUrl, firstDue: deferred.firstDue };
       }}

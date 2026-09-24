@@ -42,8 +42,13 @@ export async function createGhlInvoice({
     }),
   });
   const result = await response.json();
-  if (!response.ok || !result.success) {
-    throw new Error(result.error || "Failed to create CRM invoice");
+  // Return success when we have a usable invoiceUrl — even if the scheduled
+  // invoice failed and the edge function fell back to a plain firstDue invoice
+  // (scheduleError will be set). Only throw when there is NO invoiceUrl.
+  if (!response.ok || !result.invoiceUrl) {
+    const errParts = [result.error || "Failed to create CRM invoice"];
+    if (result.ghlBodyPreview) errParts.push(`CRM: ${result.ghlBodyPreview}`);
+    throw new Error(errParts.join(" — "));
   }
   return result as {
     success: boolean;

@@ -152,6 +152,47 @@ export async function signAndPayProposal(params: {
           ? `Wedding 50% Deposit for ${proposal.client_name}`
           : `Wedding Deposit for ${proposal.client_name}`;
 
+  // Build installments from THIS proposal's custom_payment_plan (not a stale
+  // wedding row) so the GHL invoice uses the revised schedule. Merge same-day
+  // rows and clamp dates >= today. Strip the deposit row if the first
+  // installment is already today (deposit is the firstDue).
+  const cpp = proposal.custom_payment_plan;
+  const installments: { date: string; amount: number }[] = [];
+  if (paymentPlan === "custom" && cpp?.enabled) {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const insts = Array.isArray(cpp.installments) ? cpp.installments : [];
+    const byDay: Record<string, number> = {};
+    const dayOrder: string[] = [];
+    for (const inst of insts) {
+      let due = inst.date || (inst as any).dueDate || "";
+      if (!due) continue;
+      if (due < todayStr) due = todayStr;
+      const amt = Number(inst.amount || 0);
+      if (amt <= 0) continue;
+      if (!byDay[due]) {
+        byDay[due] = 0;
+        dayOrder.push(due);
+      }
+      byDay[due] += amt;
+    }
+    for (const d of dayOrder)
+      installments.push({ date: d, amount: Math.round(byDay[d] * 100) / 100 });
+    // Sort ascending, ensure strictly unique dates.
+    installments.sort((a, b) =>
+      a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
+    );
+    // Skip a separate deposit row when the first installment is already today.
+    const deposit = Number(cpp.deposit) || 0;
+    if (deposit > 0 && installments.length > 0) {
+      const first = installments[0];
+      if (first.date === todayStr) {
+        first.amount += Math.round(deposit * 100) / 100;
+      } else {
+        installments.unshift({ date: todayStr, amount: deposit });
+      }
+    }
+  }
+
   // signOnly: defer invoice creation. Return the params so the caller can
   // create the invoice only when the bride picks Card/bank.
   if (params.signOnly) {
@@ -161,14 +202,32 @@ export async function signAndPayProposal(params: {
   // Create the GHL invoice (no Stripe).
   // Upgrades invoice ONLY the unpaid delta as a SECOND GHL invoice
   // (kind: "addon", forceNew) so the original photo ghl_invoice_id is
-  // never overwritten.
-  const invoice = await createGhlInvoice({
-    weddingId,
-    amount: firstDue,
-    label,
-    kind: proposal.is_upgrade ? "addon" : undefined,
-    forceNew: proposal.is_upgrade ? true : undefined,
-  });
-
-  return { invoiceUrl: invoice.invoiceUrl };
+  // never overwritten. A revised (non-upgrade) photo proposal also needs
+  // forceNew because revise-proposal cleared the old invoice state.
+  // NOTE: the edge function PHOTO path rebuilds planRows from
+  // wedding.custom_payment_plan — the installments array here is only used
+  // to signal forceNew. Do NOT pass installments on the PHOTO path to avoid
+  // the edge function treating them as addon rows.
+  const isRevised = !proposal.is_upgrade && installments.length > 1;
+  try {
+    const invoice = await createGhlInvoice({
+      weddingId,
+      amount: firstDue,
+      label,
+      kind: proposal.is_upgrade ? "addon" : undefined,
+      forceNew: proposal.is_upgrade ? true : isRevised ? true : undefined,
+      installments:
+        proposal.is_upgrade && installments.length > 1
+          ? installments
+          : undefined,
+    });
+    return { invoiceUrl: invoice.invoiceUrl };
+  } catch (e: any) {
+    // Signature + contract_signed_at are already saved. Do NOT clear them.
+    // The bride can tap Sign & Pay again — the resume hook will see
+    // contract_signed_at and skip straight to the pay step.
+    throw new Error(
+      "Contract saved. Could not open invoice — tap Sign & Pay again.",
+    );
+  }
 }

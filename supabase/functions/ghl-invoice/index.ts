@@ -86,7 +86,10 @@ Deno.serve(async (req) => {
     if (!weddingId) {
       return jsonResp({ error: "Missing weddingId" }, 400);
     }
-    const isAddon = kind === "addon" || (Array.isArray(installments) && installments.length > 0);
+    // isAddon is ONLY for addon/upgrade invoices (kind === "addon").
+    // A revised photo proposal may pass installments but must NOT be treated
+    // as an addon — it uses the PHOTO path (wedding.custom_payment_plan).
+    const isAddon = kind === "addon";
     const numAmount = Number(amount);
     if (!action && (!numAmount || numAmount <= 0)) {
       return jsonResp({ error: "Amount must be a positive number" }, 400);
@@ -323,17 +326,13 @@ Deno.serve(async (req) => {
           : Array.isArray(cpp) ? cpp : [];
 
         if (cppEnabled && insts.length > 0 && _remaining > 0) {
-          const installmentsSum = insts.reduce(
-            (s: number, i: any) => s + Number(i.amount || 0), 0,
-          );
+          // Deposit is ALWAYS a separate today row — never use the
+          // depositIncluded heuristic (it double-adds today's amount).
           const deposit = Math.min(Number(cpp.deposit) || 0, _remaining);
           const rows: PlanRow[] = [];
-          const depositIncluded = installmentsSum >= _remaining - 0.01 || deposit <= 0;
-          if (!depositIncluded) {
-            rows.push({ date: ymd(0), amount: deposit });
-          }
+          if (deposit > 0) rows.push({ date: ymd(0), amount: deposit });
           let running = 0;
-          let scheduled = depositIncluded ? 0 : deposit;
+          let scheduled = deposit;
           for (const inst of insts) {
             const amt = Number(inst.amount || 0);
             running += amt;
@@ -345,8 +344,25 @@ Deno.serve(async (req) => {
             rows.push({ date: due, amount: rowAmt });
             scheduled += rowAmt;
           }
-          planRows = rows;
-          hasMultiPlan = rows.length >= 2;
+          // Merge same-calendar-day rows into ONE amount before send.
+          const todayStr = ymd(0);
+          const byDay: Record<string, number> = {};
+          const dayOrder: string[] = [];
+          for (const r of rows) {
+            let d = r.date < todayStr ? todayStr : r.date;
+            if (!byDay[d]) { byDay[d] = 0; dayOrder.push(d); }
+            byDay[d] += r.amount;
+          }
+          planRows = dayOrder
+            .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+            .map((d) => ({ date: d, amount: Math.round(byDay[d] * 100) / 100 }));
+          // Cap so sum(rows) === remaining (never exceed total - paid).
+          let sumRows = planRows.reduce((s, r) => s + r.amount, 0);
+          if (sumRows > _remaining + 0.01 && planRows.length > 0) {
+            const diff = Math.round((sumRows - _remaining) * 100) / 100;
+            planRows[planRows.length - 1].amount = Math.round((planRows[planRows.length - 1].amount - diff) * 100) / 100;
+          }
+          hasMultiPlan = planRows.length >= 2;
         }
       } catch (_e) {
         planRows = [];
@@ -547,21 +563,17 @@ Deno.serve(async (req) => {
         path = "invoice+paymentSchedule";
         invoiceId = invRes.data?._id || invRes.data?.invoice?._id || invRes.data?.id || null;
       } else {
-        // Schedule failed — capture real message, fall back to PLAIN
-        // full balance so Sign & Pay always creates a valid payable invoice!
+        // Schedule failed (4xx) — capture real GHL message, fall back to PLAIN
+        // firstDue-only (today's amount) so Sign & Pay opens a valid payable link.
         const msg = ghlMsg(invRes);
-        console.log("[ghl-invoice] schedule invoice failed, falling back to plain full balance. error:", msg);
+        console.log("[ghl-invoice] schedule invoice failed, falling back to plain firstDue. error:", msg);
         scheduleError = String(msg);
 
-        // Try single invoice with full total first
-        let plainRes = await createInvoice(invoiceTotal, undefined, true);
-        if (!plainRes.ok) {
-          const firstDue = planRows[0]?.amount || numAmount;
-          plainRes = await createInvoice(firstDue, undefined, true);
-          if (plainRes.ok) invoiceTotal = firstDue;
-        }
+        const firstDue = planRows[0]?.amount || numAmount;
+        const plainRes = await createInvoice(firstDue, undefined, true);
         if (plainRes.ok) {
           invoiceId = plainRes.data?._id || plainRes.data?.invoice?._id || plainRes.data?.id || null;
+          invoiceTotal = firstDue;
           path = "plain-firstDue";
         } else {
           const plainMsg = ghlMsg(plainRes);
@@ -574,7 +586,6 @@ Deno.serve(async (req) => {
             scheduleAttempt: { status: invRes.status, message: msg, body: invRes.body },
           }, 500);
         }
-      }
       }
     } else {
       invoiceTotal = numAmount;

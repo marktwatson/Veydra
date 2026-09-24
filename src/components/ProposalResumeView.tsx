@@ -322,17 +322,56 @@ export function ProposalResumeView({
             if (firstDue <= 0) return { invoiceUrl: "", firstDue: 0 };
             setCreating(true);
             try {
+              // Build installments from the proposal's custom_payment_plan
+              // so a revised proposal uses forceNew (the old invoice state
+              // was cleared by revise-proposal). Only passed on upgrade path.
+              const cpp = proposal?.custom_payment_plan;
+              const installments: { date: string; amount: number }[] = [];
+              if (cpp?.enabled && Array.isArray(cpp.installments)) {
+                const todayStr = new Date().toISOString().slice(0, 10);
+                const byDay: Record<string, number> = {};
+                const dayOrder: string[] = [];
+                for (const inst of cpp.installments) {
+                  let due = inst.date || inst.dueDate || "";
+                  if (!due) continue;
+                  if (due < todayStr) due = todayStr;
+                  const amt = Number(inst.amount || 0);
+                  if (amt <= 0) continue;
+                  if (!byDay[due]) {
+                    byDay[due] = 0;
+                    dayOrder.push(due);
+                  }
+                  byDay[due] += amt;
+                }
+                for (const d of dayOrder)
+                  installments.push({
+                    date: d,
+                    amount: Math.round(byDay[d] * 100) / 100,
+                  });
+                installments.sort((a, b) =>
+                  a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
+                );
+                const deposit = Number(cpp.deposit) || 0;
+                if (deposit > 0 && installments.length > 0) {
+                  if (installments[0].date === todayStr)
+                    installments[0].amount += deposit;
+                  else
+                    installments.unshift({ date: todayStr, amount: deposit });
+                }
+              }
+              const isRevised = !isUpgrade && installments.length > 1;
               const invoice = await createGhlInvoice({
                 weddingId,
                 amount: firstDue,
                 label,
                 kind: isUpgrade ? "addon" : undefined,
-                forceNew: isUpgrade ? true : undefined,
+                forceNew: isUpgrade ? true : isRevised ? true : undefined,
+                installments:
+                  isUpgrade && installments.length > 1
+                    ? installments
+                    : undefined,
               });
-              return {
-                invoiceUrl: invoice.invoiceUrl,
-                firstDue,
-              };
+              return { invoiceUrl: invoice.invoiceUrl, firstDue };
             } finally {
               setCreating(false);
             }

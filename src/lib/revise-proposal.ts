@@ -179,12 +179,17 @@ export async function reviseProposal(
           offplatform_method: null,
           offplatform_amount: null,
           offplatform_claimed_at: null,
-          // Clear the old invoice so the new proposal's Sign & Pay creates a
-          // fresh one for the new total. Staff voids the old invoice in the CRM.
+          // Clear ALL old invoice state so the new proposal's Sign & Pay creates
+          // a fresh invoice for the new total. Staff voids the old Ovanta invoice.
           ghl_invoice_id: null,
           ghl_invoice_url: null,
           ghl_invoice_amount: null,
           ghl_invoice_created_date: null,
+          ghl_invoice_ids: [],
+          ghl_schedule: [],
+          ghl_schedule_id: null,
+          ghl_invoice_status: null,
+          ghl_amount_paid: 0,
           // Sync the revised proposal's custom_payment_plan onto the wedding so
           // that ghl-invoice has the latest installments and doesn't use stale ones.
           custom_payment_plan:
