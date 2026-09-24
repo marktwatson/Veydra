@@ -64,10 +64,8 @@ export async function ensureWeddingForProposal(
         second_shooter_type: proposal.second_shooter_type,
         total_amount: proposal.total_amount,
         payment_plan: resolvedPaymentPlan,
+        custom_payment_plan: customPlan ?? null,
       };
-      if (!hasExistingPlan) {
-        update.custom_payment_plan = customPlan;
-      }
       await supabase.from("weddings").update(update).eq("id", weddingId);
     } else {
       const { data: wedding, error: weddingError } = await supabase

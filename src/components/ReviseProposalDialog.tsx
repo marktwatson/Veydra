@@ -54,6 +54,11 @@ export function ReviseProposalDialog({
   const [totalAmount, setTotalAmount] = useState<string>(
     proposal?.total_amount != null ? String(proposal.total_amount) : "",
   );
+  const [secondShooterHours, setSecondShooterHours] = useState<string>(
+    proposal?.second_shooter_hours != null
+      ? String(proposal.second_shooter_hours)
+      : "",
+  );
   const [notes, setNotes] = useState<string>(proposal?.notes || "");
 
   // Re-seed when the proposal changes.
@@ -64,6 +69,11 @@ export function ReviseProposalDialog({
     setCoverageType(proposal.coverage_type || "both");
     setTotalAmount(
       proposal.total_amount != null ? String(proposal.total_amount) : "",
+    );
+    setSecondShooterHours(
+      proposal.second_shooter_hours != null
+        ? String(proposal.second_shooter_hours)
+        : "",
     );
     setNotes(proposal.notes || "");
   }
@@ -119,6 +129,9 @@ export function ReviseProposalDialog({
         package_id: packageId || null,
         coverage_type: coverageType,
         total_amount: total,
+        second_shooter_hours: secondShooterHours
+          ? parseFloat(secondShooterHours)
+          : null,
         notes: notes || null,
       });
       toast({
@@ -187,6 +200,19 @@ export function ReviseProposalDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="revise-hours">Second shooter hours</Label>
+            <Input
+              id="revise-hours"
+              type="number"
+              min="0"
+              step="0.5"
+              placeholder="e.g. 6"
+              value={secondShooterHours}
+              onChange={(e) => setSecondShooterHours(e.target.value)}
+            />
           </div>
 
           <div className="space-y-2">

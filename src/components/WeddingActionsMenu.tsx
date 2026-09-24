@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,10 +25,12 @@ import {
   CheckCircle2,
   Link as LinkIcon,
   FileText,
+  UserCheck,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useBartendingModule } from "@/hooks/use-bartending-module";
 import { api, DbWedding } from "@/lib/api";
+import { sendAttendanceReminder } from "@/lib/wedding-readiness";
 import { CallSheetGenerator } from "@/components/CallSheetGenerator";
 import {
   getBrideEmail,
@@ -54,6 +57,10 @@ export interface WeddingActionsMenuProps {
     data: { to: string; subject: string; html: string; recipientName: string },
     sendFn: () => Promise<void>,
   ) => void;
+  onRemind?: () => void;
+  sendingReminder?: boolean;
+  onRemindAttendance?: () => void;
+  sendingAttendanceReminder?: boolean;
 }
 
 export function WeddingActionsMenu({
@@ -65,8 +72,13 @@ export function WeddingActionsMenu({
   onVerifyPayment,
   verifyPaymentPending,
   onEmailPreview,
+  onRemind,
+  sendingReminder,
+  onRemindAttendance,
+  sendingAttendanceReminder,
 }: WeddingActionsMenuProps) {
   const { toast } = useToast();
+  const [localSendingAttendance, setLocalSendingAttendance] = useState(false);
   const brideEmail = getBrideEmail(wedding);
   const portalLink = portalLinkFor(wedding, settings);
   const isCancelled = wedding.status?.toLowerCase() === "cancelled";
@@ -224,6 +236,51 @@ export function WeddingActionsMenu({
         });
       },
     );
+  };
+
+  const handleDefaultRemindAttendance = async () => {
+    if (onRemindAttendance) {
+      onRemindAttendance();
+      return;
+    }
+    setLocalSendingAttendance(true);
+    try {
+      // Fetch assignments & jobs if not provided via props
+      const jobsData = await api.getJobsForWedding(wedding.id);
+      const weddingJobs = jobsData || [];
+      const assignmentsData = await api.getAssignments();
+      const wAssignments = (assignmentsData || []).filter((a: any) =>
+        weddingJobs.some((j: any) => j.id === a.job_id),
+      );
+
+      const sent = await sendAttendanceReminder(
+        wedding,
+        weddingJobs,
+        wAssignments,
+        settings,
+      );
+
+      if (sent > 0) {
+        toast({
+          title: "Attendance Reminders Sent",
+          description: `${sent} contractor(s) alerted via SMS to confirm attendance.`,
+        });
+      } else {
+        toast({
+          title: "All Attendance Confirmed",
+          description:
+            "All assigned contractors for this wedding have already confirmed attendance.",
+        });
+      }
+    } catch (e: any) {
+      toast({
+        title: "Failed to Send Attendance Reminders",
+        description: e.message || "Could not send reminders",
+        variant: "destructive",
+      });
+    } finally {
+      setLocalSendingAttendance(false);
+    }
   };
 
   return (
@@ -391,6 +448,33 @@ export function WeddingActionsMenu({
             ? "Unverify Final Payment"
             : "Verify Final Payment"}
         </DropdownMenuItem>
+
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-xs text-muted-foreground">
+          Operations & Reminders
+        </DropdownMenuLabel>
+        <DropdownMenuItem
+          onClick={handleDefaultRemindAttendance}
+          disabled={sendingAttendanceReminder || localSendingAttendance}
+          className="cursor-pointer font-medium text-amber-600 dark:text-amber-400 focus:text-amber-600"
+        >
+          <UserCheck className="h-4 w-4 mr-2" />
+          {sendingAttendanceReminder || localSendingAttendance
+            ? "Sending Reminder..."
+            : "Remind Unconfirmed Attendance"}
+        </DropdownMenuItem>
+        {onRemind && (
+          <DropdownMenuItem
+            onClick={onRemind}
+            disabled={sendingReminder}
+            className="cursor-pointer font-medium text-primary focus:text-primary"
+          >
+            <Send className="h-4 w-4 mr-2" />
+            {sendingReminder
+              ? "Sending Reminders..."
+              : "Send Contractor Prep Reminders"}
+          </DropdownMenuItem>
+        )}
 
         <DropdownMenuSeparator />
         <DropdownMenuLabel className="text-xs text-muted-foreground">

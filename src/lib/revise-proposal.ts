@@ -65,6 +65,14 @@ export async function reviseProposal(
 
   // 3. Build the new payload — copy everything, override package/totals, strip
   //    signed / invoice / off-platform / coverage state so the new row is fresh.
+  //
+  //    KEY: keep the existing wedding_id (and original_wedding_id for upgrades)
+  //    so the revised proposal links to the SAME wedding — preserving the
+  //    contractor assignments, coverage, and paid_amount. The bride signs the
+  //    new contract and pays the new total against the same wedding row.
+  //
+  //    Also clear the stale off-platform promise on the wedding so the bride
+  //    isn't stuck in "Payment in progress" when she returns to the new link.
   const {
     package_id,
     coverage_type,
@@ -103,8 +111,10 @@ export async function reviseProposal(
     notes: notes !== undefined ? notes : old.notes,
     custom_prices: custom_prices ?? old.custom_prices,
     custom_payment_plan: custom_payment_plan ?? old.custom_payment_plan,
-    // Fresh expiry (7 days from now).
-    expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    // No expiry until staff clicks Send to client (clock starts on send only).
+    expires_at: null,
+    sent_at: null,
+    sent_count: 0,
     is_upgrade: old.is_upgrade ?? false,
     original_wedding_id: old.original_wedding_id ?? null,
     amount_paid_so_far: old.amount_paid_so_far ?? 0,
@@ -120,7 +130,9 @@ export async function reviseProposal(
     offplatform_claimed_at: null,
     coverage_requested_at: null,
     coverage_confirmed_at: null,
-    wedding_id: null,
+    // Keep the existing wedding link so the revised proposal pays against the
+    // same wedding (preserving assignments, coverage, paid_amount).
+    wedding_id: old.wedding_id ?? null,
   };
 
   // 4. Insert the new proposal.
@@ -143,6 +155,59 @@ export async function reviseProposal(
   if (supError) {
     // Non-fatal — the new proposal exists; just log.
     console.warn("Could not mark old proposal superseded:", supError.message);
+  }
+
+  // 6. Clear stale off-platform promise + signed/invoice state on the wedding
+  //    so the bride sees the FULL sign-and-pay flow on the revised proposal.
+  //    Also update total_amount so the resume logic and dashboard reflect the
+  //    new package total (prevents a false "confirmed" if she already paid the
+  //    old amount via Venmo).
+  //
+  //    The wedding stays published (status upcoming) — we do NOT unpublish.
+  //    Contractor assignments are untouched (they live on the wedding, not the
+  //    proposal). paid_amount is preserved so any prior Venmo payment counts
+  //    toward the new total.
+  const clearWeddingId = old.is_upgrade
+    ? old.original_wedding_id
+    : old.wedding_id;
+  if (clearWeddingId) {
+    try {
+      await supabase
+        .from("weddings")
+        .update({
+          offplatform_status: null,
+          offplatform_method: null,
+          offplatform_amount: null,
+          offplatform_claimed_at: null,
+          // Clear the old invoice so the new proposal's Sign & Pay creates a
+          // fresh one for the new total. Staff voids the old invoice in the CRM.
+          ghl_invoice_id: null,
+          ghl_invoice_url: null,
+          ghl_invoice_amount: null,
+          ghl_invoice_created_date: null,
+          // Sync the revised proposal's custom_payment_plan onto the wedding so
+          // that ghl-invoice has the latest installments and doesn't use stale ones.
+          custom_payment_plan:
+            custom_payment_plan !== undefined
+              ? custom_payment_plan
+              : old.custom_payment_plan,
+          // Clear the old contract sign state so the bride re-signs the new
+          // contract (new total / hours). Without this, useProposalResume sees
+          // wedding.contract_signed_at and skips the contract pad.
+          contract_signed_at: null,
+          contract_status: null,
+          // Update the wedding total to the new package total so the resume
+          // "confirmed" check (paid >= total) uses the right denominator.
+          total_amount:
+            total_amount !== undefined ? total_amount : old.total_amount,
+        })
+        .eq("id", clearWeddingId);
+    } catch (e: any) {
+      console.warn(
+        "[revise-proposal] could not clear stale wedding state:",
+        e?.message,
+      );
+    }
   }
 
   api.logAdminActivity(

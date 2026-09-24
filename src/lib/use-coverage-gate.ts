@@ -72,13 +72,46 @@ export function useCoverageGate(
           return;
         }
 
+        // If the wedding is already booked (signed/paid/upcoming), do NOT
+        // block — the proposal has progressed past the coverage gate.
+        if (weddingId) {
+          const { data: wedding } = await supabase
+            .from("weddings")
+            .select(
+              "status, paid_amount, total_amount, contract_signed_at, contract_status",
+            )
+            .eq("id", weddingId)
+            .maybeSingle();
+          if (wedding) {
+            const isBooked =
+              wedding.status === "upcoming" ||
+              wedding.status === "completed" ||
+              Number(wedding.paid_amount || 0) > 0 ||
+              !!wedding.contract_signed_at ||
+              wedding.contract_status === "signed";
+            if (isBooked) {
+              if (!cancelled)
+                setStatus({
+                  required: true,
+                  confirmed: true,
+                  photoNeeded: req.needsPhoto,
+                  videoNeeded: req.needsVideo,
+                  photoAssigned: true,
+                  videoAssigned: true,
+                });
+              setLoading(false);
+              return;
+            }
+          }
+        }
+
         let photoAssigned = false;
         let videoAssigned = false;
 
         if (weddingId) {
           const { data: jobs } = await supabase
             .from("jobs")
-            .select("role, contractor_id")
+            .select("id, role, contractor_id")
             .eq("wedding_id", weddingId)
             .in("role", [
               "Photographer",
@@ -86,11 +119,41 @@ export function useCoverageGate(
               "Lead Photographer",
               "Lead Videographer",
             ]);
-          photoAssigned = (jobs || []).some(
-            (j) => /photo/i.test(j.role || "") && j.contractor_id,
+          const jobList = jobs || [];
+          const jobIds = jobList.map((j) => j.id);
+
+          // Veydra assigns via the assignments table, not jobs.contractor_id.
+          // Check active assignments for these jobs.
+          let assignedJobIds = new Set<string>();
+          if (jobIds.length > 0) {
+            const { data: assignments } = await supabase
+              .from("assignments")
+              .select("job_id, status")
+              .in("job_id", jobIds)
+              .in("status", [
+                "upcoming",
+                "accepted",
+                "confirmed",
+                "assigned",
+                "Upcoming",
+                "Accepted",
+                "Confirmed",
+                "Assigned",
+              ]);
+            for (const a of assignments || []) {
+              assignedJobIds.add(a.job_id);
+            }
+          }
+
+          photoAssigned = jobList.some(
+            (j) =>
+              /photo/i.test(j.role || "") &&
+              (j.contractor_id || assignedJobIds.has(j.id)),
           );
-          videoAssigned = (jobs || []).some(
-            (j) => /video/i.test(j.role || "") && j.contractor_id,
+          videoAssigned = jobList.some(
+            (j) =>
+              /video/i.test(j.role || "") &&
+              (j.contractor_id || assignedJobIds.has(j.id)),
           );
         }
 

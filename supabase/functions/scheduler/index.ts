@@ -355,7 +355,34 @@ serve(async (req) => {
     }
   } catch (e) { console.warn("daily-digest trigger failed:", (e as any)?.message); }
 
-  return jsonResp({ claimed, sent, failed, backfilled, royalty_triggered: royaltyTriggered, digest_triggered: digestTriggered, self_heal: healOk, server_time: new Date().toISOString(), portal_tz: tz, portal_time_label: formatInTz(new Date(), tz) });
+  // Trigger the daily Sales Activity report at 8 AM portal time (before the
+  // 9 AM digest). sales-activity self-gates via last_sales_report_date in
+  // portal_settings so calling it every 10-min run is safe — it only actually
+  // runs + emails once per day.
+  let salesReportTriggered = false;
+  try {
+    const hourStr2 = new Date().toLocaleString("en-US", { timeZone: tz, hour: "numeric", hour12: false });
+    const currentHour2 = parseInt(hourStr2, 10);
+    const tzNow2 = new Date().toLocaleString("en-US", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" });
+    const [tm2, td2, ty2] = tzNow2.split("/");
+    const todayTz2 = `${ty2}-${tm2}-${td2}`;
+    if (currentHour2 === 8 && (settings as any).last_sales_report_date !== todayTz2) {
+      const sr = await fetch(`${supabaseUrl}/functions/v1/sales-activity`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}`, apikey: supabaseKey },
+        body: JSON.stringify({ source: "scheduler", sendEmail: true, range: 1, triggeredBy: "auto", includeHistory: false }),
+      });
+      if (sr.ok) {
+        const srd = await sr.json();
+        salesReportTriggered = !srd.error;
+        if (salesReportTriggered) {
+          await sb.from("portal_settings").update({ last_sales_report_date: todayTz2 }).eq("id", settings.id || "");
+        }
+      }
+    }
+  } catch (e) { console.warn("sales-activity trigger failed:", (e as any)?.message); }
+
+  return jsonResp({ claimed, sent, failed, backfilled, royalty_triggered: royaltyTriggered, digest_triggered: digestTriggered, sales_report_triggered: salesReportTriggered, self_heal: healOk, server_time: new Date().toISOString(), portal_tz: tz, portal_time_label: formatInTz(new Date(), tz) });
 });
 
 // ─── Job processing ──────────────────────────────────────────────────────

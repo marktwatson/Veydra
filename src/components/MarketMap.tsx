@@ -353,14 +353,12 @@ export default function MarketMap({ isActive = true }: { isActive?: boolean }) {
           zoomControl: true,
         });
 
-        // Light grayscale tiles so colored markers pop
-        L.tileLayer(
-          "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-          {
-            attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
-            maxZoom: 19,
-          },
-        ).addTo(map);
+        // Clean OSM tiles with no API key requirement or watermark overlays
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution:
+            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+          maxZoom: 19,
+        }).addTo(map);
 
         markersLayerRef.current = L.layerGroup().addTo(map);
         mapInstanceRef.current = map;

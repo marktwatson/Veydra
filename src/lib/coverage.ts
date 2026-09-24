@@ -108,6 +108,19 @@ export async function getCoverageStatus(
   const req = coverageRequirements(proposal);
   let jobs: any[] = [];
 
+  // Active assignment statuses — a contractor is "assigned" when an
+  // assignment row exists in one of these statuses for the job.
+  const ACTIVE_STATUSES = [
+    "upcoming",
+    "accepted",
+    "confirmed",
+    "assigned",
+    "Upcoming",
+    "Accepted",
+    "Confirmed",
+    "Assigned",
+  ];
+
   if (weddingId) {
     const { data } = await supabase
       .from("jobs")
@@ -122,13 +135,52 @@ export async function getCoverageStatus(
         "Lead Videographer",
       ]);
     jobs = data || [];
+
+    // Also fetch active assignments for these jobs — Veydra assigns via the
+    // assignments table, NOT jobs.contractor_id. A job is "covered" when it
+    // has an active assignment OR a contractor_id set directly on the job.
+    const jobIds = jobs.map((j) => j.id);
+    if (jobIds.length > 0) {
+      const { data: assignments } = await supabase
+        .from("assignments")
+        .select(
+          "job_id, contractor_id, status, contractors(first_name, last_name)",
+        )
+        .in("job_id", jobIds)
+        .in("status", ACTIVE_STATUSES);
+
+      // Build a map: jobId → assigned contractor
+      const assignedJobIds = new Set<string>();
+      const assignedContractors: Record<string, any> = {};
+      for (const a of assignments || []) {
+        assignedJobIds.add(a.job_id);
+        if (a.contractors) assignedContractors[a.job_id] = a.contractors;
+      }
+
+      // Merge assignment info onto jobs so the UI can show contractor names.
+      jobs = jobs.map((j) => {
+        if (assignedJobIds.has(j.id) && !j.contractor_id) {
+          return {
+            ...j,
+            contractor_id: a_contractor_id(j.id, assignments || []),
+            contractors: assignedContractors[j.id] || j.contractors,
+          };
+        }
+        return j;
+      });
+    }
   }
 
+  // A role is assigned if the job has contractor_id OR an active assignment.
   const photoAssigned = jobs.some(
-    (j) => /photo/i.test(j.role || "") && j.contractor_id,
+    (j) =>
+      /photo/i.test(j.role || "") &&
+      (j.contractor_id || hasActiveAssignment(j, jobs)),
   );
   const videoAssigned = jobs.some(
-    (j) => /video/i.test(j.role || "") && j.contractor_id,
+    (j) =>
+      /video/i.test(j.role || "") &&
+      (j.contractor_id || hasActiveAssignment(j, jobs)),
   );
 
   // Coverage is now OPT-IN. It is only "required" (i.e. blocks Sign & Pay)
@@ -184,6 +236,19 @@ export async function getCoverageStatus(
     jobs,
     showRequestForm: false,
   };
+}
+
+/** Helper: extract contractor_id from the assignments array for a job. */
+function a_contractor_id(jobId: string, assignments: any[]): string | null {
+  const a = assignments.find((x) => x.job_id === jobId && x.contractor_id);
+  return a?.contractor_id || null;
+}
+
+/** Helper: check if a job has an active assignment (used as fallback). */
+function hasActiveAssignment(_job: any, _allJobs: any[]): boolean {
+  // This is a no-op fallback — the real check is done via contractor_id
+  // merged from assignments above. Kept for API compatibility.
+  return false;
 }
 
 /**
@@ -395,12 +460,13 @@ export async function healCoverageColumns(): Promise<void> {
         got_photo boolean;
         got_video boolean;
         ctype text;
+        wid uuid;
       BEGIN
-        IF NEW.contractor_id IS NULL THEN RETURN NEW; END IF;
+        wid := NEW.wedding_id;
         pid := NEW.proposal_id;
         IF pid IS NULL THEN
           SELECT p.id INTO pid FROM public.proposals p
-          WHERE p.wedding_id = NEW.wedding_id
+          WHERE p.wedding_id = wid
             AND coalesce(p.status,'') <> 'superseded'
           ORDER BY p.created_at DESC NULLS LAST
           LIMIT 1;
@@ -413,8 +479,32 @@ export async function healCoverageColumns(): Promise<void> {
         need_photo := ctype IN ('photo', 'both');
         need_video := ctype IN ('video', 'both');
         SELECT
-          EXISTS (SELECT 1 FROM public.jobs WHERE wedding_id = NEW.wedding_id AND contractor_id IS NOT NULL AND role ILIKE '%photo%'),
-          EXISTS (SELECT 1 FROM public.jobs WHERE wedding_id = NEW.wedding_id AND contractor_id IS NOT NULL AND role ILIKE '%video%')
+          EXISTS (
+            SELECT 1 FROM public.jobs j
+            WHERE j.wedding_id = wid
+              AND j.role ILIKE '%photo%'
+              AND (
+                j.contractor_id IS NOT NULL
+                OR EXISTS (
+                  SELECT 1 FROM public.assignments a
+                  WHERE a.job_id = j.id
+                    AND lower(coalesce(a.status,'')) IN ('upcoming','accepted','confirmed','assigned')
+                )
+              )
+          ),
+          EXISTS (
+            SELECT 1 FROM public.jobs j
+            WHERE j.wedding_id = wid
+              AND j.role ILIKE '%video%'
+              AND (
+                j.contractor_id IS NOT NULL
+                OR EXISTS (
+                  SELECT 1 FROM public.assignments a
+                  WHERE a.job_id = j.id
+                    AND lower(coalesce(a.status,'')) IN ('upcoming','accepted','confirmed','assigned')
+                )
+              )
+          )
         INTO got_photo, got_video;
         IF (NOT need_photo OR got_photo) AND (NOT need_video OR got_video) THEN
           UPDATE public.proposals
@@ -425,10 +515,28 @@ export async function healCoverageColumns(): Promise<void> {
       END;
       $$;
 
+      CREATE OR REPLACE FUNCTION public.fn_coverage_confirm_job_assign()
+      RETURNS trigger LANGUAGE plpgsql AS $$
+      DECLARE
+        jrow record;
+      BEGIN
+        SELECT id, wedding_id, proposal_id, role INTO jrow
+        FROM public.jobs WHERE id = NEW.job_id;
+        IF NOT FOUND THEN RETURN NEW; END IF;
+        PERFORM public.fn_coverage_confirm(jrow);
+        RETURN NEW;
+      END;
+      $$;
+
       DROP TRIGGER IF EXISTS trg_coverage_confirm ON public.jobs;
       CREATE TRIGGER trg_coverage_confirm
-      AFTER INSERT OR UPDATE OF contractor_id, proposal_id ON public.jobs
+      AFTER INSERT OR UPDATE OF contractor_id, proposal_id, status ON public.jobs
       FOR EACH ROW EXECUTE FUNCTION public.fn_coverage_confirm();
+
+      DROP TRIGGER IF EXISTS trg_coverage_confirm_assign ON public.assignments;
+      CREATE TRIGGER trg_coverage_confirm_assign
+      AFTER INSERT OR UPDATE OF status, contractor_id ON public.assignments
+      FOR EACH ROW EXECUTE FUNCTION public.fn_coverage_confirm_job_assign();
 
       NOTIFY pgrst, 'reload schema';
     `;

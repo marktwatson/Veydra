@@ -1,5 +1,5 @@
 import { createClient } from "jsr:@supabase/supabase-js";
-const SCHEMA_HEAL_SQL = "ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS wedding_id UUID; ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS original_wedding_id TEXT; ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS contract_status TEXT; ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS contract_snapshot TEXT; ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS custom_contract_snapshot TEXT; ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS contract_signed_at TEXT; ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS contract_signed_by TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_contact_id TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_id TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_ids JSONB DEFAULT '[]'::jsonb; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_url TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_status TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_amount NUMERIC; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_created_date TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_amount_paid NUMERIC DEFAULT 0; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_schedule JSONB DEFAULT '[]'::jsonb; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_schedule_id TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS client_phone TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS questionnaire_data JSONB; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS total_amount NUMERIC DEFAULT 0; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS paid_amount NUMERIC DEFAULT 0; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS payment_plan JSONB; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS custom_payment_plan JSONB; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS contract_snapshot TEXT; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS ghl_invoice_base_url TEXT; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_user_id TEXT; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS ghl_webhook_secret TEXT; CREATE TABLE IF NOT EXISTS public.ghl_invoice_payments (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), wedding_id UUID REFERENCES public.weddings(id) ON DELETE CASCADE, ghl_invoice_id TEXT NOT NULL, ghl_event_id TEXT UNIQUE, amount NUMERIC NOT NULL DEFAULT 0, amount_paid_on_invoice NUMERIC NOT NULL DEFAULT 0, created_at TIMESTAMPTZ DEFAULT now()); NOTIFY pgrst, 'reload schema';";
+const SCHEMA_HEAL_SQL = "ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS wedding_id UUID; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_id TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_ids JSONB DEFAULT '[]'::jsonb; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_url TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_status TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_amount NUMERIC; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_created_date TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_schedule JSONB DEFAULT '[]'::jsonb; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS total_amount NUMERIC DEFAULT 0; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS paid_amount NUMERIC DEFAULT 0; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS custom_payment_plan JSONB; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS ghl_invoice_base_url TEXT; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_user_id TEXT; NOTIFY pgrst, 'reload schema';";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -43,13 +43,21 @@ interface PlanRow {
   amount: number;
 }
 
-/** Extract a human-readable error message from a GHL response. */
+/** Extract a human-readable error message from a CRM response. */
 function ghlMsg(r: { data: any; body: string }): string {
   const d = r.data;
   if (d) {
     if (typeof d.message === "string" && d.message) return d.message;
-    if (Array.isArray(d.errors) && d.errors.length) return d.errors.join("; ");
+    if (Array.isArray(d.errors) && d.errors.length) {
+      return d.errors.map((e: any) => (typeof e === "string" ? e : JSON.stringify(e))).join("; ");
+    }
+    if (Array.isArray(d.error) && d.error.length) {
+      return d.error.map((e: any) => (typeof e === "string" ? e : JSON.stringify(e))).join("; ");
+    }
     if (typeof d.error === "string" && d.error) return d.error;
+    if (d.error && typeof d.error === "object") {
+      return d.error.message || JSON.stringify(d.error);
+    }
   }
   return r.body.slice(0, 500);
 }
@@ -166,31 +174,15 @@ Deno.serve(async (req) => {
     const savedUserId = (pSettings?.hl_user_id || "").trim();
     let userId = savedUserId;
     if (!userId) {
-      console.log("[ghl-invoice] no saved hl_user_id, searching users...");
-      for (const endpoint of [
-        `https://services.leadconnectorhq.com/users/search?locationId=${locationId}`,
-        `https://services.leadconnectorhq.com/users/?locationId=${locationId}`,
-      ]) {
-        try {
-          const uRes = await fetch(endpoint, { headers: crmHeaders });
-          if (uRes.ok) {
-            const uData = await uRes.json();
-            userId =
-              uData.users?.[0]?.id ||
-              uData.id ||
-              uData.userId ||
-              null;
-            if (userId) {
-              console.log("[ghl-invoice] found userId via search:", userId);
-              break;
-            }
-          }
-        } catch (e: any) {
-          console.warn("[ghl-invoice] user search failed:", e?.message);
+      try {
+        const uRes = await fetch(`https://services.leadconnectorhq.com/users/?locationId=${locationId}`, { headers: crmHeaders });
+        if (uRes.ok) {
+          const uData = await uRes.json();
+          userId = uData.users?.[0]?.id || uData.id || uData.userId || null;
         }
+      } catch (e: any) {
+        console.warn("[ghl-invoice] user search failed:", e?.message);
       }
-    } else {
-      console.log("[ghl-invoice] using saved hl_user_id:", userId);
     }
 
     const savedBaseUrl = (pSettings?.ghl_invoice_base_url || "").trim();
@@ -474,10 +466,13 @@ Deno.serve(async (req) => {
       plain = false,
     ): Promise<{ ok: boolean; status: number; data: any; body: string }> {
       // When a multi-row schedule is present, the invoice dueDate MUST be the
-      // latest schedule row date (GHL rejects schedules past the due date).
-      const latestDue = sched && sched.length > 1
+      // latest schedule row date (the CRM rejects schedules past the due date).
+      // Ensure dueDate is strictly >= issueDate (today).
+      const rawLatestDue = sched && sched.length > 1
         ? sched.reduce((latest, r) => (r.date > latest ? r.date : latest), sched[0].date)
         : ymd(7);
+      const todayYmd = ymd(0);
+      const latestDue = rawLatestDue < todayYmd ? todayYmd : rawLatestDue;
 
       const basePayload: any = {
         altId: locationId,
@@ -486,7 +481,7 @@ Deno.serve(async (req) => {
         title: "INVOICE",
         currency: "USD",
         liveMode: true,
-        issueDate: ymd(0),
+        issueDate: todayYmd,
         dueDate: latestDue,
         sentTo: { email: [email], phone: phoneE164 ? [phoneE164] : [] },
         businessDetails,
@@ -503,14 +498,30 @@ Deno.serve(async (req) => {
       }
 
       // Multi-row schedule: items.amount = sum of rows (2dp), value as NUMBER.
+      // Strict schedule rules:
+      // 1. Each row dueDate >= today.
+      // 2. Each row dueDate strictly ascending (> previous date).
+      // 3. Invoice dueDate >= latest schedule dueDate.
       const sumAmt = money(sched.reduce((s, r) => s + r.amount, 0));
+      let lastDue = todayYmd;
+      const normalizedSchedules = sched.map((r, idx) => {
+        let rowDue = r.date < todayYmd ? todayYmd : r.date;
+        if (idx > 0 && rowDue <= lastDue) {
+          const prev = new Date(lastDue + "T00:00:00Z");
+          prev.setUTCDate(prev.getUTCDate() + 1);
+          rowDue = prev.toISOString().slice(0, 10);
+        }
+        lastDue = rowDue;
+        return { dueDate: rowDue, value: money(r.amount) };
+      });
+      const maxDue = normalizedSchedules[normalizedSchedules.length - 1].dueDate;
+      const finalInvoiceDue = latestDue < maxDue ? maxDue : latestDue;
+
       const payload = {
         ...basePayload,
+        dueDate: finalInvoiceDue,
         items: [{ name: label || "Wedding Payment", qty: 1, amount: sumAmt, currency: "USD" }],
-        paymentSchedule: {
-          type: "fixed",
-          schedules: sched.map((r) => ({ dueDate: r.date, value: money(r.amount) })),
-        },
+        paymentSchedule: { type: "fixed", schedules: normalizedSchedules },
       };
       console.log("[ghl-invoice] create invoice (fixed schedule) payload:", JSON.stringify(payload, null, 2));
       const res = await postInvoice(payload);
@@ -536,29 +547,34 @@ Deno.serve(async (req) => {
         path = "invoice+paymentSchedule";
         invoiceId = invRes.data?._id || invRes.data?.invoice?._id || invRes.data?.id || null;
       } else {
-        // Schedule failed — capture GHL's real message, fall back to PLAIN
-        // first-due-only so Sign & Pay still opens a payable link.
+        // Schedule failed — capture real message, fall back to PLAIN
+        // full balance so Sign & Pay always creates a valid payable invoice!
         const msg = ghlMsg(invRes);
-        console.log("[ghl-invoice] schedule invoice failed, falling back to plain first-due. error:", msg);
+        console.log("[ghl-invoice] schedule invoice failed, falling back to plain full balance. error:", msg);
         scheduleError = String(msg);
 
-        const firstDue = planRows[0]?.amount || numAmount;
-        const plainRes = await createInvoice(firstDue, planRows, true);
+        // Try single invoice with full total first
+        let plainRes = await createInvoice(invoiceTotal, undefined, true);
+        if (!plainRes.ok) {
+          const firstDue = planRows[0]?.amount || numAmount;
+          plainRes = await createInvoice(firstDue, undefined, true);
+          if (plainRes.ok) invoiceTotal = firstDue;
+        }
         if (plainRes.ok) {
           invoiceId = plainRes.data?._id || plainRes.data?.invoice?._id || plainRes.data?.id || null;
-          invoiceTotal = firstDue;
           path = "plain-firstDue";
         } else {
           const plainMsg = ghlMsg(plainRes);
           return jsonResp({
-            error: `Failed to create GHL invoice (${plainRes.status}): ${plainMsg}`,
+            error: `Failed to create invoice (${plainRes.status}): ${plainMsg || msg}`,
             path,
             ghlStatus: plainRes.status,
             ghlBodyPreview: plainRes.body.slice(0, 800),
             ghlFull: plainRes.body,
-            scheduleAttempt: { status: invRes.status, message: msg },
+            scheduleAttempt: { status: invRes.status, message: msg, body: invRes.body },
           }, 500);
         }
+      }
       }
     } else {
       invoiceTotal = numAmount;
@@ -566,7 +582,7 @@ Deno.serve(async (req) => {
       if (!invRes.ok) {
         const msg = ghlMsg(invRes);
         return jsonResp({
-          error: `Failed to create GHL invoice (${invRes.status}): ${msg}`,
+          error: `Failed to create invoice (${invRes.status}): ${msg}`,
           path, ghlStatus: invRes.status, ghlBodyPreview: invRes.body.slice(0, 800), ghlFull: invRes.body,
         }, 500);
       }

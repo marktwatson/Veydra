@@ -1,5 +1,9 @@
 import { supabase, supabaseUrl, supabaseAnonKey } from "./supabase";
 
+export type SalesRange = 1 | 7 | 30;
+
+export type SalesGrade = "Critical" | "High" | "Medium" | "Low";
+
 export interface SalesActivityRow {
   contactId?: string;
   name?: string;
@@ -11,7 +15,15 @@ export interface SalesActivityRow {
   snippet?: string;
   what?: string;
   note?: string;
+  signal?: string;
   automationOnly?: boolean;
+  replyHours?: number | null;
+  grade?: SalesGrade;
+  multiUnanswered?: boolean;
+  followedUp?: boolean;
+  source?: string;
+  dateAdded?: string | null;
+  createdDay?: string;
 }
 
 export interface SalesPriority {
@@ -27,14 +39,64 @@ export interface SalesChannelMix {
   manualSms: number;
   email: number;
   automation: number;
-  voicemail?: number;
   total?: number;
   callPct?: number;
   callRatio: number;
   outreachPct?: number;
   contactedLast24h?: number;
+  contactedInRange?: number;
   automationOnly: SalesActivityRow[];
   emailBlindSpotWarning: boolean;
+}
+
+export interface SalesResponsePerformance {
+  count: number;
+  avgHours: number | null;
+  slaBreaches: number;
+  slaThresholdHours: number;
+  slowestName: string | null;
+  slowestHours: number | null;
+}
+
+export interface SalesFunnel {
+  new: number;
+  contacted: number;
+  engaged: number;
+  proposal_sent: number;
+  booked: number;
+  total: number;
+  windowNewLeadsCount?: number;
+}
+
+export interface SalesLeadIntel {
+  contactId: string;
+  name: string;
+  phone: string;
+  email: string;
+  source: string;
+  weddingDate: string | null;
+  estimatedValue: number | null;
+  daysSinceFirstContact: number | null;
+  stage: string;
+  lastActivityDate: string | null;
+  lastChannel: string | null;
+  hoursAgo: number | null;
+  dateAdded?: string | null;
+  isNewInWindow?: boolean;
+  dnd?: boolean;
+}
+
+export interface SalesHistoryRun {
+  ran_at: string;
+  range: number;
+  pool_size: number;
+  needs_reply_count: number;
+  going_cold_count: number;
+  opted_out_count: number;
+  avg_response_hours: number | null;
+  sla_breaches: number;
+  funnel: SalesFunnel | null;
+  channel_mix: SalesChannelMix | null;
 }
 
 export interface SalesEmailRecipient {
@@ -48,18 +110,31 @@ export interface SalesEmailRecipient {
 
 export interface SalesActivityResult {
   ranAt: string;
+  range?: number;
+  rangeLabel?: string;
   poolSize: number;
+  windowNewLeadsCount?: number;
   poolSource?: string;
   companyName?: string;
   reportText?: string;
+  htmlReport?: string;
   emailResult?: { subject: string; recipients: SalesEmailRecipient[] } | null;
   priorities: SalesPriority[];
   needsReply: SalesActivityRow[];
+  ghostLeads?: SalesActivityRow[];
+  missedCalls?: SalesActivityRow[];
   emailBlindSpot: SalesActivityRow[];
   goingCold: SalesActivityRow[];
+  goingColdTotal?: number;
   optedOut: SalesActivityRow[];
+  automationOnly?: SalesActivityRow[];
+  weekendCatchUp?: SalesActivityRow[] | null;
   channelMix: SalesChannelMix;
   goingWell: SalesActivityRow[];
+  responsePerformance?: SalesResponsePerformance;
+  funnel?: SalesFunnel;
+  leadIntel?: SalesLeadIntel[];
+  history?: SalesHistoryRun[];
   errors: string[];
   error?: string;
 }
@@ -73,6 +148,8 @@ export interface SalesRecipientChoice {
 export async function runSalesActivityReport(opts?: {
   sendEmail?: boolean;
   recipients?: SalesRecipientChoice[];
+  range?: SalesRange;
+  includeHistory?: boolean;
 }): Promise<SalesActivityResult> {
   const {
     data: { session },
@@ -102,6 +179,8 @@ export async function runSalesActivityReport(opts?: {
       sendEmail: opts?.sendEmail ?? false,
       recipients: opts?.recipients ?? undefined,
       callerEmail: userEmail,
+      range: opts?.range ?? 1,
+      includeHistory: opts?.includeHistory ?? true,
     }),
   });
   const result = await response

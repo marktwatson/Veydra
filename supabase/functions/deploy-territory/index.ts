@@ -62,6 +62,7 @@ ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS cashapp_cashtag TEXT
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS accept_zelle BOOLEAN DEFAULT false;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS zelle_target TEXT;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS proposal_expiry_days integer DEFAULT 2;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS last_sales_report_date text;
 CREATE TABLE IF NOT EXISTS public.payment_manual_adjustments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   wedding_id uuid NOT NULL,
@@ -90,6 +91,11 @@ ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS expires_at timestamptz;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS sent_count int DEFAULT 0;
 DROP TRIGGER IF EXISTS trg_coverage_auto_assign ON public.applications;
 DROP FUNCTION IF EXISTS public.fn_coverage_auto_assign();
+CREATE TABLE IF NOT EXISTS public.sales_activity_runs (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), ran_at timestamptz DEFAULT now(), range int DEFAULT 1, pool_size int DEFAULT 0, needs_reply_count int DEFAULT 0, going_cold_count int DEFAULT 0, opted_out_count int DEFAULT 0, avg_response_hours numeric, sla_breaches int DEFAULT 0, funnel jsonb, channel_mix jsonb, priorities jsonb, report_text text, triggered_by text DEFAULT 'manual');
+ALTER TABLE public.sales_activity_runs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "sar_auth_all" ON public.sales_activity_runs;
+CREATE POLICY "sar_auth_all" ON public.sales_activity_runs FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE INDEX IF NOT EXISTS idx_sales_activity_runs_ran_at ON public.sales_activity_runs(ran_at);
 NOTIFY pgrst, 'reload schema';
 `;
 

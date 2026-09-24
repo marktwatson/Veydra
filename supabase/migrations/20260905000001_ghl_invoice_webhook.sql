@@ -15,6 +15,7 @@ ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS sent_at timestamptz;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS expires_at timestamptz;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS sent_count int DEFAULT 0;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS proposal_expiry_days integer DEFAULT 2;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS last_sales_report_date text;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS phone text;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_api_key text;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_location_id text;
@@ -38,12 +39,13 @@ DECLARE
   got_photo boolean;
   got_video boolean;
   ctype text;
+  wid uuid;
 BEGIN
-  IF NEW.contractor_id IS NULL THEN RETURN NEW; END IF;
+  wid := NEW.wedding_id;
   pid := NEW.proposal_id;
   IF pid IS NULL THEN
     SELECT p.id INTO pid FROM public.proposals p
-    WHERE p.wedding_id = NEW.wedding_id
+    WHERE p.wedding_id = wid
       AND coalesce(p.status,'') <> 'superseded'
     ORDER BY p.created_at DESC NULLS LAST
     LIMIT 1;
@@ -55,9 +57,34 @@ BEGIN
   SELECT coalesce(coverage_type, 'both') INTO ctype FROM public.proposals WHERE id = pid;
   need_photo := ctype IN ('photo', 'both');
   need_video := ctype IN ('video', 'both');
+  -- A role is covered if the job has contractor_id OR an active assignment.
   SELECT
-    EXISTS (SELECT 1 FROM public.jobs WHERE wedding_id = NEW.wedding_id AND contractor_id IS NOT NULL AND role ILIKE '%photo%'),
-    EXISTS (SELECT 1 FROM public.jobs WHERE wedding_id = NEW.wedding_id AND contractor_id IS NOT NULL AND role ILIKE '%video%')
+    EXISTS (
+      SELECT 1 FROM public.jobs j
+      WHERE j.wedding_id = wid
+        AND j.role ILIKE '%photo%'
+        AND (
+          j.contractor_id IS NOT NULL
+          OR EXISTS (
+            SELECT 1 FROM public.assignments a
+            WHERE a.job_id = j.id
+              AND lower(coalesce(a.status,'')) IN ('upcoming','accepted','confirmed','assigned')
+          )
+        )
+    ),
+    EXISTS (
+      SELECT 1 FROM public.jobs j
+      WHERE j.wedding_id = wid
+        AND j.role ILIKE '%video%'
+        AND (
+          j.contractor_id IS NOT NULL
+          OR EXISTS (
+            SELECT 1 FROM public.assignments a
+            WHERE a.job_id = j.id
+              AND lower(coalesce(a.status,'')) IN ('upcoming','accepted','confirmed','assigned')
+          )
+        )
+    )
   INTO got_photo, got_video;
   IF (NOT need_photo OR got_photo) AND (NOT need_video OR got_video) THEN
     UPDATE public.proposals
@@ -68,10 +95,33 @@ BEGIN
 END;
 $$;
 
+-- Wrapper for the assignments trigger: looks up the job's wedding_id +
+-- proposal_id, then delegates to the same confirm logic.
+CREATE OR REPLACE FUNCTION public.fn_coverage_confirm_job_assign()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  jrow record;
+BEGIN
+  SELECT id, wedding_id, proposal_id, role INTO jrow
+  FROM public.jobs WHERE id = NEW.job_id;
+  IF NOT FOUND THEN RETURN NEW; END IF;
+  -- Re-invoke the jobs trigger logic by performing a no-op self-update.
+  PERFORM public.fn_coverage_confirm(jrow);
+  RETURN NEW;
+END;
+$$;
+
 DROP TRIGGER IF EXISTS trg_coverage_confirm ON public.jobs;
 CREATE TRIGGER trg_coverage_confirm
-AFTER INSERT OR UPDATE OF contractor_id, proposal_id ON public.jobs
+AFTER INSERT OR UPDATE OF contractor_id, proposal_id, status ON public.jobs
 FOR EACH ROW EXECUTE FUNCTION public.fn_coverage_confirm();
+
+-- Fire when an assignment is created/updated (the normal Veydra assign path)
+-- so coverage confirms even though jobs.contractor_id is never set.
+DROP TRIGGER IF EXISTS trg_coverage_confirm_assign ON public.assignments;
+CREATE TRIGGER trg_coverage_confirm_assign
+AFTER INSERT OR UPDATE OF status, contractor_id ON public.assignments
+FOR EACH ROW EXECUTE FUNCTION public.fn_coverage_confirm_job_assign();
 
 
 
@@ -230,6 +280,31 @@ DROP TRIGGER IF EXISTS trg_royalty_payback ON public.royalty_periods;
 CREATE TRIGGER trg_royalty_payback
   BEFORE UPDATE ON public.royalty_periods
   FOR EACH ROW EXECUTE FUNCTION public.apply_royalty_payback_trigger();
+
+-- ════════════════════════════════════════════════════════════════════════
+-- sales_activity_runs — stores each Sales Activity report run for trend
+-- tracking. One row per run (manual or auto). Ships with territory Sync.
+-- ════════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS public.sales_activity_runs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  ran_at timestamptz DEFAULT now(),
+  range int DEFAULT 1,
+  pool_size int DEFAULT 0,
+  needs_reply_count int DEFAULT 0,
+  going_cold_count int DEFAULT 0,
+  opted_out_count int DEFAULT 0,
+  avg_response_hours numeric,
+  sla_breaches int DEFAULT 0,
+  funnel jsonb,
+  channel_mix jsonb,
+  priorities jsonb,
+  report_text text,
+  triggered_by text DEFAULT 'manual'
+);
+ALTER TABLE public.sales_activity_runs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "sar_auth_all" ON public.sales_activity_runs;
+CREATE POLICY "sar_auth_all" ON public.sales_activity_runs FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE INDEX IF NOT EXISTS idx_sales_activity_runs_ran_at ON public.sales_activity_runs(ran_at);
 
 -- Reload PostgREST schema cache so the API sees the new columns immediately.
 NOTIFY pgrst, 'reload schema';

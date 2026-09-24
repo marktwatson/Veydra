@@ -153,16 +153,22 @@
   --secondary: 40 44% 93%; /* #f7f3ee champagne cream */
   --secondary-foreground: 0 0% 10%;
   --muted: 40 44% 93%; /* #f7f3ee champagne cream */
-  --muted-foreground: 30 10% 45%; /* warm gray */
+  --muted-foreground: 30 10% 35%; /* darker warm gray for readability */
   --accent: 38 44% 58%; /* #c9a96e champagne gold */
   --accent-foreground: 0 0% 10%;
   --background: 40 36% 96%; /* #faf7f2 light champagne */
+  --foreground: 0 0% 10%; /* #1a1a1a — force dark text even in dark mode */
   --card: 0 0% 100%; /* pure white for cards */
+  --card-foreground: 0 0% 10%; /* dark text on cards */
+  --popover: 0 0% 100%; /* white dropdowns */
+  --popover-foreground: 0 0% 10%; /* dark text in dropdowns */
+  --input: 38 30% 75%; /* champagne input border */
   --border: 38 30% 80%; /* champagne border */
   --destructive: 0 70% 50%;
   --destructive-foreground: 40 30% 96%;
   --ring: 0 0% 10%;
   background-color: hsl(40 36% 96%);
+  color: hsl(0 0% 10%); /* explicit dark text color */
   font-family:
     "Fira Sans",
     system-ui,
@@ -178,4 +184,29 @@
 /* Smooth scroll for tab content */
 .bride-portal [role="tabpanel"] {
   scroll-margin-top: 1rem;
+}
+
+/* Force readable dark text on all form inputs inside the bride portal,
+   even when the device is in dark mode. */
+.bride-portal input,
+.bride-portal textarea,
+.bride-portal select,
+.bride-portal [role="combobox"],
+.bride-portal [role="option"] {
+  color: hsl(0 0% 10%) !important;
+  background-color: hsl(0 0% 100%) !important;
+}
+.bride-portal input::placeholder,
+.bride-portal textarea::placeholder {
+  color: hsl(30 10% 40%) !important;
+}
+.bride-portal label {
+  color: hsl(0 0% 10%) !important;
+}
+/* Card descriptions: bump from /60 to /75 for readability */
+.bride-portal .text-\[\#1a1a1a\]\/60 {
+  color: hsl(0 0% 10% / 0.78) !important;
+}
+.bride-portal .text-\[\#1a1a1a\]\/70 {
+  color: hsl(0 0% 10% / 0.85) !important;
 }
