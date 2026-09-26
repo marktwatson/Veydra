@@ -25,12 +25,11 @@ import {
   Smartphone,
   Share,
   PlusSquare as PlusSquareIcon,
-  BookOpen,
   TrendingUp,
   CreditCard,
   Globe,
-  Crown,
 } from "lucide-react";
+import { buildFlatNavItems } from "@/lib/flat-nav-items";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { CHANGELOG_DATA } from "@/pages/manager/Changelog";
 import {
@@ -297,15 +296,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
       !isApplicant
     ) {
       navigate("/training", { replace: true });
-    } else if (
-      user?.role === "contractor" &&
-      profile &&
-      profile.training_completed !== false &&
-      profile.isProfileIncomplete &&
-      location.pathname !== "/" &&
-      !isApplicant
-    ) {
-      navigate("/", { replace: true });
     }
   }, [user, profile, location.pathname, navigate]);
 
@@ -712,19 +702,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
   // Owners use the same filtered manager nav groups (with their royalty dashboard appended)
   const effectiveNavGroups = visibleManagerNavGroups;
 
-  const flatNavItems = isManagerOrAdmin
-    ? effectiveNavGroups.flatMap((g) => g.items)
-    : role === "editor"
-      ? editorNavItems
-      : isTerminated
-        ? [{ icon: Receipt, label: "Invoices", path: "/invoices" }]
-        : isApplicant
-          ? [{ icon: Home, label: "Candidate Portal", path: "/" }]
-          : profile?.training_completed === false
-            ? [{ icon: BookOpen, label: "Training Academy", path: "/training" }]
-            : profile?.isProfileIncomplete
-              ? [{ icon: User, label: "Complete Profile", path: "/" }]
-              : contractorNavItems;
+  const flatNavItems = buildFlatNavItems({
+    isManagerOrAdmin,
+    role,
+    isTerminated,
+    isApplicant,
+    trainingCompleted: profile?.training_completed,
+    effectiveNavGroups,
+  });
 
   const handleLogout = () => {
     logout();

@@ -1766,8 +1766,10 @@ CREATE TABLE IF NOT EXISTS public.payment_refunds (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 ALTER TABLE public.payment_refunds ENABLE ROW LEVEL SECURITY;
-CREATE POLICY IF NOT EXISTS "Managers can read refunds" ON public.payment_refunds FOR SELECT TO authenticated USING (true);
-CREATE POLICY IF NOT EXISTS "Managers insert refunds" ON public.payment_refunds FOR INSERT TO authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "Managers can read refunds" ON public.payment_refunds;
+CREATE POLICY "Managers can read refunds" ON public.payment_refunds FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Managers insert refunds" ON public.payment_refunds;
+CREATE POLICY "Managers insert refunds" ON public.payment_refunds FOR INSERT TO authenticated WITH CHECK (true);
 
 -- Per-installment charge lock: prevents two staff members from
 -- double-charging the same installment. The dedupe_key is unique per
@@ -1792,9 +1794,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS payment_charges_active_dedupe_idx
   ON public.payment_charges (dedupe_key)
   WHERE status IN ('pending','running');
 ALTER TABLE public.payment_charges ENABLE ROW LEVEL SECURITY;
-CREATE POLICY IF NOT EXISTS "Staff read charges" ON public.payment_charges FOR SELECT TO authenticated USING (true);
-CREATE POLICY IF NOT EXISTS "Staff insert charges" ON public.payment_charges FOR INSERT TO authenticated WITH CHECK (true);
-CREATE POLICY IF NOT EXISTS "Staff update charges" ON public.payment_charges FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Staff read charges" ON public.payment_charges;
+CREATE POLICY "Staff read charges" ON public.payment_charges FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Staff insert charges" ON public.payment_charges;
+CREATE POLICY "Staff insert charges" ON public.payment_charges FOR INSERT TO authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "Staff update charges" ON public.payment_charges;
+CREATE POLICY "Staff update charges" ON public.payment_charges FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
 
 -- Per-invoice CRM payment ledger (idempotent running totals).
 CREATE TABLE IF NOT EXISTS public.ghl_invoice_payments (

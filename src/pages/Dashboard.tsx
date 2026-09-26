@@ -815,12 +815,29 @@ export default function Dashboard() {
       : !contractor.avatar_url || !contractor.bio || !contractor.portfolio_url
     : false;
 
-  if (isProfileIncomplete) {
-    return <ProfileOnboarding contractor={contractor} />;
-  }
-
   return (
     <div className="space-y-8">
+      {isProfileIncomplete && (
+        <Alert className="bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Complete your profile</AlertTitle>
+          <AlertDescription className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-2">
+            <span>
+              {isBartenderDash
+                ? "Bartenders need a profile photo."
+                : "Photo + videographers need a profile photo, bio, and portfolio link."}
+              {!contractor?.avatar_url && " Missing: Profile photo."}
+              {!isBartenderDash && !contractor?.bio && " Missing: Bio."}
+              {!isBartenderDash &&
+                !contractor?.portfolio_url &&
+                " Missing: Portfolio link."}
+            </span>
+            <Button size="sm" asChild>
+              <Link to="/profile">Complete profile</Link>
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
       {!contractor?.venmo_handle && !contractor?.stripe_account_id && (
         <Alert className="bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400">
           <DollarSign className="h-4 w-4" />

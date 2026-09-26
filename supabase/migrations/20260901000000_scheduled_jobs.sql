@@ -90,6 +90,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS payment_charges_active_dedupe_idx
   ON public.payment_charges (dedupe_key)
   WHERE status IN ('pending','running');
 ALTER TABLE public.payment_charges ENABLE ROW LEVEL SECURITY;
-CREATE POLICY IF NOT EXISTS "Staff read charges" ON public.payment_charges FOR SELECT TO authenticated USING (true);
-CREATE POLICY IF NOT EXISTS "Staff insert charges" ON public.payment_charges FOR INSERT TO authenticated WITH CHECK (true);
-CREATE POLICY IF NOT EXISTS "Staff update charges" ON public.payment_charges FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Staff read charges" ON public.payment_charges;
+CREATE POLICY "Staff read charges" ON public.payment_charges FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Staff insert charges" ON public.payment_charges;
+CREATE POLICY "Staff insert charges" ON public.payment_charges FOR INSERT TO authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "Staff update charges" ON public.payment_charges;
+CREATE POLICY "Staff update charges" ON public.payment_charges FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
