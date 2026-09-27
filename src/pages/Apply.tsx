@@ -52,8 +52,8 @@ export default function Apply() {
   const [inlineError, setInlineError] = useState<string | null>(null);
 
   // Resolve the territory from the route slug (case-insensitive). No slug →
-  // Honeysuckle. Unknown slug → found:false (we render an "Unknown location"
-  // page and never insert a contractor).
+  // found:false (we render an "Unknown location" page and never insert a
+  // contractor). "honeysuckle" → the Honeysuckle pipeline.
   const { data: territory, isLoading: isLoadingTerritory } = useQuery({
     queryKey: ["apply-territory", slug ?? ""],
     queryFn: () => resolveTerritoryBySlug(slug),
@@ -289,7 +289,7 @@ export default function Apply() {
             </p>
           </div>
           <Link
-            to="/apply"
+            to="/apply/honeysuckle"
             className="inline-block text-primary hover:underline font-medium"
           >
             Use the default application

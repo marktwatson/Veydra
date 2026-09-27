@@ -55,6 +55,7 @@ import ManagerAdCampaigns from "@/pages/manager/AdCampaigns";
 import GrowthHub from "@/pages/manager/GrowthHub";
 import ExportProject from "@/pages/manager/ExportProject";
 import Territories from "@/pages/manager/Territories";
+import Areas from "@/pages/manager/Areas";
 import PostProductionBoard from "@/pages/manager/PostProduction";
 import EditorDashboard from "@/pages/editor/Dashboard";
 import EditorInvoices from "@/pages/editor/Invoices";
@@ -352,6 +353,14 @@ const App = () => {
                   element={
                     <MgrOwner>
                       <Territories />
+                    </MgrOwner>
+                  }
+                />
+                <Route
+                  path="/manager/areas"
+                  element={
+                    <MgrOwner>
+                      <Areas />
                     </MgrOwner>
                   }
                 />

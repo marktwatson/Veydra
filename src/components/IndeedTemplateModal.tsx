@@ -146,7 +146,7 @@ export function IndeedTemplateModal({
         );
         if (cancelled) return;
         setCompanyName(company);
-        setApplyLink(`${base}/apply`);
+        setApplyLink(`${base}/apply/honeysuckle`);
 
         // Try to resolve this instance's own territory name for the area.
         let area = "";

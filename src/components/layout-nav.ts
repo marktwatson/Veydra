@@ -17,6 +17,7 @@ import {
   Crown,
   Shield,
   GraduationCap,
+  MapPin,
 } from "lucide-react";
 
 export const contractorNavItems = [
@@ -78,9 +79,14 @@ export const managerNavGroups = [
       { icon: Settings, label: "Settings", path: "/manager/settings" },
       { icon: Activity, label: "Activity Log", path: "/manager/activity" },
       { icon: Globe, label: "Territory Fleet", path: "/manager/territories" },
+      { icon: MapPin, label: "Areas", path: "/manager/areas" },
     ],
   },
 ];
+
+// NOTE: The "Areas" nav item is included in the System Control group above.
+// It is route-gated by MgrOwner (owner + super_admin only); managers who
+// click it are redirected to /manager. See src/App.tsx.
 
 // Royalty nav item — only visible to super_admin
 export const royaltyNavItem = {

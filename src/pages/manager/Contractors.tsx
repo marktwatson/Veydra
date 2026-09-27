@@ -1779,10 +1779,12 @@ export default function ManagerContractors() {
                     const baseUrl = (
                       settings?.app_url || window.location.origin
                     ).replace(/\/$/, "");
-                    await navigator.clipboard.writeText(`${baseUrl}/apply`);
+                    await navigator.clipboard.writeText(
+                      `${baseUrl}/apply/honeysuckle`,
+                    );
                     toast({
                       title: "Link copied!",
-                      description: `${baseUrl}/apply copied to clipboard.`,
+                      description: `${baseUrl}/apply/honeysuckle copied to clipboard.`,
                     });
                   } catch {
                     toast({

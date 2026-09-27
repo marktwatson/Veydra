@@ -1,9 +1,14 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { DEFAULT_LOGO_URL } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { isSuperAdminEmail } from "@/lib/super-admin";
+import { HONEYSUCKLE_TERRITORY_ID } from "@/lib/territory";
+import { TeamAddAdminDialog } from "@/components/TeamAddAdminDialog";
+import {
+  sendInviteNotifications,
+  sendResetNotifications,
+} from "@/lib/team-invite-notifications";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,7 +48,6 @@ import {
 } from "@/components/ui/table";
 import {
   Shield,
-  Plus,
   Trash2,
   Loader2,
   Key,
@@ -72,6 +76,12 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useNavigate } from "react-router-dom";
 
+interface TerritoryLite {
+  id: string;
+  name: string;
+  slug: string | null;
+}
+
 export default function ManagerTeam() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -79,11 +89,6 @@ export default function ManagerTeam() {
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false);
-  const [newAdmin, setNewAdmin] = useState({
-    name: "",
-    email: "",
-    role: "manager",
-  });
   const [newPassword, setNewPassword] = useState("");
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   const [, setRefreshTrigger] = useState(0);
@@ -94,6 +99,32 @@ export default function ManagerTeam() {
   const { user, impersonate } = useAuth();
   const navigate = useNavigate();
 
+  // Load territories (id, name, slug) once for the Team page — used for the
+  // Area badge on each member and the Area <Select> on invite / edit. Falls
+  // back to the Honeysuckle single-area option when the table is empty.
+  const { data: territories = [] } = useQuery({
+    queryKey: ["team-territories"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("territories")
+        .select("id, name, slug")
+        .order("name", { ascending: true });
+      if (error && error.code !== "42P01") throw error;
+      return (data || []) as TerritoryLite[];
+    },
+  });
+
+  const areaOptions: TerritoryLite[] =
+    territories.length > 0
+      ? territories
+      : [{ id: HONEYSUCKLE_TERRITORY_ID, name: "Honeysuckle", slug: null }];
+
+  const territoryNameById = (id?: string | null): string => {
+    if (!id) return "Honeysuckle";
+    const t = territories.find((x) => x.id === id);
+    return t?.name || "Honeysuckle";
+  };
+
   const { data: managers = [], isLoading } = useQuery({
     queryKey: ["managers"],
     queryFn: async () => {
@@ -102,32 +133,30 @@ export default function ManagerTeam() {
       const editors = e.map((ed) => ({ ...ed, role: "editor" }));
       const all = [...m, ...editors];
 
-      // Clean up duplicates by email, giving priority to active accounts over invited ones
+      // Clean up duplicates by email, giving priority to active accounts
       const uniqueMap = new Map();
-      all.forEach((user) => {
-        const email = user.email?.trim().toLowerCase();
+      all.forEach((u) => {
+        const email = u.email?.trim().toLowerCase();
         if (!email) {
-          uniqueMap.set(user.id, user);
+          uniqueMap.set(u.id, u);
           return;
         }
-
         if (uniqueMap.has(email)) {
           const existing = uniqueMap.get(email);
-          if (existing.status === "invited" && user.status === "active") {
-            uniqueMap.set(email, user);
-          } else if (existing.status !== "active" && user.status === "active") {
-            uniqueMap.set(email, user);
-          } else if (user.role === "editor" && existing.role !== "editor") {
-            uniqueMap.set(email, user);
-          }
+          if (existing.status === "invited" && u.status === "active")
+            uniqueMap.set(email, u);
+          else if (existing.status !== "active" && u.status === "active")
+            uniqueMap.set(email, u);
+          else if (u.role === "editor" && existing.role !== "editor")
+            uniqueMap.set(email, u);
         } else {
-          uniqueMap.set(email, user);
+          uniqueMap.set(email, u);
         }
       });
 
       const list = Array.from(uniqueMap.values());
 
-      // Auto-reconcile any remaining invited status if the user has an active record or has logged in
+      // Auto-reconcile remaining invited status if the user has an active record
       for (const item of list) {
         if (item.status === "invited" && item.email) {
           const emailLower = item.email.trim().toLowerCase();
@@ -179,23 +208,19 @@ export default function ManagerTeam() {
   const deleteMutation = useMutation({
     mutationFn: async (member: any) => {
       const idsToDelete = [member.id];
-
       if (member.email) {
         const { data: editors } = await supabase
           .from("editors")
           .select("id")
           .eq("email", member.email);
         if (editors) editors.forEach((e) => idsToDelete.push(e.id));
-
-        const { data: managers } = await supabase
+        const { data: mgrs } = await supabase
           .from("managers")
           .select("id")
           .eq("email", member.email);
-        if (managers) managers.forEach((m) => idsToDelete.push(m.id));
+        if (mgrs) mgrs.forEach((m) => idsToDelete.push(m.id));
       }
-
       const uniqueIds = [...new Set(idsToDelete)];
-
       for (const id of uniqueIds) {
         await supabase
           .from("weddings")
@@ -211,7 +236,6 @@ export default function ManagerTeam() {
         await supabase.from("assignments").delete().eq("contractor_id", id);
         await supabase.from("applications").delete().eq("contractor_id", id);
       }
-
       if (member.email) {
         const { error: edError } = await supabase
           .from("editors")
@@ -219,7 +243,6 @@ export default function ManagerTeam() {
           .eq("email", member.email);
         if (edError && edError.code !== "42P01")
           throw new Error(`Editor delete failed: ${edError.message}`);
-
         const { error: mgError } = await supabase
           .from("managers")
           .delete()
@@ -227,7 +250,6 @@ export default function ManagerTeam() {
         if (mgError && mgError.code !== "42P01")
           throw new Error(`Manager delete failed: ${mgError.message}`);
       }
-
       for (const id of uniqueIds) {
         const { error: idError1 } = await supabase
           .from("editors")
@@ -235,7 +257,6 @@ export default function ManagerTeam() {
           .eq("id", id);
         if (idError1 && idError1.code !== "42P01")
           throw new Error(`Editor ID delete failed: ${idError1.message}`);
-
         const { error: idError2 } = await supabase
           .from("managers")
           .delete()
@@ -263,6 +284,10 @@ export default function ManagerTeam() {
   const updateMutation = useMutation({
     mutationFn: async (data: { member: any; updates: any }) => {
       const { member, updates } = data;
+      // territory_id lives on the managers table only; preserve it across
+      // role conversions where a managers row is (re)created.
+      const territoryId =
+        updates.territory_id || member.territory_id || HONEYSUCKLE_TERRITORY_ID;
 
       if (member.role === "editor" && updates.role !== "editor") {
         await api.removeEditor(member.id).catch(() => {});
@@ -274,11 +299,11 @@ export default function ManagerTeam() {
           role: updates.role,
           status: member.status,
           avatar_url: member.avatar_url,
-        });
+          territory_id: territoryId,
+        } as any);
       } else if (member.role !== "editor" && updates.role === "editor") {
         await api.removeManager(member.id).catch(() => {});
         if (member.status === "invited") {
-          // Keep in managers table if still invited to bypass foreign key constraint
           return api.addManager({
             id: member.id,
             name: updates.name,
@@ -286,7 +311,8 @@ export default function ManagerTeam() {
             role: "editor",
             status: "invited",
             avatar_url: member.avatar_url,
-          });
+            territory_id: territoryId,
+          } as any);
         }
         return api.addEditor({
           id: member.id,
@@ -304,7 +330,13 @@ export default function ManagerTeam() {
           .from("managers")
           .update({ name: updates.name, role: updates.role })
           .eq("email", member.email);
-        return api.updateManager(member.id, updates);
+        // Update managers.territory_id only (plus name/role as today); do not
+        // overwrite email or other fields.
+        return api.updateManager(member.id, {
+          name: updates.name,
+          role: updates.role,
+          territory_id: territoryId,
+        } as any);
       }
     },
     onSuccess: () => {
@@ -333,6 +365,7 @@ export default function ManagerTeam() {
       updates: {
         name: editingAdmin.name,
         role: editingAdmin.role || "manager",
+        territory_id: editingAdmin.territory_id || HONEYSUCKLE_TERRITORY_ID,
       },
     });
   };
@@ -340,26 +373,19 @@ export default function ManagerTeam() {
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !editingAdmin) return;
-
     try {
       setIsUploadingAvatar(true);
       const fileExt = file.name.split(".").pop();
       const safeEmail = editingAdmin.email.replace(/[^a-zA-Z0-9]/g, "_");
       const fileName = `admin-${safeEmail}-${Date.now()}.${fileExt}`;
-
       const { error: uploadError } = await supabase.storage
         .from("avatars")
         .upload(fileName, file, { upsert: true });
-
       if (uploadError) throw uploadError;
-
       const {
         data: { publicUrl },
       } = supabase.storage.from("avatars").getPublicUrl(fileName);
-
       setEditingAdmin({ ...editingAdmin, avatar_url: publicUrl });
-
-      // Update by email to ensure all duplicate rows are updated if any
       if (editingAdmin.role === "editor") {
         await supabase
           .from("editors")
@@ -385,219 +411,6 @@ export default function ManagerTeam() {
     }
   };
 
-  const handleAddAdmin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newAdmin.name || !newAdmin.email) {
-      toast({
-        title: "Missing fields",
-        description: "Please fill in all fields.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const currentActiveEmails = new Set(
-      managers.map((m: any) => m.email?.toLowerCase()),
-    );
-    if (currentActiveEmails.has(newAdmin.email.toLowerCase())) {
-      toast({
-        variant: "destructive",
-        title: "Already active",
-        description: "This admin already has an active account.",
-      });
-      return;
-    }
-
-    // Send to CRM tracking
-    const trackingPayload = {
-      type: "external_form_submission",
-      timestamp: Date.now(),
-      formId: "Add Admin Form",
-      formData: {
-        first_name: newAdmin.name.split(" ")[0] || "",
-        last_name: newAdmin.name.split(" ").slice(1).join(" ") || "",
-        email: newAdmin.email,
-      },
-      formLabels: {
-        first_name: "First Name",
-        last_name: "Last Name",
-        email: "Email",
-      },
-      url: window.location.href,
-      title: document.title,
-      path: window.location.pathname,
-      userAgent: navigator.userAgent,
-      trackingId: "tk_02f0b02f7766475e8e0dd257bf546895",
-      locationId: "fkA7m9pf9sdKd1sNoKJv",
-      sessionId: crypto.randomUUID(),
-      properties: {
-        deviceType: /Mobile|Android|iPhone/i.test(navigator.userAgent)
-          ? "mobile"
-          : "desktop",
-      },
-    };
-
-    fetch("https://backend.leadconnectorhq.com/external-tracking/events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", version: "2021-07-28" },
-      body: JSON.stringify(trackingPayload),
-    }).catch(() => {});
-
-    const pendingUser = {
-      id: crypto.randomUUID(),
-      name: newAdmin.name,
-      email: newAdmin.email,
-      status: "invited",
-    };
-
-    try {
-      if (newAdmin.role === "editor") {
-        // Store pending editor invites in managers table to bypass editors foreign key constraint
-        await api.addManager({
-          ...pendingUser,
-          role: "editor",
-          status: "invited",
-        });
-      } else {
-        await api.addManager({ ...pendingUser, role: newAdmin.role });
-      }
-    } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Failed to add",
-        description: error.message,
-      });
-      return;
-    }
-
-    // Send notifications
-    try {
-      const token = crypto.randomUUID();
-      const settings = await api.getPortalSettings();
-      const baseUrl = window.location.origin;
-      const setupUrl = `${baseUrl}/setup-password?email=${encodeURIComponent(newAdmin.email)}&token=${token}&role=${newAdmin.role}&name=${encodeURIComponent(newAdmin.name)}`;
-
-      let smsSent = false;
-      let emailSent = false;
-
-      if (newAdmin.role === "editor") {
-        if (
-          settings?.sms_editor_invite_enabled &&
-          settings?.sms_editor_invite_template
-        ) {
-          const msg = settings.sms_editor_invite_template
-            .replace(/{{company_name}}/g, settings.company_name || "Veydra")
-            .replace(/{{editor_name}}/g, pendingUser.name)
-            .replace(/{{setup_link}}/g, setupUrl);
-          await api
-            .sendOvantaSms(newAdmin.email, msg, newAdmin.name)
-            .then(() => (smsSent = true))
-            .catch((e) => console.error("SMS failed:", e));
-        } else if (!settings?.sms_editor_invite_enabled) {
-          const msg = `Hi ${pendingUser.name}, you've been invited as an Editor to the ${settings?.company_name || "Portal"}! Click here to set up your account: ${setupUrl}`;
-          await api
-            .sendOvantaSms(newAdmin.email, msg, newAdmin.name)
-            .then(() => (smsSent = true))
-            .catch((e) => console.error("SMS failed:", e));
-        }
-
-        if (
-          settings?.email_editor_invite_enabled &&
-          settings?.email_editor_invite_template
-        ) {
-          const subject = (
-            settings.email_editor_invite_subject ||
-            `You've been invited as an Editor to ${settings.company_name || "our Portal"}!`
-          )
-            .replace(/{{company_name}}/g, settings.company_name || "the Portal")
-            .replace(/{{editor_name}}/g, pendingUser.name);
-          const msg = settings.email_editor_invite_template
-            .replace(/{{company_name}}/g, settings.company_name || "the Portal")
-            .replace(/{{logo_url}}/g, settings.logo_url || DEFAULT_LOGO_URL)
-            .replace(/{{editor_name}}/g, pendingUser.name)
-            .replace(/{{setup_link}}/g, setupUrl);
-          await api
-            .sendOvantaEmail(newAdmin.email, subject, msg, newAdmin.name)
-            .then(() => (emailSent = true))
-            .catch((e) => console.error("Email failed:", e));
-        }
-      } else {
-        if (
-          settings?.sms_manager_invite_enabled &&
-          settings?.sms_manager_invite_template
-        ) {
-          const msg = settings.sms_manager_invite_template
-            .replace(/{{company_name}}/g, settings.company_name || "Veydra")
-            .replace(/{{manager_name}}/g, pendingUser.name)
-            .replace(/{{setup_link}}/g, setupUrl);
-          await api
-            .sendOvantaSms(newAdmin.email, msg, newAdmin.name)
-            .then(() => (smsSent = true))
-            .catch((e) => console.error("SMS failed:", e));
-        } else if (!settings?.sms_manager_invite_enabled) {
-          const msg = `Hi ${pendingUser.name}, you've been invited as an Admin to the ${settings?.company_name || "Portal"}! Click here to set up your account: ${setupUrl}`;
-          await api
-            .sendOvantaSms(newAdmin.email, msg, newAdmin.name)
-            .then(() => (smsSent = true))
-            .catch((e) => console.error("SMS failed:", e));
-        }
-
-        if (
-          settings?.email_manager_invite_enabled &&
-          settings?.email_manager_invite_template
-        ) {
-          const subject = (
-            settings.email_manager_invite_subject ||
-            `You've been invited as an Admin to ${settings.company_name || "our Portal"}!`
-          )
-            .replace(/{{company_name}}/g, settings.company_name || "the Portal")
-            .replace(/{{manager_name}}/g, pendingUser.name);
-          const msg = settings.email_manager_invite_template
-            .replace(/{{company_name}}/g, settings.company_name || "Veydra")
-            .replace(/{{logo_url}}/g, settings.logo_url || DEFAULT_LOGO_URL)
-            .replace(/{{manager_name}}/g, pendingUser.name)
-            .replace(/{{setup_link}}/g, setupUrl);
-          await api
-            .sendOvantaEmail(newAdmin.email, subject, msg, newAdmin.name)
-            .then(() => (emailSent = true))
-            .catch((e) => console.error("Email failed:", e));
-        }
-      }
-
-      // Fallback webhook support just in case
-      let webhookUrl =
-        settings?.admin_invite_webhook ||
-        localStorage.getItem("veydra_admin_invite_webhook");
-      if (webhookUrl) {
-        await fetch(webhookUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            first_name: newAdmin.name.split(" ")[0],
-            last_name: newAdmin.name.split(" ").slice(1).join(" "),
-            full_name: newAdmin.name,
-            email: newAdmin.email,
-            tags: ["invited-manager"],
-            setup_token: token,
-            setup_url: setupUrl,
-          }),
-        }).catch(console.error);
-      }
-    } catch (e) {
-      console.error("Failed to send invites", e);
-    }
-
-    // Removed local storage logic
-
-    setIsAddDialogOpen(false);
-    setNewAdmin({ name: "", email: "", role: "manager" });
-    setRefreshTrigger((prev) => prev + 1);
-    toast({
-      title: "Admin Invited",
-      description: `${newAdmin.name} has been sent an invitation link.`,
-    });
-  };
-
   const handleDeleteInvite = async (member: any) => {
     deleteMutation.mutate(member);
   };
@@ -608,94 +421,14 @@ export default function ManagerTeam() {
       const settings = await api.getPortalSettings();
       const baseUrl = window.location.origin;
       const setupUrl = `${baseUrl}/setup-password?email=${encodeURIComponent(manager.email)}&token=${token}&role=${manager.role || "manager"}&name=${encodeURIComponent(manager.name)}`;
-
-      let smsSent = false;
-      let emailSent = false;
-
-      if (manager.role === "editor") {
-        if (
-          settings?.sms_editor_invite_enabled &&
-          settings?.sms_editor_invite_template
-        ) {
-          const msg = settings.sms_editor_invite_template
-            .replace(/{{company_name}}/g, settings.company_name || "Veydra")
-            .replace(/{{editor_name}}/g, manager.name)
-            .replace(/{{setup_link}}/g, setupUrl);
-          await api
-            .sendOvantaSms(manager.email, msg, manager.name)
-            .then(() => (smsSent = true))
-            .catch((e) => console.error("SMS failed:", e));
-        } else if (!settings?.sms_editor_invite_enabled) {
-          const msg = `Hi ${manager.name}, here is your invitation as an Editor to the ${settings?.company_name || "Portal"}! Click here to set up your account: ${setupUrl}`;
-          await api
-            .sendOvantaSms(manager.email, msg, manager.name)
-            .then(() => (smsSent = true))
-            .catch((e) => console.error("SMS failed:", e));
-        }
-
-        if (
-          settings?.email_editor_invite_enabled &&
-          settings?.email_editor_invite_template
-        ) {
-          const subject = (
-            settings.email_editor_invite_subject ||
-            `You've been invited as an Editor to ${settings.company_name || "our Portal"}!`
-          )
-            .replace(/{{company_name}}/g, settings.company_name || "the Portal")
-            .replace(/{{editor_name}}/g, manager.name);
-          const msg = settings.email_editor_invite_template
-            .replace(/{{company_name}}/g, settings.company_name || "Veydra")
-            .replace(/{{logo_url}}/g, settings.logo_url || DEFAULT_LOGO_URL)
-            .replace(/{{editor_name}}/g, manager.name)
-            .replace(/{{setup_link}}/g, setupUrl);
-          await api
-            .sendOvantaEmail(manager.email, subject, msg, manager.name)
-            .then(() => (emailSent = true))
-            .catch((e) => console.error("Email failed:", e));
-        }
-      } else {
-        if (
-          settings?.sms_manager_invite_enabled &&
-          settings?.sms_manager_invite_template
-        ) {
-          const msg = settings.sms_manager_invite_template
-            .replace(/{{company_name}}/g, settings.company_name || "Veydra")
-            .replace(/{{manager_name}}/g, manager.name)
-            .replace(/{{setup_link}}/g, setupUrl);
-          await api
-            .sendOvantaSms(manager.email, msg, manager.name)
-            .then(() => (smsSent = true))
-            .catch((e) => console.error("SMS failed:", e));
-        } else if (!settings?.sms_manager_invite_enabled) {
-          const msg = `Hi ${manager.name}, here is your invitation as an Admin to the ${settings?.company_name || "Portal"}! Click here to set up your account: ${setupUrl}`;
-          await api
-            .sendOvantaSms(manager.email, msg, manager.name)
-            .then(() => (smsSent = true))
-            .catch((e) => console.error("SMS failed:", e));
-        }
-
-        if (
-          settings?.email_manager_invite_enabled &&
-          settings?.email_manager_invite_template
-        ) {
-          const subject = (
-            settings.email_manager_invite_subject ||
-            `You've been invited as an Admin to ${settings.company_name || "our Portal"}!`
-          )
-            .replace(/{{company_name}}/g, settings.company_name || "the Portal")
-            .replace(/{{manager_name}}/g, manager.name);
-          const msg = settings.email_manager_invite_template
-            .replace(/{{company_name}}/g, settings.company_name || "Veydra")
-            .replace(/{{logo_url}}/g, settings.logo_url || DEFAULT_LOGO_URL)
-            .replace(/{{manager_name}}/g, manager.name)
-            .replace(/{{setup_link}}/g, setupUrl);
-          await api
-            .sendOvantaEmail(manager.email, subject, msg, manager.name)
-            .then(() => (emailSent = true))
-            .catch((e) => console.error("Email failed:", e));
-        }
-      }
-
+      await sendInviteNotifications({
+        role: manager.role || "manager",
+        name: manager.name,
+        email: manager.email,
+        settings,
+        baseUrl,
+        setupUrl,
+      });
       const webhookUrl =
         settings?.admin_invite_webhook ||
         localStorage.getItem("veydra_admin_invite_webhook");
@@ -748,89 +481,22 @@ export default function ManagerTeam() {
         redirectTo: `${baseUrl}/reset-password`,
       });
       if (error) throw error;
-
       await api.logApiEvent(
         "Supabase Auth",
         `Reset Password requested for ${email}`,
         "Success",
         "success",
       );
-
       try {
         const manager = managers.find((m) => m.email === email);
         const managerName = manager?.name || email.split("@")[0];
-
-        if (manager?.role === "editor") {
-          if (
-            settings?.sms_editor_reset_enabled &&
-            settings?.sms_editor_reset_template
-          ) {
-            const msg = settings.sms_editor_reset_template
-              .replace(/{{editor_name}}/g, managerName)
-              .replace(/{{setup_link}}/g, `${baseUrl}/forgot-password`);
-            await api
-              .sendOvantaSms(email, msg, managerName)
-              .catch((e) => console.error("SMS failed:", e));
-          } else if (!settings?.sms_editor_reset_enabled) {
-            await api
-              .sendOvantaSms(
-                email,
-                `Hi there! A password reset link for your Editor account has been sent to your email (${email}). Please check your inbox!`,
-                managerName,
-              )
-              .catch((e) => console.error("SMS failed:", e));
-          }
-
-          if (
-            settings?.email_editor_reset_enabled &&
-            settings?.email_editor_reset_template
-          ) {
-            const subject =
-              settings.email_editor_reset_subject ||
-              "Editor Password Reset Request";
-            const msg = settings.email_editor_reset_template
-              .replace(/{{editor_name}}/g, managerName)
-              .replace(/{{setup_link}}/g, `${baseUrl}/forgot-password`);
-            await api
-              .sendOvantaEmail(email, subject, msg, managerName)
-              .catch((e) => console.error("Email failed:", e));
-          }
-        } else {
-          if (
-            settings?.sms_manager_reset_enabled &&
-            settings?.sms_manager_reset_template
-          ) {
-            const msg = settings.sms_manager_reset_template
-              .replace(/{{manager_name}}/g, managerName)
-              .replace(/{{setup_link}}/g, `${baseUrl}/forgot-password`);
-            await api
-              .sendOvantaSms(email, msg, managerName)
-              .catch((e) => console.error("SMS failed:", e));
-          } else if (!settings?.sms_manager_reset_enabled) {
-            await api
-              .sendOvantaSms(
-                email,
-                `Hi there! A password reset link for your Admin account has been sent to your email (${email}). Please check your inbox!`,
-                managerName,
-              )
-              .catch((e) => console.error("SMS failed:", e));
-          }
-
-          if (
-            settings?.email_manager_reset_enabled &&
-            settings?.email_manager_reset_template
-          ) {
-            const subject =
-              settings.email_manager_reset_subject ||
-              "Admin Password Reset Request";
-            const msg = settings.email_manager_reset_template
-              .replace(/{{manager_name}}/g, managerName)
-              .replace(/{{setup_link}}/g, `${baseUrl}/forgot-password`);
-            await api
-              .sendOvantaEmail(email, subject, msg, managerName)
-              .catch((e) => console.error("Email failed:", e));
-          }
-        }
+        await sendResetNotifications({
+          role: manager?.role || "manager",
+          name: managerName,
+          email,
+          settings,
+          baseUrl,
+        });
       } catch (err) {
         console.warn("Could not send notifications for password reset", err);
       }
@@ -864,7 +530,6 @@ export default function ManagerTeam() {
       });
       return;
     }
-
     if (!newPassword || newPassword.length < 6) {
       toast({
         title: "Invalid password",
@@ -876,7 +541,6 @@ export default function ManagerTeam() {
     setIsUpdatingPassword(true);
     const { error } = await supabase.auth.updateUser({ password: newPassword });
     setIsUpdatingPassword(false);
-
     if (error) {
       toast({
         title: "Failed to update password",
@@ -914,8 +578,7 @@ export default function ManagerTeam() {
           >
             <DialogTrigger asChild>
               <Button variant="outline" className="gap-2">
-                <Key className="h-4 w-4" />
-                Change My Password
+                <Key className="h-4 w-4" /> Change My Password
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-[400px]">
@@ -956,94 +619,25 @@ export default function ManagerTeam() {
             </DialogContent>
           </Dialog>
 
-          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-            <DialogTrigger asChild>
-              <Button className="gap-2">
-                <Plus className="h-4 w-4" />
-                Add Admin
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[500px]">
-              <DialogHeader>
-                <DialogTitle>Add New Admin</DialogTitle>
-                <DialogDescription>
-                  Send an invitation link to a new manager so they can set their
-                  password and gain access.
-                </DialogDescription>
-              </DialogHeader>
-
-              <form onSubmit={handleAddAdmin} className="space-y-4 pt-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Full Name</Label>
-                  <Input
-                    id="name"
-                    placeholder="e.g. Jane Doe"
-                    value={newAdmin.name}
-                    onChange={(e) =>
-                      setNewAdmin({ ...newAdmin, name: e.target.value })
-                    }
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email Address</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="e.g. jane@example.com"
-                    value={newAdmin.email}
-                    onChange={(e) =>
-                      setNewAdmin({ ...newAdmin, email: e.target.value })
-                    }
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="role">Role</Label>
-                  <Select
-                    value={newAdmin.role}
-                    onValueChange={(value) =>
-                      setNewAdmin({ ...newAdmin, role: value })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a role" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {user?.role === "super_admin" && (
-                        <SelectItem value="super_admin">Super Admin</SelectItem>
-                      )}
-                      <SelectItem value="owner">Owner</SelectItem>
-                      <SelectItem value="owner_readonly">
-                        Owner (Read Only)
-                      </SelectItem>
-                      <SelectItem value="manager">Manager</SelectItem>
-                      <SelectItem value="editor">Editor</SelectItem>
-                      <SelectItem value="read_only">Read Only</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <DialogFooter className="pt-4">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setIsAddDialogOpen(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button type="submit">Send Invitation</Button>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
+          <TeamAddAdminDialog
+            open={isAddDialogOpen}
+            onOpenChange={setIsAddDialogOpen}
+            managers={allManagers}
+            onInvited={(name) => {
+              setRefreshTrigger((prev) => prev + 1);
+              toast({
+                title: "Admin Invited",
+                description: `${name} has been sent an invitation link.`,
+              });
+            }}
+          />
         </div>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-primary" />
-            Active Administrators
+            <Shield className="h-5 w-5 text-primary" /> Active Administrators
           </CardTitle>
           <CardDescription>
             These users have full access to the manager portal, including jobs,
@@ -1069,6 +663,7 @@ export default function ManagerTeam() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Admin</TableHead>
+                    <TableHead>Area</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Payment</TableHead>
                     <TableHead>Status</TableHead>
@@ -1102,6 +697,16 @@ export default function ManagerTeam() {
                             </span>
                           </div>
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] font-normal"
+                        >
+                          {isSuperAdminEmail(manager.email)
+                            ? "All"
+                            : territoryNameById(manager.territory_id)}
+                        </Badge>
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className="capitalize">
@@ -1189,7 +794,6 @@ export default function ManagerTeam() {
                           </div>
                         ) : (
                           <div className="flex justify-end gap-2 items-center">
-                            {/* Log In As button for all non-current users */}
                             {manager.id !== user?.id && (
                               <Button
                                 variant="ghost"
@@ -1206,11 +810,9 @@ export default function ManagerTeam() {
                                     email: manager.email,
                                     role: targetRole as any,
                                   });
-                                  if (targetRole === "editor") {
+                                  if (targetRole === "editor")
                                     navigate("/editor");
-                                  } else {
-                                    navigate("/manager");
-                                  }
+                                  else navigate("/manager");
                                   toast({
                                     title: `Logged in as ${manager.name}`,
                                     description: `You are now impersonating ${manager.name} (${targetRole})`,
@@ -1219,11 +821,9 @@ export default function ManagerTeam() {
                                 className="text-primary hover:bg-primary/10 gap-1 text-xs"
                                 title={`Log in as ${manager.name}`}
                               >
-                                <LogIn className="h-4 w-4" />
-                                Log in as
+                                <LogIn className="h-4 w-4" /> Log in as
                               </Button>
                             )}
-
                             {manager.id === user?.id ? (
                               <Button
                                 variant="ghost"
@@ -1231,8 +831,7 @@ export default function ManagerTeam() {
                                 onClick={() => setIsPasswordDialogOpen(true)}
                                 className="text-muted-foreground hover:text-foreground"
                               >
-                                <Key className="h-4 w-4 mr-2" />
-                                Reset Password
+                                <Key className="h-4 w-4 mr-2" /> Reset Password
                               </Button>
                             ) : manager.role !== "owner" ? (
                               <Button
@@ -1244,13 +843,11 @@ export default function ManagerTeam() {
                                 className="text-muted-foreground hover:text-foreground"
                                 title="Send Password Reset Email"
                               >
-                                <Mail className="h-4 w-4 mr-2" />
-                                Reset Password
+                                <Mail className="h-4 w-4 mr-2" /> Reset Password
                               </Button>
                             ) : null}
-
-                            {manager.role !== "owner" ||
-                            manager.id === user?.id ? (
+                            {(manager.role !== "owner" ||
+                              manager.id === user?.id) && (
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -1263,8 +860,7 @@ export default function ManagerTeam() {
                               >
                                 <Edit className="h-4 w-4" />
                               </Button>
-                            ) : null}
-
+                            )}
                             <Button
                               variant="ghost"
                               size="icon"
@@ -1377,6 +973,31 @@ export default function ManagerTeam() {
                     <SelectItem value="manager">Manager</SelectItem>
                     <SelectItem value="editor">Editor</SelectItem>
                     <SelectItem value="read_only">Read Only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit-area">Area</Label>
+                <Select
+                  value={editingAdmin.territory_id || HONEYSUCKLE_TERRITORY_ID}
+                  onValueChange={(value) =>
+                    setEditingAdmin({ ...editingAdmin, territory_id: value })
+                  }
+                  disabled={
+                    editingAdmin.role === "super_admin" ||
+                    isSuperAdminEmail(editingAdmin.email)
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select an area" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {areaOptions.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

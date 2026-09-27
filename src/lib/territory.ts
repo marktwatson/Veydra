@@ -53,9 +53,11 @@ export async function resolveTerritoryId(
 /**
  * Resolve a territory by its public apply slug (case-insensitive).
  *
- *  - No slug (plain /apply) → the Honeysuckle territory.
- *  - Slug present but no matching row → { found: false } (caller shows an
- *    "Unknown location" page and does NOT insert a contractor).
+ *  - No slug (plain /apply) → { found: false } — the caller renders the
+ *    "Unknown location" page and does NOT insert a contractor.
+ *  - "honeysuckle" → the Honeysuckle pipeline (always resolves to the
+ *    Honeysuckle territory id, even without a matching territories row).
+ *  - Other slug present but no matching row → { found: false }.
  *  - Slug matches → that row's id.
  *
  * Used by the public Apply page to scope a new contractor application to the
@@ -64,7 +66,14 @@ export async function resolveTerritoryId(
 export async function resolveTerritoryBySlug(
   slug?: string,
 ): Promise<{ id: string; found: true } | { id: null; found: false }> {
-  if (!slug) return { id: HONEYSUCKLE_TERRITORY_ID, found: true };
+  // No slug → Unknown location. Do not insert a contractor.
+  if (!slug) return { id: null, found: false };
+
+  // /apply/honeysuckle is the legacy Honeysuckle pipeline.
+  if (slug.toLowerCase() === "honeysuckle") {
+    return { id: HONEYSUCKLE_TERRITORY_ID, found: true };
+  }
+
   try {
     const { data } = await supabase
       .from("territories")
