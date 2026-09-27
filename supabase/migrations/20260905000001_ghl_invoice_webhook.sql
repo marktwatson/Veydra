@@ -318,5 +318,9 @@ ALTER TABLE public.contractors ADD COLUMN IF NOT EXISTS territory_id UUID;
 ALTER TABLE public.managers ADD COLUMN IF NOT EXISTS territory_id UUID;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS territory_id UUID;
 
+-- Public apply slug on territories — /apply/:slug routes a contractor
+-- application to the correct area. Idempotent so Sync re-applies safely.
+ALTER TABLE public.territories ADD COLUMN IF NOT EXISTS slug text;
+
 -- Reload PostgREST schema cache so the API sees the new columns immediately.
 NOTIFY pgrst, 'reload schema';

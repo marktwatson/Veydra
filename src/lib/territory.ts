@@ -49,3 +49,32 @@ export async function resolveTerritoryId(
   // 3. Hard-coded Honeysuckle fallback.
   return HONEYSUCKLE_TERRITORY_ID;
 }
+
+/**
+ * Resolve a territory by its public apply slug (case-insensitive).
+ *
+ *  - No slug (plain /apply) → the Honeysuckle territory.
+ *  - Slug present but no matching row → { found: false } (caller shows an
+ *    "Unknown location" page and does NOT insert a contractor).
+ *  - Slug matches → that row's id.
+ *
+ * Used by the public Apply page to scope a new contractor application to the
+ * correct area.
+ */
+export async function resolveTerritoryBySlug(
+  slug?: string,
+): Promise<{ id: string; found: true } | { id: null; found: false }> {
+  if (!slug) return { id: HONEYSUCKLE_TERRITORY_ID, found: true };
+  try {
+    const { data } = await supabase
+      .from("territories")
+      .select("id")
+      .ilike("slug", slug)
+      .limit(1)
+      .maybeSingle();
+    if (data?.id) return { id: data.id as string, found: true };
+    return { id: null, found: false };
+  } catch {
+    return { id: null, found: false };
+  }
+}

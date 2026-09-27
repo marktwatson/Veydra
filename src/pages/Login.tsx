@@ -1,5 +1,4 @@
-import { useState, useEffect } from "react";
-import { api } from "@/lib/api";
+import { useState } from "react";
 import { isSuperAdminEmail } from "@/lib/super-admin";
 import { supabase } from "@/lib/supabase";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -26,7 +25,9 @@ import {
 } from "@/components/ui/dialog";
 import { MailCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { DEFAULT_LOGO_URL } from "@/lib/utils";
+
+const LOGIN_LOGO_URL =
+  "https://vibe.filesafe.space/1790534143074987697/attachments/291000ea-6aed-4c01-8d4f-af9fd8372eef.gif";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -38,47 +39,12 @@ export default function Login() {
   const [isSendingMagicLink, setIsSendingMagicLink] = useState(false);
   const [showMagicLinkModal, setShowMagicLinkModal] = useState(false);
   const [magicLinkEmail, setMagicLinkEmail] = useState("");
-  const [logoUrl, setLogoUrl] = useState(() => {
-    try {
-      return localStorage.getItem("veydra_logo_url") || DEFAULT_LOGO_URL;
-    } catch (e) {
-      return DEFAULT_LOGO_URL;
-    }
-  });
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
 
   const from = location.state?.from?.pathname || "/";
-
-  useEffect(() => {
-    const loadLogo = () => {
-      try {
-        const localLogo = localStorage.getItem("veydra_logo_url");
-        if (localLogo) setLogoUrl(localLogo);
-      } catch (e) {}
-
-      api
-        .getPortalSettings()
-        .then((settings) => {
-          const logo = settings?.logo_url || DEFAULT_LOGO_URL;
-          setLogoUrl(logo);
-          try {
-            localStorage.setItem("veydra_logo_url", logo);
-            if (settings?.timezone) {
-              localStorage.setItem("veydra_timezone", settings.timezone);
-            }
-          } catch (e) {}
-        })
-        .catch((err) => console.error("Error fetching logo:", err));
-    };
-
-    loadLogo();
-
-    window.addEventListener("logo-updated", loadLogo);
-    return () => window.removeEventListener("logo-updated", loadLogo);
-  }, []);
 
   const handleLogin = async (
     e: React.FormEvent,
@@ -154,12 +120,9 @@ export default function Login() {
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4">
             <img
-              src={logoUrl}
+              src={LOGIN_LOGO_URL}
               alt="Portal Logo"
               className="w-[125px] h-auto object-contain"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = DEFAULT_LOGO_URL;
-              }}
             />
           </div>
           <CardTitle className="text-2xl font-bold">Portal Login</CardTitle>

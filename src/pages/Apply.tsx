@@ -29,7 +29,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { resolveTerritoryBySlug } from "@/lib/territory";
+import {
+  getPortalSettingsForTerritory,
+  type ApplyPortalSettings,
+} from "@/lib/apply-territory-settings";
 
 const isAccountExistsError = (msg: string) =>
   /already (exists|registered|been registered)|doesn't match|password/i.test(
@@ -39,15 +44,33 @@ const isAccountExistsError = (msg: string) =>
 export default function Apply() {
   const { toast } = useToast();
   const navigate = useNavigate();
+  const { slug } = useParams<{ slug?: string }>();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
   const [specialty, setSpecialty] = useState("");
   const [inlineError, setInlineError] = useState<string | null>(null);
 
+  // Resolve the territory from the route slug (case-insensitive). No slug →
+  // Honeysuckle. Unknown slug → found:false (we render an "Unknown location"
+  // page and never insert a contractor).
+  const { data: territory, isLoading: isLoadingTerritory } = useQuery({
+    queryKey: ["apply-territory", slug ?? ""],
+    queryFn: () => resolveTerritoryBySlug(slug),
+  });
+
+  const territoryId = territory?.found ? territory.id : null;
+
+  // Load the territory-scoped portal_settings row (NOT .limit(1)). Falls back
+  // to null when no row exists for this territory — CRM tracking is skipped but
+  // the contractor is still saved.
   const { data: portalSettings, isLoading: isLoadingSettings } = useQuery({
-    queryKey: ["portalSettings"],
-    queryFn: api.getPortalSettings,
+    queryKey: ["apply-portal-settings", territoryId ?? ""],
+    queryFn: () =>
+      territoryId
+        ? getPortalSettingsForTerritory(territoryId)
+        : Promise.resolve<ApplyPortalSettings | null>(null),
+    enabled: !!territoryId,
   });
 
   const regions = portalSettings?.regions || ["Charlotte", "Raleigh"];
@@ -78,6 +101,15 @@ export default function Apply() {
         variant: "destructive",
         title: "Required",
         description: "Please select your specialty.",
+      });
+      return;
+    }
+    if (!territoryId) {
+      toast({
+        variant: "destructive",
+        title: "Unknown location",
+        description:
+          "We could not find the location for this application link.",
       });
       return;
     }
@@ -125,11 +157,14 @@ export default function Apply() {
         training_completed: specialty?.toLowerCase().includes("bartender"),
         portfolio_url: portfolioUrl,
         gear_list: `Lead Weddings Shot: ${leadWeddings}\n\nGear:\n${gearList}`,
+        territory_id: territoryId,
       };
 
       await api.addContractor(newContractor);
 
-      // Send to CRM tracking
+      // Send to CRM tracking — only when the territory-scoped settings row
+      // has CRM credentials. If no row exists, skip tracking; the contractor
+      // is already saved above.
       const trackingPayload = {
         type: "external_form_submission",
         timestamp: Date.now(),
@@ -227,10 +262,39 @@ export default function Apply() {
     }
   };
 
-  if (isLoadingSettings) {
+  if (isLoadingTerritory || isLoadingSettings) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-muted/30">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Unknown slug — render a simple "Unknown location" page. Do NOT insert a
+  // contractor.
+  if (territory && !territory.found) {
+    return (
+      <div className="min-h-screen bg-muted/30 py-12 px-4 sm:px-6 lg:px-8 flex flex-col items-center justify-center">
+        <div className="w-full max-w-md text-center space-y-6">
+          <div className="h-16 w-16 bg-primary text-primary-foreground rounded-xl flex items-center justify-center mx-auto text-2xl font-bold shadow-sm">
+            ?
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">
+              Unknown location
+            </h1>
+            <p className="text-muted-foreground mt-2">
+              We couldn't find a location for this application link. Please
+              check the URL and try again, or contact support.
+            </p>
+          </div>
+          <Link
+            to="/apply"
+            className="inline-block text-primary hover:underline font-medium"
+          >
+            Use the default application
+          </Link>
+        </div>
       </div>
     );
   }
