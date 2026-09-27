@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { currentTerritoryId } from "@/lib/current-territory";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { api } from "@/lib/api";
@@ -85,13 +86,24 @@ export default function ManagerPaymentAudit() {
     null,
   );
 
+  const [territoryId, setTerritoryId] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    currentTerritoryId().then((id) => {
+      if (active) setTerritoryId(id);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const {
     data: weddings = [],
     isLoading,
     refetch,
   } = useQuery({
-    queryKey: ["weddings"],
-    queryFn: api.getWeddings,
+    queryKey: ["weddings", territoryId],
+    queryFn: () => api.getWeddingsForTerritory(territoryId),
   });
 
   // Force a Stripe paid-amount recompute (no notifications, no charging).

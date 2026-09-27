@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { proposalsToReconcile, detectSuperseded } from "@/lib/proposal-tabs";
+import { currentTerritoryId } from "@/lib/current-territory";
 
 const WEDDING_SELECT =
   "id, status, paid_amount, total_amount, offplatform_status, offplatform_method, offplatform_amount, contract_status, contract_signed_at, ghl_invoice_id, ghl_invoice_url";
@@ -26,6 +27,17 @@ export function useProposalsData() {
   const [proposals, setProposals] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [territoryId, setTerritoryId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    currentTerritoryId().then((id) => {
+      if (active) setTerritoryId(id);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
@@ -36,10 +48,13 @@ export function useProposalsData() {
       let rows: any[] = [];
       try {
         // 1. Try the embed select.
-        const { data, error } = await supabase
+        let q = supabase
           .from("proposals")
-          .select(`*, wedding:weddings!wedding_id(${WEDDING_SELECT})`)
-          .order("created_at", { ascending: false });
+          .select(`*, wedding:weddings!wedding_id(${WEDDING_SELECT})`);
+        if (territoryId) q = q.eq("territory_id", territoryId);
+        const { data, error } = await q.order("created_at", {
+          ascending: false,
+        });
 
         if (error) throw error;
         rows = (data as any[]) || [];
@@ -50,10 +65,11 @@ export function useProposalsData() {
           embedErr,
         );
         try {
-          const { data: plain, error: plainErr } = await supabase
-            .from("proposals")
-            .select("*")
-            .order("created_at", { ascending: false });
+          let q = supabase.from("proposals").select("*");
+          if (territoryId) q = q.eq("territory_id", territoryId);
+          const { data: plain, error: plainErr } = await q.order("created_at", {
+            ascending: false,
+          });
 
           if (plainErr) throw plainErr;
           rows = (plain as any[]) || [];
@@ -167,7 +183,7 @@ export function useProposalsData() {
     return () => {
       cancelled = true;
     };
-  }, [refreshKey]);
+  }, [refreshKey, territoryId]);
 
   return { proposals, loading, refresh };
 }

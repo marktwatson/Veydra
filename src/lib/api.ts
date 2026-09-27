@@ -3001,6 +3001,24 @@ export const api = {
     })) as DbContractor[];
   },
 
+  // Contractors scoped to the current user's territory (manager list pages).
+  // Passing null means "all territories" (super admin) — no filter is applied.
+  async getContractorsForTerritory(territoryId: string | null) {
+    let q = supabase
+      .from("contractors")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (territoryId) q = q.eq("territory_id", territoryId);
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data || []).map((c) => ({
+      ...c,
+      region:
+        typeof c.region === "string" ? parseRegionsArray(c.region) : c.region,
+      tags: typeof c.tags === "string" ? parseRegionsArray(c.tags) : c.tags,
+    })) as DbContractor[];
+  },
+
   async addContractor(contractor: Omit<DbContractor, "created_at">) {
     const { data, error } = await supabase
       .from("contractors")
@@ -3134,6 +3152,56 @@ export const api = {
     if (error) throw error;
 
     // Parse any array/JSON fields that might come back as strings
+    return (data || []).map((w) => ({
+      ...w,
+      region:
+        typeof w.region === "string" ? parseRegionsArray(w.region) : w.region,
+      editor_video_targets:
+        typeof w.editor_video_targets === "string"
+          ? parseRegionsArray(w.editor_video_targets)
+          : w.editor_video_targets,
+      questionnaire_data:
+        typeof w.questionnaire_data === "string"
+          ? (() => {
+              try {
+                return JSON.parse(w.questionnaire_data);
+              } catch {
+                return w.questionnaire_data;
+              }
+            })()
+          : w.questionnaire_data,
+      editor_invoice_details:
+        typeof w.editor_invoice_details === "string"
+          ? (() => {
+              try {
+                return JSON.parse(w.editor_invoice_details);
+              } catch {
+                return w.editor_invoice_details;
+              }
+            })()
+          : w.editor_invoice_details,
+      highlight_songs:
+        typeof w.highlight_songs === "string"
+          ? (() => {
+              try {
+                return JSON.parse(w.highlight_songs);
+              } catch {
+                return w.highlight_songs;
+              }
+            })()
+          : w.highlight_songs || [],
+    })) as DbWedding[];
+  },
+
+  // Weddings scoped to the current user's territory (manager list pages).
+  // Passing null means "all territories" (super admin) — no filter is applied.
+  async getWeddingsForTerritory(territoryId: string | null) {
+    let q = supabase.from("weddings").select("*").neq("status", "draft");
+    if (territoryId) q = q.eq("territory_id", territoryId);
+    q = q.order("date", { ascending: true });
+    const { data, error } = await q;
+    if (error) throw error;
+
     return (data || []).map((w) => ({
       ...w,
       region:

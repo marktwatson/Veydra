@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { currentTerritoryId } from "@/lib/current-territory";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -2985,9 +2986,20 @@ export default function ManagerWeddings() {
   });
   const regions = Array.isArray(settings?.regions) ? settings.regions : [];
 
+  const [territoryId, setTerritoryId] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    currentTerritoryId().then((id) => {
+      if (active) setTerritoryId(id);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const { data: weddings = [], isLoading } = useQuery({
-    queryKey: ["weddings"],
-    queryFn: api.getWeddings,
+    queryKey: ["weddings", territoryId],
+    queryFn: () => api.getWeddingsForTerritory(territoryId),
   });
 
   const { data: jobs = [] } = useQuery({

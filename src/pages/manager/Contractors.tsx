@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { currentTerritoryId } from "@/lib/current-territory";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
@@ -651,9 +652,20 @@ export default function ManagerContractors() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  const [territoryId, setTerritoryId] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    currentTerritoryId().then((id) => {
+      if (active) setTerritoryId(id);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const { data: contractors = [], isLoading } = useQuery({
-    queryKey: ["contractors"],
-    queryFn: api.getContractors,
+    queryKey: ["contractors", territoryId],
+    queryFn: () => api.getContractorsForTerritory(territoryId),
   });
 
   const syncAttempted = useRef<Set<string>>(new Set());
