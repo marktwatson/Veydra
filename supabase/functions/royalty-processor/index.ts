@@ -441,6 +441,7 @@ Deno.serve(async (req) => {
     }
 
     const specificTerritoryId = body.territory_id || null;
+    const forceRecalculate = body.force_recalculate === true;
 
     const { data: settings } = await supabase.from("royalty_settings").select("*").limit(1).single();
     if (!settings) return jsonResponse({ error: "Royalty settings not configured" }, 400);
