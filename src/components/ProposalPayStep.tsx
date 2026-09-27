@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { PayStepChoice } from "@/components/PayStepChoice";
 import type { DeferredInvoice } from "@/lib/use-deferred-invoice";
 import { createGhlInvoice } from "@/lib/ghl-invoice-api";
+import { buildInstallments } from "@/lib/booking-schedule";
 import { useProposalResume } from "@/lib/use-proposal-resume";
 import { ProposalResumeView } from "@/components/ProposalResumeView";
 import { supabase } from "@/lib/supabase";
@@ -104,54 +105,30 @@ export function ProposalPayStep({
       onInvoiceUrl={onInvoiceUrl}
       onCreateInvoice={async () => {
         if (deferred.firstDue <= 0) return { invoiceUrl: "", firstDue: 0 };
-        // Build installments from the proposal's custom_payment_plan (not the
-        // stale wedding row) so a revised proposal's GHL invoice uses the new
-        // schedule. Merge same-day rows, clamp dates >= today.
-        const cpp = proposal?.custom_payment_plan;
-        const installments: { date: string; amount: number }[] = [];
-        if (cpp?.enabled && Array.isArray(cpp.installments)) {
-          const todayStr = new Date().toISOString().slice(0, 10);
-          const byDay: Record<string, number> = {};
-          const dayOrder: string[] = [];
-          for (const inst of cpp.installments) {
-            let due = inst.date || inst.dueDate || "";
-            if (!due) continue;
-            if (due < todayStr) due = todayStr;
-            const amt = Number(inst.amount || 0);
-            if (amt <= 0) continue;
-            if (!byDay[due]) {
-              byDay[due] = 0;
-              dayOrder.push(due);
-            }
-            byDay[due] += amt;
-          }
-          for (const d of dayOrder)
-            installments.push({
-              date: d,
-              amount: Math.round(byDay[d] * 100) / 100,
+        // Build the SAME schedule the bride saw on screen (custom AND standard
+        // plans) so the GHL invoice matches. The wedding row was already
+        // stamped with this plan in signAndPayProposal.
+        const installments = isUpgrade
+          ? []
+          : buildInstallments({
+              paymentOption: proposal?.payment_plan || "deposit",
+              totalPrice: Number(proposal?.total_amount || 0),
+              paidSoFar: Number(proposal?.amount_paid_so_far || 0),
+              weddingDate: proposal?.wedding_date,
+              createdAt: proposal?.created_at,
+              customPlan: proposal?.custom_payment_plan,
             });
-          installments.sort((a, b) =>
-            a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
-          );
-          const deposit = Number(cpp.deposit) || 0;
-          if (deposit > 0 && installments.length > 0) {
-            if (installments[0].date === todayStr)
-              installments[0].amount += deposit;
-            else installments.unshift({ date: todayStr, amount: deposit });
-          }
-        }
         // forceNew is ONLY for addon/upgrade. A normal/revised photo proposal
         // must reuse the existing ghl_invoice_url (the edge function handles
         // skipReuse=false for multi-row plans). Never pass forceNew for a
-        // custom photography plan — that bypasses reuse and creates a dupe.
+        // photo plan — that bypasses reuse and creates a dupe.
         const invoice = await createGhlInvoice({
           weddingId: deferred.weddingId,
           amount: deferred.firstDue,
           label: deferred.label,
           kind: isUpgrade ? "addon" : undefined,
           forceNew: isUpgrade ? true : undefined,
-          installments:
-            isUpgrade && installments.length > 1 ? installments : undefined,
+          installments: installments.length > 0 ? installments : undefined,
           proposalEmail: proposal?.client_email,
         });
         return { invoiceUrl: invoice.invoiceUrl, firstDue: deferred.firstDue };

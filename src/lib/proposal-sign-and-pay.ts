@@ -4,6 +4,7 @@ import { saveContractSnapshotOnSign } from "./contract-snapshot";
 import { createGhlInvoice } from "./ghl-invoice-api";
 import { ensureWeddingForProposal } from "./proposal-wedding";
 import { checkCustomPlanBalance } from "./custom-plan-balance";
+import { buildInstallments, buildWeddingCustomPlan } from "./booking-schedule";
 
 export interface ProposalLike {
   id: string;
@@ -13,6 +14,8 @@ export interface ProposalLike {
   amount_paid_so_far?: number;
   is_upgrade?: boolean;
   wedding_id?: string | null;
+  wedding_date?: string;
+  created_at?: string;
   custom_payment_plan?: {
     enabled?: boolean;
     deposit?: number;
@@ -153,44 +156,33 @@ export async function signAndPayProposal(params: {
           ? `Wedding 50% Deposit for ${proposal.client_name}`
           : `Wedding Deposit for ${proposal.client_name}`;
 
-  // Build installments from THIS proposal's custom_payment_plan (not a stale
-  // wedding row) so the GHL invoice uses the revised schedule. Merge same-day
-  // rows and clamp dates >= today. Strip the deposit row if the first
-  // installment is already today (deposit is the firstDue).
-  const cpp = proposal.custom_payment_plan;
-  const installments: { date: string; amount: number }[] = [];
-  if (paymentPlan === "custom" && cpp?.enabled) {
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const insts = Array.isArray(cpp.installments) ? cpp.installments : [];
-    const byDay: Record<string, number> = {};
-    const dayOrder: string[] = [];
-    for (const inst of insts) {
-      let due = inst.date || (inst as any).dueDate || "";
-      if (!due) continue;
-      if (due < todayStr) due = todayStr;
-      const amt = Number(inst.amount || 0);
-      if (amt <= 0) continue;
-      if (!byDay[due]) {
-        byDay[due] = 0;
-        dayOrder.push(due);
-      }
-      byDay[due] += amt;
-    }
-    for (const d of dayOrder)
-      installments.push({ date: d, amount: Math.round(byDay[d] * 100) / 100 });
-    // Sort ascending, ensure strictly unique dates.
-    installments.sort((a, b) =>
-      a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
-    );
-    // Skip a separate deposit row when the first installment is already today.
-    const deposit = Number(cpp.deposit) || 0;
-    if (deposit > 0 && installments.length > 0) {
-      const first = installments[0];
-      if (first.date === todayStr) {
-        first.amount += Math.round(deposit * 100) / 100;
-      } else {
-        installments.unshift({ date: todayStr, amount: deposit });
-      }
+  // Build the SAME schedule the bride saw on screen, using the shared builder
+  // so the GHL invoice matches the on-page schedule for custom AND standard
+  // plans (Standard / 50-50 / Full / Quarterly). Sum === total - paid.
+  const remaining = Math.max(
+    0,
+    proposal.total_amount - (proposal.amount_paid_so_far || 0),
+  );
+  const scheduleInput = {
+    paymentOption: paymentPlan,
+    totalPrice: proposal.total_amount,
+    paidSoFar: proposal.amount_paid_so_far || 0,
+    weddingDate: proposal.wedding_date,
+    createdAt: proposal.created_at,
+    customPlan: proposal.custom_payment_plan as any,
+  };
+  const installments = isAddon ? [] : buildInstallments(scheduleInput);
+
+  // Persist the same schedule onto weddings.custom_payment_plan so the PHOTO
+  // invoice path (which rebuilds rows from the wedding row) and the on-page
+  // display agree. For addons we leave the existing plan untouched.
+  if (!isAddon && remaining > 0) {
+    const weddingPlan = buildWeddingCustomPlan(scheduleInput);
+    if (weddingPlan) {
+      await supabase
+        .from("weddings")
+        .update({ custom_payment_plan: weddingPlan as any })
+        .eq("id", weddingId);
     }
   }
 
@@ -204,12 +196,13 @@ export async function signAndPayProposal(params: {
   // forceNew is ONLY for addon/upgrade invoices (a SECOND GHL invoice for
   // the unpaid delta). A normal or revised photo proposal must NEVER pass
   // forceNew — it reuses the existing ghl_invoice_url when present (the
-  // reuse check above already returned if one exists). Multi-row custom
-  // photography plans reuse today's invoice / existing url via the edge
-  // function's skipReuse=false path.
-  // NOTE: the edge function PHOTO path rebuilds planRows from
-  // wedding.custom_payment_plan — the installments array here is only used
-  // to signal addon rows. Do NOT pass installments on the PHOTO path.
+  // reuse check above already returned if one exists). Multi-row photography
+  // plans reuse today's invoice / existing url via the edge function's
+  // skipReuse=false path.
+  // The same installments array (built above from the on-screen plan) is
+  // passed on the PHOTO path too — the edge function still rebuilds planRows
+  // from wedding.custom_payment_plan, but passing installments keeps the
+  // payload consistent with what the bride saw.
   try {
     const invoice = await createGhlInvoice({
       weddingId,
@@ -217,10 +210,7 @@ export async function signAndPayProposal(params: {
       label,
       kind: proposal.is_upgrade ? "addon" : undefined,
       forceNew: proposal.is_upgrade ? true : undefined,
-      installments:
-        proposal.is_upgrade && installments.length > 1
-          ? installments
-          : undefined,
+      installments: installments.length > 0 ? installments : undefined,
       proposalEmail: proposal.client_email,
     });
     return { invoiceUrl: invoice.invoiceUrl };
