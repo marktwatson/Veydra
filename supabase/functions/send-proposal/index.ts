@@ -39,15 +39,16 @@ ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS expires_at timestamptz;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS sent_count int DEFAULT 0;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_requested_at timestamptz;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_confirmed_at timestamptz;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS territory_id UUID;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS proposal_expiry_days integer DEFAULT 2;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS phone text;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_api_key text;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_location_id text;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_proposal_link_field_id text;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS territory_id UUID;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS contract_status text;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS wedding_id UUID;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS territory_id UUID;
-ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS territory_id UUID;
 NOTIFY pgrst, 'reload schema';
 `;
 
@@ -98,7 +99,7 @@ Deno.serve(async (req) => {
   const { data: proposal, error: propErr } = await db
     .from("proposals")
     .select(
-      "id, client_name, client_email, client_phone, wedding_date, total_amount, status, coverage_requested_at, coverage_confirmed_at, sent_at, expires_at, sent_count, wedding_id",
+      "id, client_name, client_email, client_phone, wedding_date, total_amount, status, coverage_requested_at, coverage_confirmed_at, sent_at, expires_at, sent_count, wedding_id, territory_id",
     )
     .eq("id", proposalId)
     .maybeSingle();
@@ -132,62 +133,79 @@ Deno.serve(async (req) => {
     proposal.status === "paid" ||
     proposal.status === "upcoming";
 
-  // Load the wedding (via proposal.wedding_id) so we can resolve portal_settings
-  // by territory. Fall back to the single-row select when there is no wedding,
-  // no territory_id, or no territory-scoped row — Honeysuckle keeps working.
-  let weddingTerritoryId: string | null = null;
-  if (proposal.wedding_id) {
+  // Resolve the territory_id for the portal_settings lookup, in priority
+  // order:
+  //   1. proposal.territory_id
+  //   2. wedding.territory_id (via proposal.wedding_id)
+  //   3. Honeysuckle fallback id
+  // Never a bare from("portal_settings").maybeSingle() with no territory_id
+  // filter — every select is scoped with .eq("territory_id", …).
+  const HONEYSUCKLE_TERRITORY_ID = "0bbaebfc-1c51-4ebe-98b4-e2e9697ef33d";
+  let resolvedTerritoryId: string | null =
+    proposal.territory_id || null;
+
+  if (!resolvedTerritoryId && proposal.wedding_id) {
     const { data: wRow } = await db
       .from("weddings")
       .select("territory_id")
       .eq("id", proposal.wedding_id)
       .maybeSingle();
-    weddingTerritoryId = wRow?.territory_id || null;
+    resolvedTerritoryId = wRow?.territory_id || null;
   }
 
-  // Load portal settings. Try the territory-scoped row first, then the single
-  // row. Within each, try the full select first; on error fall back to only the
-  // critical columns so a missing phone/company_name column doesn't make
-  // hl_api_key look empty and skip CRM.
+  if (!resolvedTerritoryId) {
+    resolvedTerritoryId = HONEYSUCKLE_TERRITORY_ID;
+  }
+
+  // Load portal settings for the resolved territory. Try the full column
+  // select first; on error fall back to the minimal critical columns so a
+  // missing phone/company_name column doesn't make hl_api_key look empty and
+  // skip CRM.
   const settingsCols = "hl_api_key, hl_location_id, hl_proposal_link_field_id, company_name, app_url, phone, proposal_expiry_days";
   const minimalCols = "hl_api_key, hl_location_id, hl_proposal_link_field_id, company_name, app_url, proposal_expiry_days";
-  let pSettings: any = null;
 
-  if (weddingTerritoryId) {
-    const { data: terrSettings, error: terrErr } = await db
+  async function loadSettingsFor(territoryId: string): Promise<any> {
+    const { data: full, error: fullErr } = await db
       .from("portal_settings")
       .select(settingsCols)
-      .eq("territory_id", weddingTerritoryId)
+      .eq("territory_id", territoryId)
       .limit(1)
       .maybeSingle();
-    if (terrErr) {
-      console.warn("[send-proposal] territory settings select failed, trying minimal:", terrErr?.message);
-      const { data: terrMinimal } = await db
+    if (fullErr) {
+      console.warn("[send-proposal] settings select failed, trying minimal:", fullErr?.message);
+      const { data: minimal } = await db
         .from("portal_settings")
         .select(minimalCols)
-        .eq("territory_id", weddingTerritoryId)
+        .eq("territory_id", territoryId)
         .limit(1)
         .maybeSingle();
-      pSettings = terrMinimal;
-    } else {
-      pSettings = terrSettings;
+      return minimal;
     }
+    return full;
   }
 
-  if (!pSettings) {
-    const { data: pSettingsFull, error: pSettingsErr } = await db
-      .from("portal_settings")
-      .select(settingsCols)
-      .maybeSingle();
-    if (pSettingsErr) {
-      console.warn("[send-proposal] full settings select failed, falling back to minimal columns:", pSettingsErr?.message);
-      const { data: pSettingsMinimal } = await db
-        .from("portal_settings")
-        .select(minimalCols)
-        .maybeSingle();
-      pSettings = pSettingsMinimal;
-    } else {
-      pSettings = pSettingsFull;
+  let pSettings: any = await loadSettingsFor(resolvedTerritoryId);
+
+  // If the scoped row exists but hl_api_key or hl_location_id is empty, fall
+  // back to the Honeysuckle settings row so CRM still fires.
+  let territoryIdUsed = resolvedTerritoryId;
+  let usedFallback = false;
+  const scopedHasCreds = !!(
+    pSettings &&
+    (pSettings.hl_api_key || "").trim() &&
+    (pSettings.hl_location_id || "").trim()
+  );
+  if (!scopedHasCreds && resolvedTerritoryId !== HONEYSUCKLE_TERRITORY_ID) {
+    const honeysuckleSettings = await loadSettingsFor(HONEYSUCKLE_TERRITORY_ID);
+    const honeysuckleHasCreds = !!(
+      honeysuckleSettings &&
+      (honeysuckleSettings.hl_api_key || "").trim() &&
+      (honeysuckleSettings.hl_location_id || "").trim()
+    );
+    if (honeysuckleHasCreds) {
+      pSettings = honeysuckleSettings;
+      territoryIdUsed = HONEYSUCKLE_TERRITORY_ID;
+      usedFallback = true;
     }
   }
 
@@ -256,13 +274,16 @@ Deno.serve(async (req) => {
       sent_count: proposal.sent_count || 0,
       publicUrl,
       expiry_days: expiryDays,
+      territoryIdUsed,
       message: {
         email: messageResult?.email || null,
         sms: messageResult?.sms || null,
         contactId: messageResult?.contactId || null,
         tagStatus: messageResult?.tagStatus || "skipped",
       },
-      crmWarning,
+      crmWarning: usedFallback
+        ? `${crmWarning ? crmWarning + " " : ""}(used Honeysuckle credentials — area settings had no API key/location)`
+        : crmWarning,
     });
   }
 
@@ -357,13 +378,16 @@ Deno.serve(async (req) => {
     sent_count: patch.sent_count || proposal.sent_count || 0,
     publicUrl,
     expiry_days: expiryDays,
+    territoryIdUsed,
     message: {
       email: messageResult?.email || null,
       sms: messageResult?.sms || null,
       contactId: messageResult?.contactId || null,
       tagStatus: messageResult?.tagStatus || "skipped",
     },
-    crmWarning,
+    crmWarning: usedFallback
+      ? `${crmWarning ? crmWarning + " " : ""}(used Honeysuckle credentials — area settings had no API key/location)`
+      : crmWarning,
   });
 });
 

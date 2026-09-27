@@ -14,6 +14,7 @@ export interface SendProposalResult {
     tagStatus?: string;
   };
   crmWarning?: string;
+  territoryIdUsed?: string;
   error?: string;
   expired?: boolean;
   expiry_days?: number;
@@ -29,14 +30,17 @@ export function describeSendResult(result: SendProposalResult): string {
   const msg = result.message;
   const emailOk = msg?.email === "sent";
   const smsOk = msg?.sms === "sent";
+  const areaTag = result.territoryIdUsed
+    ? ` Area ${result.territoryIdUsed.slice(0, 8)}.`
+    : "";
 
   if (emailOk && smsOk) {
-    return `Email + SMS sent. ${dayLabel} review clock started.${expires}`;
+    return `Email + SMS sent. ${dayLabel} review clock started.${areaTag}${expires}`;
   }
   if (result.crmWarning) {
-    return `Clock started. ${result.crmWarning}${expires}`;
+    return `Clock started. ${result.crmWarning}${areaTag}${expires}`;
   }
-  return `Clock started. CRM: email=${msg?.email || "n/a"} sms=${msg?.sms || "n/a"} tag=${msg?.tagStatus || "n/a"}${expires}`;
+  return `Clock started. CRM: email=${msg?.email || "n/a"} sms=${msg?.sms || "n/a"} tag=${msg?.tagStatus || "n/a"}${areaTag}${expires}`;
 }
 
 /**
