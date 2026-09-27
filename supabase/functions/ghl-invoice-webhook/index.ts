@@ -485,7 +485,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const weddingId = wedding.id;
+    const weddingId = wedding.id; try { const { data: wT } = await db.from("weddings").select("territory_id").eq("id", weddingId).maybeSingle(); const tId = wT?.territory_id || null; if (tId) { const { data: tS } = await db.from("portal_settings").select("hl_api_key, hl_location_id").eq("territory_id", tId).limit(1).maybeSingle(); if (tS) portalSettings = { ...(portalSettings || {}), ...tS }; } } catch (e: any) { console.warn("[ghl-invoice-webhook] territory settings failed:", e?.message); }
     if ((Number(wedding.total_amount)||0) > 0 && (Number(wedding.paid_amount)||0) >= (Number(wedding.total_amount)||0) - 0.01) {
       return jsonResp({ ignored: "already paid in full", weddingId, invoiceId: invoiceId || invoiceNumber || `email:${contactEmail}`, paid_amount: Number(wedding.paid_amount)||0, total_amount: Number(wedding.total_amount)||0 });
     }

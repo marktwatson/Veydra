@@ -1,5 +1,5 @@
 import { createClient } from "jsr:@supabase/supabase-js";
-const SCHEMA_HEAL_SQL = "ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS wedding_id UUID; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_id TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_ids JSONB DEFAULT '[]'::jsonb; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_url TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_status TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_amount NUMERIC; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_created_date TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_schedule JSONB DEFAULT '[]'::jsonb; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS total_amount NUMERIC DEFAULT 0; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS paid_amount NUMERIC DEFAULT 0; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS custom_payment_plan JSONB; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS ghl_invoice_base_url TEXT; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_user_id TEXT; NOTIFY pgrst, 'reload schema';";
+const SCHEMA_HEAL_SQL = "ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS wedding_id UUID; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_id TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_ids JSONB DEFAULT '[]'::jsonb; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_url TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_status TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_amount NUMERIC; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_created_date TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_schedule JSONB DEFAULT '[]'::jsonb; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS total_amount NUMERIC DEFAULT 0; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS paid_amount NUMERIC DEFAULT 0; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS custom_payment_plan JSONB; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS ghl_invoice_base_url TEXT; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_user_id TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS territory_id UUID; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS territory_id UUID; NOTIFY pgrst, 'reload schema';";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -100,7 +100,7 @@ Deno.serve(async (req) => {
     const { data: wedding, error: weddingErr } = await db
       .from("weddings")
       .select(
-        "id, client_name, client_email, client_phone, questionnaire_data, total_amount, paid_amount, custom_payment_plan, payment_plan, ghl_contact_id, ghl_invoice_id, ghl_invoice_ids, ghl_invoice_url, ghl_invoice_status, ghl_amount_paid, ghl_schedule, ghl_invoice_amount, ghl_invoice_created_date",
+        "id, client_name, client_email, client_phone, questionnaire_data, total_amount, paid_amount, custom_payment_plan, payment_plan, ghl_contact_id, ghl_invoice_id, ghl_invoice_ids, ghl_invoice_url, ghl_invoice_status, ghl_amount_paid, ghl_schedule, ghl_invoice_amount, ghl_invoice_created_date, territory_id",
       )
       .eq("id", weddingId)
       .maybeSingle();
@@ -131,13 +131,13 @@ Deno.serve(async (req) => {
     const clientName = wedding.client_name || "Client";
 
     // portal_settings columns are healed by SCHEMA_HEAL_SQL above.
-
-    // Re-fetch after the (possible) schema reload so PostgREST sees the column.
-    const { data: pSettings, error: settingsErr } = await db
-      .from("portal_settings")
-      .select("hl_api_key, hl_location_id, company_name, ghl_invoice_base_url, hl_user_id")
-      .limit(1)
-      .maybeSingle();
+    // Resolve GHL keys by the wedding's territory first; fall back to the
+    // single-row select so Honeysuckle keeps working. Re-fetch after the
+    // schema reload so PostgREST sees the territory_id column.
+    const settingsCols = "hl_api_key, hl_location_id, company_name, ghl_invoice_base_url, hl_user_id";
+    let pSettings: any = null, settingsErr: any = null;
+    if (wedding.territory_id) { const { data: t, error: te } = await db.from("portal_settings").select(settingsCols).eq("territory_id", wedding.territory_id).limit(1).maybeSingle(); if (te) settingsErr = te; if (t) pSettings = t; }
+    if (!pSettings) { const { data: f, error: fe } = await db.from("portal_settings").select(settingsCols).limit(1).maybeSingle(); if (fe && !settingsErr) settingsErr = fe; if (f) pSettings = f; }
 
     if (settingsErr) {
       console.error("[ghl-invoice] portal_settings query error:", settingsErr.message);

@@ -306,5 +306,17 @@ DROP POLICY IF EXISTS "sar_auth_all" ON public.sales_activity_runs;
 CREATE POLICY "sar_auth_all" ON public.sales_activity_runs FOR ALL TO authenticated USING (true) WITH CHECK (true);
 CREATE INDEX IF NOT EXISTS idx_sales_activity_runs_ran_at ON public.sales_activity_runs(ran_at);
 
+-- Nullable territory_id on core business tables — scope records to a
+-- public.territories row on multi-territory instances. Nullable only (NO NOT
+-- NULL, NO foreign keys yet). Idempotent so territory Sync re-applies safely.
+-- Also mirrored in the deploy-territory OFFPLATFORM fallback so Sync never
+-- drops these columns even when edge_function_sources is stale.
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS territory_id UUID;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS territory_id UUID;
+ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS territory_id UUID;
+ALTER TABLE public.contractors ADD COLUMN IF NOT EXISTS territory_id UUID;
+ALTER TABLE public.managers ADD COLUMN IF NOT EXISTS territory_id UUID;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS territory_id UUID;
+
 -- Reload PostgREST schema cache so the API sees the new columns immediately.
 NOTIFY pgrst, 'reload schema';

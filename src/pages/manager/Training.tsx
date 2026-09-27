@@ -15,7 +15,7 @@ export const VEYDRA_TRAINING_VIDEOS = [
     title: "How to process a wedding post production",
     description:
       "Move a finished wedding through post: delivery status, editor handoff, and what to mark complete so the file doesn't sit in limbo.",
-    url: "https://assets.cdn.filesafe.space/9JzuUHcQvdlb7oRHmeq3/media/6aa01b5c16ed327815a7ed35.mp4",
+    url: "https://storage.googleapis.com/msgsndr/76EKIVBXrGYIny0RbqcE/media/3ec1123c-7064-4e25-8e6a-5518bc1e80b6.mp4",
     type: "video/mp4",
   },
   {
@@ -23,7 +23,7 @@ export const VEYDRA_TRAINING_VIDEOS = [
     title: "How to read the dashboard in Veydra",
     description:
       "What Action Items, notifications, and the scheduler mean — and which numbers you can ignore.",
-    url: "https://assets.cdn.filesafe.space/9JzuUHcQvdlb7oRHmeq3/media/6aa81ba549f830e49b1ece60.mp4",
+    url: "https://storage.googleapis.com/msgsndr/76EKIVBXrGYIny0RbqcE/media/1f1d245e-7ffb-4f93-ad95-63e006757e86.mp4",
     type: "video/mp4",
   },
   {
@@ -31,7 +31,7 @@ export const VEYDRA_TRAINING_VIDEOS = [
     title: "How to build a proposal in Veydra",
     description:
       "Build a proposal from scratch: package, add-ons, a payment plan that balances, and how to send the share link.",
-    url: "https://assets.cdn.filesafe.space/9JzuUHcQvdlb7oRHmeq3/media/6aa81ba59f8b31b6ab067c9b.mp4",
+    url: "https://storage.googleapis.com/msgsndr/76EKIVBXrGYIny0RbqcE/media/50d84f4b-82c6-4a1e-b316-e90a7d6e9973.mp4",
     type: "video/mp4",
   },
   {
@@ -39,7 +39,7 @@ export const VEYDRA_TRAINING_VIDEOS = [
     title: "Bartending Upsell Tutorial",
     description:
       "Offer bartending on a booked wedding, send the upsell, and see the extra invoice and bartender job on the file.",
-    url: "https://assets.cdn.filesafe.space/9JzuUHcQvdlb7oRHmeq3/media/6a9acb82ac5d03a10954f129.mov",
+    url: "https://storage.googleapis.com/msgsndr/76EKIVBXrGYIny0RbqcE/media/14e3b4c8-0826-40e1-b3dd-af530f98c50e.mov",
     type: "video/quicktime",
   },
 ];

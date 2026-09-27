@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { resolveTerritoryId } from "./territory";
 
 /**
  * Ensure a weddings row exists for a proposal and return its id.
@@ -68,6 +69,12 @@ export async function ensureWeddingForProposal(
       };
       await supabase.from("weddings").update(update).eq("id", weddingId);
     } else {
+      // Resolve the territory_id to stamp on the new wedding. Inherit the
+      // proposal's territory_id when present (the manager flow already stamped
+      // it); otherwise resolve from manager/primary/Honeysuckle.
+      const weddingTerritoryId: string | null = proposal.territory_id
+        ? (proposal.territory_id as string)
+        : await resolveTerritoryId().catch(() => null);
       const { data: wedding, error: weddingError } = await supabase
         .from("weddings")
         .insert([
@@ -89,6 +96,7 @@ export async function ensureWeddingForProposal(
             paid_amount: 0,
             contract_date: new Date().toISOString(),
             notes: `Booked via Portal.\nPhone: ${proposal.client_phone || "N/A"}\n${proposal.notes || ""}`,
+            ...(weddingTerritoryId ? { territory_id: weddingTerritoryId } : {}),
           },
         ])
         .select()

@@ -45,6 +45,9 @@ ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_api_key text;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_location_id text;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_proposal_link_field_id text;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS contract_status text;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS wedding_id UUID;
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS territory_id UUID;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS territory_id UUID;
 NOTIFY pgrst, 'reload schema';
 `;
 
@@ -95,7 +98,7 @@ Deno.serve(async (req) => {
   const { data: proposal, error: propErr } = await db
     .from("proposals")
     .select(
-      "id, client_name, client_email, client_phone, wedding_date, total_amount, status, coverage_requested_at, coverage_confirmed_at, sent_at, expires_at, sent_count",
+      "id, client_name, client_email, client_phone, wedding_date, total_amount, status, coverage_requested_at, coverage_confirmed_at, sent_at, expires_at, sent_count, wedding_id",
     )
     .eq("id", proposalId)
     .maybeSingle();
@@ -129,24 +132,63 @@ Deno.serve(async (req) => {
     proposal.status === "paid" ||
     proposal.status === "upcoming";
 
-  // Load portal settings. Try the full select first; on error, fall back to
-  // only the critical columns so a missing phone/company_name column doesn't
-  // make hl_api_key look empty and skip CRM.
-  const settingsCols = "hl_api_key, hl_location_id, hl_proposal_link_field_id, company_name, app_url, phone, proposal_expiry_days";
-  let pSettings: any = null;
-  const { data: pSettingsFull, error: pSettingsErr } = await db
-    .from("portal_settings")
-    .select(settingsCols)
-    .maybeSingle();
-  if (pSettingsErr) {
-    console.warn("[send-proposal] full settings select failed, falling back to minimal columns:", pSettingsErr?.message);
-    const { data: pSettingsMinimal } = await db
-      .from("portal_settings")
-      .select("hl_api_key, hl_location_id, hl_proposal_link_field_id, company_name, app_url, proposal_expiry_days")
+  // Load the wedding (via proposal.wedding_id) so we can resolve portal_settings
+  // by territory. Fall back to the single-row select when there is no wedding,
+  // no territory_id, or no territory-scoped row — Honeysuckle keeps working.
+  let weddingTerritoryId: string | null = null;
+  if (proposal.wedding_id) {
+    const { data: wRow } = await db
+      .from("weddings")
+      .select("territory_id")
+      .eq("id", proposal.wedding_id)
       .maybeSingle();
-    pSettings = pSettingsMinimal;
-  } else {
-    pSettings = pSettingsFull;
+    weddingTerritoryId = wRow?.territory_id || null;
+  }
+
+  // Load portal settings. Try the territory-scoped row first, then the single
+  // row. Within each, try the full select first; on error fall back to only the
+  // critical columns so a missing phone/company_name column doesn't make
+  // hl_api_key look empty and skip CRM.
+  const settingsCols = "hl_api_key, hl_location_id, hl_proposal_link_field_id, company_name, app_url, phone, proposal_expiry_days";
+  const minimalCols = "hl_api_key, hl_location_id, hl_proposal_link_field_id, company_name, app_url, proposal_expiry_days";
+  let pSettings: any = null;
+
+  if (weddingTerritoryId) {
+    const { data: terrSettings, error: terrErr } = await db
+      .from("portal_settings")
+      .select(settingsCols)
+      .eq("territory_id", weddingTerritoryId)
+      .limit(1)
+      .maybeSingle();
+    if (terrErr) {
+      console.warn("[send-proposal] territory settings select failed, trying minimal:", terrErr?.message);
+      const { data: terrMinimal } = await db
+        .from("portal_settings")
+        .select(minimalCols)
+        .eq("territory_id", weddingTerritoryId)
+        .limit(1)
+        .maybeSingle();
+      pSettings = terrMinimal;
+    } else {
+      pSettings = terrSettings;
+    }
+  }
+
+  if (!pSettings) {
+    const { data: pSettingsFull, error: pSettingsErr } = await db
+      .from("portal_settings")
+      .select(settingsCols)
+      .maybeSingle();
+    if (pSettingsErr) {
+      console.warn("[send-proposal] full settings select failed, falling back to minimal columns:", pSettingsErr?.message);
+      const { data: pSettingsMinimal } = await db
+        .from("portal_settings")
+        .select(minimalCols)
+        .maybeSingle();
+      pSettings = pSettingsMinimal;
+    } else {
+      pSettings = pSettingsFull;
+    }
   }
 
   const hlApiKey = (pSettings?.hl_api_key || "").trim();

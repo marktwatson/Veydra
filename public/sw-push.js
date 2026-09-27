@@ -67,7 +67,7 @@ self.addEventListener("push", (event) => {
   // which is exactly the symptom of "send-push reports 201 ok but nothing
   // shows on the phone"). Use the PNG from the manifest instead of the SVG.
   const PNG_ICON =
-    "https://vibe.filesafe.space/1785896143476160753/attachments/70e8de35-254d-4365-a8cc-fe2c6acdb517.png";
+    "https://vibe.filesafe.space/1790534143074987697/attachments/70e8de35-254d-4365-a8cc-fe2c6acdb517.png";
 
   const title = data.title || "Veydra";
   const options = {

@@ -6,7 +6,7 @@ export {
 } from "./custom-plan-balance";
 
 export const DEFAULT_LOGO_URL =
-  "https://vibe.filesafe.space/1785896143476160753/attachments/0e7b75d6-871a-4dea-b7b3-8806a60cd9a5.png";
+  "https://vibe.filesafe.space/1790534143074987697/attachments/0e7b75d6-871a-4dea-b7b3-8806a60cd9a5.png";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));

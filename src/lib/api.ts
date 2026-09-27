@@ -1,4 +1,5 @@
 import { supabase, supabaseUrl, supabaseAnonKey } from "./supabase";
+import { resolveTerritoryId } from "./territory";
 import { updatePortalSettingsRow } from "./portal-settings-update";
 import {
   formatDisplayDate,
@@ -123,6 +124,7 @@ export interface DbWedding {
   offplatform_method?: string | null;
   offplatform_amount?: number | null;
   offplatform_claimed_at?: string | null;
+  territory_id?: string | null;
 }
 
 export interface DbJob {
@@ -3177,9 +3179,24 @@ export const api = {
     wedding: Omit<DbWedding, "id" | "created_at">,
     syncToCrmOnCreate = false,
   ) {
+    // Stamp territory_id on new weddings. If the caller already set it, keep
+    // it; otherwise resolve from the logged-in manager's territory, then the
+    // is_primary territory, then the Honeysuckle fallback.
+    let insertRow: any = wedding;
+    if (!(wedding as any).territory_id) {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        const territoryId = await resolveTerritoryId(user?.id);
+        insertRow = { ...wedding, territory_id: territoryId };
+      } catch {
+        // Keep working without a territory if resolution fails.
+      }
+    }
     const { data, error } = await supabase
       .from("weddings")
-      .insert(wedding)
+      .insert(insertRow)
       .select()
       .single();
     if (error) throw error;

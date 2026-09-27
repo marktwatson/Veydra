@@ -2146,7 +2146,7 @@ export default function BridePortal() {
                 <DialogTrigger asChild>
                   <Card className="group cursor-pointer rounded-2xl overflow-hidden border-border/50 shadow-sm hover:shadow-xl transition-all duration-500 hover:-translate-y-1 bg-card flex flex-col h-full">
                     <div className="h-48 relative overflow-hidden">
-                      <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1785896143476160753/assets/c30d93b6-1e31-4f83-89b8-f19bb5da9b67.png')] bg-cover bg-center group-hover:scale-105 transition-transform duration-700" />
+                      <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1790534143074987697/assets/c30d93b6-1e31-4f83-89b8-f19bb5da9b67.png')] bg-cover bg-center group-hover:scale-105 transition-transform duration-700" />
                       <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors duration-500" />
                       <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-md p-2 rounded-full shadow-sm text-pink-500">
                         <Sparkles className="h-5 w-5" />
@@ -2171,7 +2171,7 @@ export default function BridePortal() {
                 </DialogTrigger>
                 <DialogContent className="max-w-3xl rounded-[2rem] p-0 overflow-hidden border-0 shadow-2xl">
                   <div className="h-64 relative">
-                    <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1785896143476160753/assets/c30d93b6-1e31-4f83-89b8-f19bb5da9b67.png')] bg-cover bg-center" />
+                    <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1790534143074987697/assets/c30d93b6-1e31-4f83-89b8-f19bb5da9b67.png')] bg-cover bg-center" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
                     <div className="absolute bottom-6 left-8 right-8 text-white">
                       <div className="bg-white/20 backdrop-blur-md w-fit p-2 rounded-full mb-4">
@@ -2225,7 +2225,7 @@ export default function BridePortal() {
                 <DialogTrigger asChild>
                   <Card className="group cursor-pointer rounded-2xl overflow-hidden border-border/50 shadow-sm hover:shadow-xl transition-all duration-500 hover:-translate-y-1 bg-card flex flex-col h-full">
                     <div className="h-48 relative overflow-hidden">
-                      <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1785896143476160753/assets/c6a44d30-6cc0-4373-a39a-5bb770c44d68.png')] bg-cover bg-center group-hover:scale-105 transition-transform duration-700" />
+                      <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1790534143074987697/assets/c6a44d30-6cc0-4373-a39a-5bb770c44d68.png')] bg-cover bg-center group-hover:scale-105 transition-transform duration-700" />
                       <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors duration-500" />
                       <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-md p-2 rounded-full shadow-sm text-blue-500">
                         <Clock className="h-5 w-5" />
@@ -2250,7 +2250,7 @@ export default function BridePortal() {
                 </DialogTrigger>
                 <DialogContent className="max-w-3xl rounded-[2rem] p-0 overflow-hidden border-0 shadow-2xl">
                   <div className="h-64 relative">
-                    <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1785896143476160753/assets/c6a44d30-6cc0-4373-a39a-5bb770c44d68.png')] bg-cover bg-center" />
+                    <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1790534143074987697/assets/c6a44d30-6cc0-4373-a39a-5bb770c44d68.png')] bg-cover bg-center" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
                     <div className="absolute bottom-6 left-8 right-8 text-white">
                       <div className="bg-white/20 backdrop-blur-md w-fit p-2 rounded-full mb-4">
@@ -2320,7 +2320,7 @@ export default function BridePortal() {
                 <DialogTrigger asChild>
                   <Card className="group cursor-pointer rounded-2xl overflow-hidden border-border/50 shadow-sm hover:shadow-xl transition-all duration-500 hover:-translate-y-1 bg-card flex flex-col h-full">
                     <div className="h-48 relative overflow-hidden">
-                      <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1785896143476160753/assets/940d7fbf-5da1-4c7b-9032-e593e71ad60f.png')] bg-cover bg-center group-hover:scale-105 transition-transform duration-700" />
+                      <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1790534143074987697/assets/940d7fbf-5da1-4c7b-9032-e593e71ad60f.png')] bg-cover bg-center group-hover:scale-105 transition-transform duration-700" />
                       <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors duration-500" />
                       <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-md p-2 rounded-full shadow-sm text-purple-500">
                         <Heart className="h-5 w-5" />
@@ -2345,7 +2345,7 @@ export default function BridePortal() {
                 </DialogTrigger>
                 <DialogContent className="max-w-3xl rounded-[2rem] p-0 overflow-hidden border-0 shadow-2xl">
                   <div className="h-64 relative">
-                    <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1785896143476160753/assets/940d7fbf-5da1-4c7b-9032-e593e71ad60f.png')] bg-cover bg-center" />
+                    <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1790534143074987697/assets/940d7fbf-5da1-4c7b-9032-e593e71ad60f.png')] bg-cover bg-center" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
                     <div className="absolute bottom-6 left-8 right-8 text-white">
                       <div className="bg-white/20 backdrop-blur-md w-fit p-2 rounded-full mb-4">
@@ -2398,7 +2398,7 @@ export default function BridePortal() {
                 <DialogTrigger asChild>
                   <Card className="group cursor-pointer rounded-2xl overflow-hidden border-border/50 shadow-sm hover:shadow-xl transition-all duration-500 hover:-translate-y-1 bg-card flex flex-col h-full">
                     <div className="h-48 relative overflow-hidden">
-                      <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1785896143476160753/assets/2b8b4441-0c19-4e72-84da-45b515435f2c.png')] bg-cover bg-center group-hover:scale-105 transition-transform duration-700" />
+                      <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1790534143074987697/assets/2b8b4441-0c19-4e72-84da-45b515435f2c.png')] bg-cover bg-center group-hover:scale-105 transition-transform duration-700" />
                       <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors duration-500" />
                       <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-md p-2 rounded-full shadow-sm text-emerald-500">
                         <Users className="h-5 w-5" />
@@ -2423,7 +2423,7 @@ export default function BridePortal() {
                 </DialogTrigger>
                 <DialogContent className="max-w-3xl rounded-[2rem] p-0 overflow-hidden border-0 shadow-2xl">
                   <div className="h-64 relative">
-                    <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1785896143476160753/assets/2b8b4441-0c19-4e72-84da-45b515435f2c.png')] bg-cover bg-center" />
+                    <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1790534143074987697/assets/2b8b4441-0c19-4e72-84da-45b515435f2c.png')] bg-cover bg-center" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
                     <div className="absolute bottom-6 left-8 right-8 text-white">
                       <div className="bg-white/20 backdrop-blur-md w-fit p-2 rounded-full mb-4">
@@ -2482,7 +2482,7 @@ export default function BridePortal() {
                 <DialogTrigger asChild>
                   <Card className="group cursor-pointer rounded-2xl overflow-hidden border-border/50 shadow-sm hover:shadow-xl transition-all duration-500 hover:-translate-y-1 bg-card flex flex-col h-full">
                     <div className="h-48 relative overflow-hidden">
-                      <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1785896143476160753/assets/079b091d-e932-476f-ae2f-2c96f187720f.png')] bg-cover bg-center group-hover:scale-105 transition-transform duration-700" />
+                      <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1790534143074987697/assets/079b091d-e932-476f-ae2f-2c96f187720f.png')] bg-cover bg-center group-hover:scale-105 transition-transform duration-700" />
                       <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors duration-500" />
                       <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-md p-2 rounded-full shadow-sm text-amber-500">
                         <Camera className="h-5 w-5" />
@@ -2507,7 +2507,7 @@ export default function BridePortal() {
                 </DialogTrigger>
                 <DialogContent className="max-w-3xl rounded-[2rem] p-0 overflow-hidden border-0 shadow-2xl">
                   <div className="h-64 relative">
-                    <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1785896143476160753/assets/079b091d-e932-476f-ae2f-2c96f187720f.png')] bg-cover bg-center" />
+                    <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1790534143074987697/assets/079b091d-e932-476f-ae2f-2c96f187720f.png')] bg-cover bg-center" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
                     <div className="absolute bottom-6 left-8 right-8 text-white">
                       <div className="bg-white/20 backdrop-blur-md w-fit p-2 rounded-full mb-4">
@@ -2560,7 +2560,7 @@ export default function BridePortal() {
                 <DialogTrigger asChild>
                   <Card className="group cursor-pointer rounded-2xl overflow-hidden border-border/50 shadow-sm hover:shadow-xl transition-all duration-500 hover:-translate-y-1 bg-card flex flex-col h-full">
                     <div className="h-48 relative overflow-hidden">
-                      <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1785896143476160753/assets/6344f7d8-1408-4889-a044-8147b2f78151.png')] bg-cover bg-center group-hover:scale-105 transition-transform duration-700" />
+                      <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1790534143074987697/assets/6344f7d8-1408-4889-a044-8147b2f78151.png')] bg-cover bg-center group-hover:scale-105 transition-transform duration-700" />
                       <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors duration-500" />
                       <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-md p-2 rounded-full shadow-sm text-slate-500">
                         <Smartphone className="h-5 w-5" />
@@ -2585,7 +2585,7 @@ export default function BridePortal() {
                 </DialogTrigger>
                 <DialogContent className="max-w-3xl rounded-[2rem] p-0 overflow-hidden border-0 shadow-2xl">
                   <div className="h-64 relative">
-                    <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1785896143476160753/assets/6344f7d8-1408-4889-a044-8147b2f78151.png')] bg-cover bg-center" />
+                    <div className="absolute inset-0 bg-[url('https://vibe.filesafe.space/1790534143074987697/assets/6344f7d8-1408-4889-a044-8147b2f78151.png')] bg-cover bg-center" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
                     <div className="absolute bottom-6 left-8 right-8 text-white">
                       <div className="bg-white/20 backdrop-blur-md w-fit p-2 rounded-full mb-4">

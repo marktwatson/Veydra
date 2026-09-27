@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "./supabase";
 import { api } from "./api";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 import { requestCoverage } from "./coverage-request";
+import { useAuth } from "@/contexts/AuthContext";
+import { resolveTerritoryId } from "./territory";
 
 export interface CreateProposalArgs {
   id?: string | undefined;
@@ -24,6 +26,23 @@ export function useCreateProposal() {
   const [savedProposal, setSavedProposal] = useState<any>(null);
   const { toast } = useToast();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  // Territory to stamp on the next proposal insert. Resolved once per mount so
+  // repeated saves reuse the same id and avoid an extra query each save.
+  const [territoryId, setTerritoryId] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    resolveTerritoryId(user?.id)
+      .then((id) => {
+        if (active) setTerritoryId(id);
+      })
+      .catch(() => {
+        if (active) setTerritoryId(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
 
   const loadCoverageState = async (proposalId: string) => {
     try {
@@ -97,6 +116,7 @@ export function useCreateProposal() {
       is_upgrade: !!upgradeWeddingId,
       original_wedding_id: upgradeWeddingId || null,
       amount_paid_so_far: amountPaidSoFar,
+      ...(territoryId ? { territory_id: territoryId } : {}),
       ...(snapshotTemplate
         ? { custom_contract_snapshot: snapshotTemplate }
         : {}),
@@ -221,6 +241,7 @@ export function useCreateProposal() {
         is_upgrade: !!upgradeWeddingId,
         original_wedding_id: upgradeWeddingId || null,
         amount_paid_so_far: amountPaidSoFar,
+        ...(territoryId ? { territory_id: territoryId } : {}),
         ...(snapshotTemplate
           ? { custom_contract_snapshot: snapshotTemplate }
           : {}),

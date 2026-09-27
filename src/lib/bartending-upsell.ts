@@ -161,6 +161,10 @@ export async function processBartendingUpsell(
         hours: null,
         addons: [],
         requirements: "",
+        // Scope the bartender job to the same territory as the wedding.
+        ...((wedding as any).territory_id
+          ? { territory_id: (wedding as any).territory_id }
+          : {}),
       });
     }
   } catch (jobErr) {

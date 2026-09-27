@@ -77,6 +77,20 @@ export async function requestCoverage(
 
   const weddingId = existingWeddingId;
 
+  // Copy the wedding's territory_id onto any new coverage jobs so they are
+  // scoped to the same territory as the wedding/proposal.
+  let weddingTerritoryId: string | null = null;
+  try {
+    const { data: wRow } = await supabase
+      .from("weddings")
+      .select("territory_id")
+      .eq("id", weddingId)
+      .maybeSingle();
+    weddingTerritoryId = (wRow as any)?.territory_id || null;
+  } catch {
+    // non-fatal
+  }
+
   // Determine which roles to create.
   const videoNeeded = packageIncludesVideo(proposal);
   const photoCfg = payload?.roles?.photo;
@@ -134,6 +148,7 @@ export async function requestCoverage(
       coverage_request: true,
       proposal_id: proposal.id,
       requirements: notes || null,
+      ...(weddingTerritoryId ? { territory_id: weddingTerritoryId } : {}),
     };
     let { data, error } = await supabase
       .from("jobs")
