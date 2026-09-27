@@ -47,12 +47,14 @@ serve(async (req) => {
       // No body or invalid JSON — normal cron invocation.
     }
 
-    // Fetch portal settings
+    // Fetch portal settings (Honeysuckle/primary territory — never bare .limit(1))
+    const HONEY = "0bbaebfc-1c51-4ebe-98b4-e2e9697ef33d";
     const { data: settings, error: settingsError } = await supabase
       .from("portal_settings")
       .select("*")
+      .eq("territory_id", HONEY)
       .limit(1)
-      .single();
+      .maybeSingle();
 
     if (settingsError || !settings) {
       return cors({ error: "Failed to fetch settings" }, 500);

@@ -304,7 +304,8 @@ serve(async (req) => {
   if (!supabaseUrl || !supabaseKey) return jsonResp({ error: "Missing Supabase configuration" }, 500);
   const sb = createClient(supabaseUrl, supabaseKey);
   const healOk = await selfHealTables(sb);
-  const { data: settings } = await sb.from("portal_settings").select("*").limit(1).maybeSingle();
+  const HONEY = "0bbaebfc-1c51-4ebe-98b4-e2e9697ef33d";
+  const { data: settings } = await sb.from("portal_settings").select("*").eq("territory_id", HONEY).limit(1).maybeSingle();
   if (!settings) { await writeHeartbeat(sb, source, { error: "no portal_settings" }); return jsonResp({ error: "No portal settings" }, 500); }
   const tz = settings.timezone || settings.company_timezone || "America/New_York";
   // Write heartbeat AFTER self-heal so the table exists. If the write fails

@@ -1064,11 +1064,9 @@ export async function sendOvantaSms(
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const { data: settings } = await supabase
-        .from("portal_settings")
-        .select("hl_api_key, hl_location_id")
-        .limit(1)
-        .single();
+      const { getScopedCrmCredentials } =
+        await import("./portal-settings-scoped");
+      const settings = await getScopedCrmCredentials({});
       if (!settings?.hl_api_key || !settings?.hl_location_id) {
         throw new Error("Missing Ovanta API credentials in the database.");
       }
@@ -1271,11 +1269,9 @@ export async function sendOvantaEmail(
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const { data: settings } = await supabase
-        .from("portal_settings")
-        .select("hl_api_key, hl_location_id")
-        .limit(1)
-        .single();
+      const { getScopedCrmCredentials } =
+        await import("./portal-settings-scoped");
+      const settings = await getScopedCrmCredentials({});
       if (!settings?.hl_api_key || !settings?.hl_location_id) {
         throw new Error("Missing Ovanta API credentials in the database.");
       }
@@ -1391,11 +1387,9 @@ export async function sendAdminNotification(
     variables?: Record<string, string>;
   } = {},
 ) {
-  const { data: settings } = await supabase
-    .from("portal_settings")
-    .select("*")
-    .limit(1)
-    .single();
+  const { getScopedPortalSettingsFull } =
+    await import("./portal-settings-scoped");
+  const settings = await getScopedPortalSettingsFull({});
   if (!settings) return;
 
   const adminEmailsRaw = settings.admin_notification_emails || "";
@@ -1449,11 +1443,9 @@ export const api = {
   sendAdminNotification,
   async syncContractorCRM(contractorId: string) {
     try {
-      const { data: settings } = await supabase
-        .from("portal_settings")
-        .select("hl_api_key, hl_location_id")
-        .limit(1)
-        .single();
+      const { getScopedCrmCredentials } =
+        await import("./portal-settings-scoped");
+      const settings = await getScopedCrmCredentials({ contractorId });
       if (!settings?.hl_api_key || !settings?.hl_location_id) {
         throw new Error(
           "CRM credentials (API Key or Location ID) are missing in settings.",
@@ -3277,10 +3269,9 @@ export const api = {
     // For bookings via /book or /proposal, the Stripe webhook handles CRM tagging AFTER payment succeeds.
     if (syncToCrmOnCreate && data.client_email) {
       try {
-        const { data: settings } = await supabase
-          .from("portal_settings")
-          .select("hl_api_key, hl_location_id")
-          .single();
+        const { getScopedCrmCredentials } =
+          await import("./portal-settings-scoped");
+        const settings = await getScopedCrmCredentials({ weddingId: data.id });
         if (settings?.hl_api_key && settings?.hl_location_id) {
           const headers = {
             Authorization: `Bearer ${settings.hl_api_key}`,
@@ -3384,11 +3375,9 @@ export const api = {
       );
 
       try {
-        const { data: settings } = await supabase
-          .from("portal_settings")
-          .select("editor_assignment_webhook")
-          .limit(1)
-          .maybeSingle();
+        const { getScopedPortalSettingsFull } =
+          await import("./portal-settings-scoped");
+        const settings = await getScopedPortalSettingsFull({ weddingId: id });
         let webhookUrl = settings?.editor_assignment_webhook;
         if (!webhookUrl && typeof window !== "undefined") {
           webhookUrl = localStorage.getItem("veydra_editor_assignment_webhook");
@@ -3439,13 +3428,9 @@ export const api = {
       }
 
       try {
-        const { data: settings } = await supabase
-          .from("portal_settings")
-          .select(
-            "sms_editor_assigned_enabled, sms_editor_assigned_template, email_editor_assigned_enabled, email_editor_assigned_template, email_editor_assigned_subject, company_name, logo_url, app_url",
-          )
-          .limit(1)
-          .maybeSingle();
+        const { getScopedPortalSettingsFull } =
+          await import("./portal-settings-scoped");
+        const settings = await getScopedPortalSettingsFull({ weddingId: id });
         const { data: editor } = await supabase
           .from("editors")
           .select("email, name")
@@ -3614,13 +3599,9 @@ export const api = {
           }
 
           // Notify Bride of Delivery & Rating
-          const { data: settings } = await supabase
-            .from("portal_settings")
-            .select(
-              "sms_bride_delivery_enabled, sms_bride_delivery_template, sms_bride_rating_enabled, sms_bride_rating_template, email_bride_delivery_enabled, email_bride_delivery_template, email_bride_delivery_subject, email_bride_rating_enabled, email_bride_rating_template, email_bride_rating_subject, company_name, logo_url, app_url",
-            )
-            .limit(1)
-            .maybeSingle();
+          const { getScopedPortalSettingsFull } =
+            await import("./portal-settings-scoped");
+          const settings = await getScopedPortalSettingsFull({ weddingId: id });
 
           // Prioritize client_email (main Details email) over questionnaire email
           let brideEmail = data.client_email || "";
@@ -3743,13 +3724,11 @@ export const api = {
 
         if (data.editor_id) {
           try {
-            const { data: settings } = await supabase
-              .from("portal_settings")
-              .select(
-                "sms_editor_raw_media_enabled, sms_editor_raw_media_template, email_editor_raw_media_enabled, email_editor_raw_media_template, email_editor_raw_media_subject, company_name, logo_url, app_url",
-              )
-              .limit(1)
-              .maybeSingle();
+            const { getScopedPortalSettingsFull } =
+              await import("./portal-settings-scoped");
+            const settings = await getScopedPortalSettingsFull({
+              weddingId: id,
+            });
             const { data: editor } = await supabase
               .from("editors")
               .select("email, name")
@@ -3835,13 +3814,11 @@ export const api = {
           data.editor_id
         ) {
           try {
-            const { data: settings } = await supabase
-              .from("portal_settings")
-              .select(
-                "sms_editor_revisions_enabled, sms_editor_revisions_template, email_editor_revisions_enabled, email_editor_revisions_template, email_editor_revisions_subject, company_name, logo_url, app_url",
-              )
-              .limit(1)
-              .maybeSingle();
+            const { getScopedPortalSettingsFull } =
+              await import("./portal-settings-scoped");
+            const settings = await getScopedPortalSettingsFull({
+              weddingId: id,
+            });
             const { data: editor } = await supabase
               .from("editors")
               .select("email, name")
@@ -4049,13 +4026,11 @@ export const api = {
             });
           }
           // Email/SMS notifications
-          const { data: settings } = await supabase
-            .from("portal_settings")
-            .select(
-              "email_contractor_cancellation_enabled, email_contractor_cancellation_subject, email_contractor_cancellation_template, sms_contractor_cancellation_enabled, sms_contractor_cancellation_template, company_name, logo_url, app_url",
-            )
-            .limit(1)
-            .maybeSingle();
+          const { getScopedPortalSettingsFull } =
+            await import("./portal-settings-scoped");
+          const settings = await getScopedPortalSettingsFull({
+            weddingId: wedding.id,
+          });
           if (settings) {
             for (const a of assignments) {
               const contractor = a.contractors as any;
@@ -4154,13 +4129,11 @@ export const api = {
         }
 
         if (brideEmail) {
-          const { data: settings } = await supabase
-            .from("portal_settings")
-            .select(
-              "email_bride_cancellation_enabled, email_bride_cancellation_subject, email_bride_cancellation_template, sms_bride_cancellation_enabled, sms_bride_cancellation_template, company_name, logo_url, app_url",
-            )
-            .limit(1)
-            .maybeSingle();
+          const { getScopedPortalSettingsFull } =
+            await import("./portal-settings-scoped");
+          const settings = await getScopedPortalSettingsFull({
+            weddingId: wedding.id,
+          });
           if (settings) {
             if (
               settings.email_bride_cancellation_enabled &&
@@ -4491,11 +4464,11 @@ export const api = {
         const weddingRegion = wedding?.region;
         const date = wedding?.date || "";
 
-        const { data: settings } = await supabase
-          .from("portal_settings")
-          .select("*")
-          .limit(1)
-          .single();
+        const { getScopedPortalSettingsFull } =
+          await import("./portal-settings-scoped");
+        const settings = await getScopedPortalSettingsFull({
+          weddingId: job.wedding_id,
+        });
 
         await sendJobAlerts(data, location, weddingRegion, date, settings);
       } catch (e) {
@@ -4569,11 +4542,11 @@ export const api = {
           const weddingRegion = wedding?.region;
           const date = wedding?.date || "";
 
-          const { data: settings } = await supabase
-            .from("portal_settings")
-            .select("*")
-            .limit(1)
-            .single();
+          const { getScopedPortalSettingsFull } =
+            await import("./portal-settings-scoped");
+          const settings = await getScopedPortalSettingsFull({
+            weddingId: oldJob.wedding_id,
+          });
 
           await sendJobAlerts(data, location, weddingRegion, date, settings);
         } catch (e) {
@@ -4728,11 +4701,11 @@ export const api = {
     const location = (job.weddings as any)?.location || "";
     const weddingRegion = (job.weddings as any)?.region;
     const date = (job.weddings as any)?.date || "";
-    const { data: settings } = await supabase
-      .from("portal_settings")
-      .select("*")
-      .limit(1)
-      .single();
+    const { getScopedPortalSettingsFull } =
+      await import("./portal-settings-scoped");
+    const settings = await getScopedPortalSettingsFull({
+      weddingId: job.wedding_id,
+    });
 
     // If contractors were manually selected, add them to the invited_contractors list
     if (contractorIds && contractorIds.length > 0) {
@@ -4813,14 +4786,9 @@ export const api = {
 
     let settings: any = null;
     try {
-      const { data } = await supabase
-        .from("portal_settings")
-        .select(
-          "sms_outbid_enabled, sms_outbid_template, email_outbid_enabled, email_outbid_template, email_outbid_subject, company_name, logo_url, app_url",
-        )
-        .limit(1)
-        .maybeSingle();
-      settings = data;
+      const { getScopedPortalSettingsFull } =
+        await import("./portal-settings-scoped");
+      settings = await getScopedPortalSettingsFull({ jobId: job_id });
     } catch (e) {}
 
     for (const a of apps) {
@@ -5238,13 +5206,12 @@ export const api = {
 
       // Send SMS and Email via Ovanta
       try {
-        const { data: settings } = await supabase
-          .from("portal_settings")
-          .select(
-            "sms_assignment_enabled, sms_assignment_template, email_assignment_enabled, email_assignment_template, email_assignment_subject, company_name, logo_url, app_url",
-          )
-          .limit(1)
-          .maybeSingle();
+        const { getScopedPortalSettingsFull } =
+          await import("./portal-settings-scoped");
+        const settings = await getScopedPortalSettingsFull({
+          weddingId: job?.wedding_id,
+          contractorId: data.contractor_id,
+        });
         const { data: contractor } = await supabase
           .from("contractors")
           .select(
@@ -5426,13 +5393,9 @@ export const api = {
 
     // Send SMS and Email via Ovanta
     try {
-      const { data: settings } = await supabase
-        .from("portal_settings")
-        .select(
-          "sms_payout_enabled, sms_payout_template, email_payout_enabled, email_payout_template, email_payout_subject, company_name, logo_url, app_url",
-        )
-        .limit(1)
-        .maybeSingle();
+      const { getScopedPortalSettingsFull } =
+        await import("./portal-settings-scoped");
+      const settings = await getScopedPortalSettingsFull({ contractorId });
       const { data: contractor } = await supabase
         .from("contractors")
         .select(
@@ -6120,10 +6083,9 @@ export const api = {
           .eq("id", weddingId)
           .single();
         if (updatedWedding) {
-          const { data: settings } = await supabase
-            .from("portal_settings")
-            .select("*")
-            .single();
+          const { getScopedPortalSettingsFull } =
+            await import("./portal-settings-scoped");
+          const settings = await getScopedPortalSettingsFull({ weddingId });
           if (
             settings?.hl_api_key &&
             settings?.hl_location_id &&
@@ -6234,10 +6196,9 @@ export const api = {
       await supabase.from("weddings").update(updatePayload).eq("id", weddingId);
 
       // Send CRM Sync
-      const { data: settings } = await supabase
-        .from("portal_settings")
-        .select("*")
-        .single();
+      const { getScopedPortalSettingsFull } =
+        await import("./portal-settings-scoped");
+      const settings = await getScopedPortalSettingsFull({ weddingId });
       if (
         settings?.hl_api_key &&
         settings?.hl_location_id &&
@@ -6769,10 +6730,9 @@ export const api = {
 
   async _getCrmCustomFieldMap(): Promise<Record<string, string>> {
     try {
-      const { data: settings } = await supabase
-        .from("portal_settings")
-        .select("hl_api_key, hl_location_id")
-        .single();
+      const { getScopedCrmCredentials } =
+        await import("./portal-settings-scoped");
+      const settings = await getScopedCrmCredentials({});
       if (!settings?.hl_api_key || !settings?.hl_location_id) return {};
 
       const headers = {
@@ -6922,10 +6882,9 @@ export const api = {
   /** Fetch leads from CRM. Paginates through up to 500 contacts using v3 API. */
   async getOvantaLeads(tagFilter?: string) {
     try {
-      const { data: settings } = await supabase
-        .from("portal_settings")
-        .select("hl_api_key, hl_location_id")
-        .single();
+      const { getScopedCrmCredentials } =
+        await import("./portal-settings-scoped");
+      const settings = await getScopedCrmCredentials({});
       if (!settings?.hl_api_key || !settings?.hl_location_id) return [];
 
       const headers = {

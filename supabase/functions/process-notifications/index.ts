@@ -36,19 +36,51 @@ serve(async (req) => {
       });
     }
 
-    const { data: settings } = await supabaseClient
-      .from("portal_settings")
-      .select("hl_api_key, hl_location_id")
-      .limit(1)
-      .single();
-
-    if (!settings?.hl_api_key || !settings?.hl_location_id) {
-      throw new Error("Missing Ovanta API credentials in the database.");
+    const HONEYSUCKLE_TERRITORY_ID = "0bbaebfc-1c51-4ebe-98b4-e2e9697ef33d";
+    // Cache CRM credentials per territory so we never bare .limit(1) without
+    // a territory filter. Resolved per-notification from the payload email →
+    // contractor.territory_id, else Honeysuckle.
+    const credsCache = new Map<string, { hl_api_key: string | null; hl_location_id: string | null } | null>();
+    async function resolveCreds(email?: string) {
+      let territoryId: string | null = null;
+      if (email) {
+        try {
+          const { data: c } = await supabaseClient
+            .from("contractors")
+            .select("territory_id")
+            .ilike("email", email)
+            .maybeSingle();
+          if (c?.territory_id) territoryId = c.territory_id;
+        } catch { /* fall through */ }
+        if (!territoryId) {
+          try {
+            const { data: w } = await supabaseClient
+              .from("weddings")
+              .select("territory_id")
+              .ilike("client_email", email)
+              .maybeSingle();
+            if (w?.territory_id) territoryId = w.territory_id;
+          } catch { /* fall through */ }
+        }
+      }
+      if (!territoryId) territoryId = HONEYSUCKLE_TERRITORY_ID;
+      if (credsCache.has(territoryId)) return credsCache.get(territoryId)!;
+      let creds: { hl_api_key: string | null; hl_location_id: string | null } | null = null;
+      try {
+        const { data, error } = await supabaseClient
+          .from("portal_settings")
+          .select("hl_api_key, hl_location_id")
+          .eq("territory_id", territoryId)
+          .limit(1);
+        if (error && error.code !== "42P01") throw error;
+        creds = data && data.length > 0 ? data[0] : null;
+      } catch {
+        creds = null;
+      }
+      credsCache.set(territoryId, creds);
+      return creds;
     }
 
-    const OVANTA_API_KEY = settings.hl_api_key;
-    const OVANTA_LOCATION_ID = settings.hl_location_id;
-    
     for (const notif of pendingNotifs) {
       // Mark as processing
       await supabaseClient
@@ -58,7 +90,14 @@ serve(async (req) => {
         
       try {
         let success = false;
-        
+        const notifEmail = notif.payload?.email as string | undefined;
+        const creds = await resolveCreds(notifEmail);
+        const OVANTA_API_KEY = creds?.hl_api_key || null;
+        const OVANTA_LOCATION_ID = creds?.hl_location_id || null;
+        if (!OVANTA_API_KEY || !OVANTA_LOCATION_ID) {
+          throw new Error("Missing Ovanta API credentials for this territory.");
+        }
+
         if (notif.type === 'email') {
           const { email, subject, html, name, force } = notif.payload;
           

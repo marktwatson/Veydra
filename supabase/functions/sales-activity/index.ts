@@ -257,14 +257,19 @@ Deno.serve(async (req) => {
   if (!uemail && callerEmail) uemail = callerEmail;
   if (!uemail && !uid) return json({ error: "Unauthorized — invalid session", tokenLen: tok.length, tokenPrefix: tok ? tok.slice(0, 8) : "none" }, 401);
   let mgr: any = null;
-  if (uemail) { const { data } = await db.from("managers").select("id, email, role, status").ilike("email", uemail).maybeSingle(); mgr = data; }
-  if (!mgr && uid && /^[0-9a-f-]{36}$/i.test(uid)) { try { const { data } = await db.from("managers").select("id, email, role, status").eq("id", uid).maybeSingle(); mgr = data; } catch {} }
+  if (uemail) { const { data } = await db.from("managers").select("id, email, role, status, territory_id").ilike("email", uemail).maybeSingle(); mgr = data; }
+  if (!mgr && uid && /^[0-9a-f-]{36}$/i.test(uid)) { try { const { data } = await db.from("managers").select("id, email, role, status, territory_id").eq("id", uid).maybeSingle(); mgr = data; } catch {} }
   const role = String(mgr?.role || "").toLowerCase().trim();
   if (!["owner", "owner_readonly", "super_admin", "manager"].includes(role)) return json({ error: "Forbidden — owner, super_admin, or manager only", email: uemail, userId: uid, managerRowFound: !!mgr, roleFound: role || null }, 403);
 
+  const HONEY = "0bbaebfc-1c51-4ebe-98b4-e2e9697ef33d";
+  const territoryId = mgr?.territory_id || HONEY;
   let ps: any = null;
-  const { data: psFull, error: psErr } = await db.from("portal_settings").select("hl_api_key, hl_location_id, app_url, company_name").maybeSingle();
-  if (psErr) { const { data: m } = await db.from("portal_settings").select("hl_api_key, hl_location_id, company_name").maybeSingle(); ps = m; } else ps = psFull;
+  try {
+    const { data, error } = await db.from("portal_settings").select("hl_api_key, hl_location_id, app_url, company_name").eq("territory_id", territoryId).limit(1);
+    if (error && error.code !== "42P01") throw error;
+    ps = data && data.length > 0 ? data[0] : null;
+  } catch { ps = null; }
   const key = (ps?.hl_api_key || "").trim(), loc = (ps?.hl_location_id || "").trim();
   if (!key || !loc) return json({ error: "Ovanta API key/location not set" }, 422);
   const errs: string[] = [];

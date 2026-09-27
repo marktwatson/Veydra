@@ -56,9 +56,11 @@ Deno.serve(async (req) => {
     // preventing duplicate digests when both the heartbeat and a cron call
     // this function the same day. A manual `force: true` bypasses the guard
     // entirely so the owner can test the digest at any time.
+    const HONEY = "0bbaebfc-1c51-4ebe-98b4-e2e9697ef33d";
     const { data: pSettings, error: psError } = await db
       .from("portal_settings")
       .select("*")
+      .eq("territory_id", HONEY)
       .limit(1)
       .maybeSingle();
     if (psError || !pSettings?.id) {
