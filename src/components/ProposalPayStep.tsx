@@ -105,13 +105,19 @@ export function ProposalPayStep({
       onInvoiceUrl={onInvoiceUrl}
       onCreateInvoice={async () => {
         if (deferred.firstDue <= 0) return { invoiceUrl: "", firstDue: 0 };
+        // Resolve the plan key from the custom_payment_plan flag — a proposal
+        // with an enabled custom plan must invoice its deposit + installments,
+        // never the standard $99/$250 rows. payment_plan alone can be stale.
+        const planKey = proposal?.custom_payment_plan?.enabled
+          ? "custom"
+          : proposal?.payment_plan || "deposit";
         // Build the SAME schedule the bride saw on screen (custom AND standard
         // plans) so the GHL invoice matches. The wedding row was already
         // stamped with this plan in signAndPayProposal.
         const installments = isUpgrade
           ? []
           : buildInstallments({
-              paymentOption: proposal?.payment_plan || "deposit",
+              paymentOption: planKey,
               totalPrice: Number(proposal?.total_amount || 0),
               paidSoFar: Number(proposal?.amount_paid_so_far || 0),
               weddingDate: proposal?.wedding_date,

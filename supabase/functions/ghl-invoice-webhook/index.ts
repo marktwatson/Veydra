@@ -1,5 +1,4 @@
 import { createClient } from "jsr:@supabase/supabase-js";
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -592,25 +591,11 @@ Deno.serve(async (req) => {
 
     let booked = false;
     const isCancelled = wedding.status === "cancelled";
-    // Do NOT change wedding status (no pending → upcoming/booked activation).
-    // Only strip the [UNPAID_DRAFT] tag from notes and flag for staff review.
+    // First real payment: draft → pending (staff review, not upcoming); strip [UNPAID_DRAFT].
     if (newPaid > 0 && !isCancelled) {
-      const hadDraftTag = (wedding.notes || "").includes("[UNPAID_DRAFT]");
-      const cleanedNotes = (wedding.notes || "")
-        .replace("[UNPAID_DRAFT]\n", "")
-        .replace("[UNPAID_DRAFT]", "")
-        .trim();
-      const reviewTag = "GHL deposit posted — review before activating";
-      const notesHasReview = cleanedNotes.includes(reviewTag);
-      if (hadDraftTag || !notesHasReview) {
-        const up: any = {
-          notes: notesHasReview
-            ? cleanedNotes
-            : `${cleanedNotes}${cleanedNotes ? " " : ""}${reviewTag}`,
-        };
-        await db.from("weddings").update(up).eq("id", weddingId);
-      }
-      booked = false; // status left untouched; staff activates manually
+      const cn = (wedding.notes || "").replace("[UNPAID_DRAFT]\n", "").replace("[UNPAID_DRAFT]", "").trim(), rt = "GHL deposit posted — review before activating";
+      const nn = (wedding.notes || "").includes("[UNPAID_DRAFT]") || !cn.includes(rt), ns = (wedding.status || "") === "draft";
+      if (nn || ns) { const up: any = {}; if (nn) up.notes = cn.includes(rt) ? cn : `${cn}${cn ? " " : ""}${rt}`; if (ns) up.status = "pending"; await db.from("weddings").update(up).eq("id", weddingId); }
     }
 
     try {

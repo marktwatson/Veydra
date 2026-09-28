@@ -123,17 +123,63 @@ export async function signAndPayProposal(params: {
   if (!isAddon && firstDue > 0) {
     const { data: existingWedding } = await supabase
       .from("weddings")
-      .select("ghl_invoice_id, ghl_invoice_url")
+      .select("ghl_invoice_id, ghl_invoice_url, ghl_schedule")
       .eq("id", weddingId)
       .maybeSingle();
 
     if (existingWedding?.ghl_invoice_url) {
-      return {
-        invoiceUrl: existingWedding.ghl_invoice_url,
-        weddingId,
-        firstDue,
-        label: "",
+      // For a custom plan, only reuse the existing invoice when its stored
+      // schedule matches the plan's deposit + installments. A stale standard-
+      // plan invoice (wrong schedule) must be replaced with a fresh invoice.
+      const cpp = proposal.custom_payment_plan;
+      const customEnabled =
+        !!cpp?.enabled &&
+        Array.isArray(cpp.installments) &&
+        cpp.installments.length > 0;
+      const scheduleMatchesCustom = (
+        expected: { date: string; amount: number }[],
+        stored: any,
+      ): boolean => {
+        if (!Array.isArray(stored)) return false;
+        const norm = (rows: any[]) =>
+          rows
+            .map((r: any) => ({
+              date: String(r.date || r.dueDate || "").slice(0, 10),
+              amount: Math.round((Number(r.amount) || 0) * 100) / 100,
+            }))
+            .filter((r) => r.date && r.amount > 0);
+        const e = norm(expected);
+        const s = norm(stored);
+        if (e.length === 0 || s.length === 0 || e.length !== s.length)
+          return false;
+        return e.every(
+          (r, i) =>
+            r.date === s[i].date && Math.abs(r.amount - s[i].amount) < 0.01,
+        );
       };
+      const reuse =
+        !customEnabled ||
+        scheduleMatchesCustom(
+          buildInstallments({
+            paymentOption: "custom",
+            totalPrice: Number(proposal.total_amount) || 0,
+            paidSoFar: Number(proposal.amount_paid_so_far || 0),
+            weddingDate: proposal.wedding_date,
+            createdAt: proposal.created_at,
+            customPlan: cpp as any,
+          }),
+          existingWedding.ghl_schedule,
+        );
+      if (reuse) {
+        return {
+          invoiceUrl: existingWedding.ghl_invoice_url,
+          weddingId,
+          firstDue,
+          label: "",
+        };
+      }
+      // Stored schedule does not match the custom plan — fall through and
+      // create a fresh invoice with the correct schedule.
     }
   }
 

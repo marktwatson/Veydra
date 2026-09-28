@@ -150,9 +150,9 @@ function buildServerPlanRows(wedding: any, remaining: number, todayStr: string, 
   }
   return normalizePlanRows(rows, remaining, todayStr);
 }
-// ADDON: rows from body.installments only. PHOTO: body.installments first
-// (the schedule the bride saw — does NOT require wedding.custom_payment_plan
-// .enabled), then wedding.custom_payment_plan unpaid installments, then a
+// ADDON: rows from body.installments only. PHOTO: an enabled
+// wedding.custom_payment_plan wins (ignores mismatched body installments);
+// otherwise body.installments (the bride's on-screen schedule), then a
 // server-built standard plan when there is more to collect than firstDue.
 function buildPlanRows(
   isAddon: boolean,
@@ -169,30 +169,28 @@ function buildPlanRows(
     const hasMultiPlan = planRows.length >= 2;
     return { planRows, hasMultiPlan, source: hasMultiPlan ? "body" : "none" };
   }
-  const bodyInsts: any[] = Array.isArray(installments) ? installments : [];
-  if (bodyInsts.length >= 2) {
-    const planRows = normalizePlanRows(bodyInsts, remaining, todayStr);
-    if (planRows.length >= 2) return { planRows, hasMultiPlan: true, source: "body" };
-  }
-  try {
+  try { // Enabled custom plan wins — IGNORE body installments that don't match it.
     const cppRaw = wedding.custom_payment_plan || {};
     const cpp = typeof cppRaw === "string" ? JSON.parse(cppRaw) : cppRaw;
     const cppEnabled = cpp.enabled === true || cpp.enabled === "true" || cpp.enabled === 1;
     const insts: any[] = Array.isArray(cpp.installments) ? cpp.installments : Array.isArray(cpp) ? cpp : [];
     if (cppEnabled && insts.length > 0 && remaining > 0) {
       const deposit = Math.min(Number(cpp.deposit) || 0, remaining);
-      const rows: PlanRow[] = []; if (deposit > 0) rows.push({ date: todayStr, amount: deposit });
-      let running = 0, scheduled = deposit;
+      const rows: PlanRow[] = []; if (deposit > 0) rows.push({ date: todayStr, amount: money2(deposit) });
+      let scheduled = deposit;
       for (const inst of insts) {
-        const amt = Number(inst.amount || 0); running += amt; if (running <= paid) continue;
-        const due = inst.date || inst.dueDate || ""; if (!due) continue;
+        const amt = Number(inst.amount || 0); if (amt <= 0) continue;
+        let due = (inst.date || inst.dueDate || "").slice(0, 10); if (!due) continue;
+        if (due < todayStr) due = todayStr;
         const rowAmt = Math.min(amt, Math.max(0, remaining - scheduled)); if (rowAmt <= 0) break;
-        rows.push({ date: due, amount: rowAmt }); scheduled += rowAmt;
+        rows.push({ date: due, amount: money2(rowAmt) }); scheduled += rowAmt;
       }
       const planRows = normalizePlanRows(rows, remaining, todayStr);
-      if (planRows.length >= 2) return { planRows, hasMultiPlan: true, source: "wedding" };
+      if (planRows.length >= 1) return { planRows, hasMultiPlan: planRows.length >= 2, source: "wedding" };
     }
   } catch (_e) {}
+  const bodyInsts: any[] = Array.isArray(installments) ? installments : [];
+  if (bodyInsts.length >= 2) { const planRows = normalizePlanRows(bodyInsts, remaining, todayStr); if (planRows.length >= 2) return { planRows, hasMultiPlan: true, source: "body" }; }
   if (remaining > numAmount + 1) {
     const built = buildServerPlanRows(wedding, remaining, todayStr, weddingDate);
     if (built.length >= 2) return { planRows: built, hasMultiPlan: true, source: "built" };
@@ -435,10 +433,10 @@ Deno.serve(async (req) => {
 
     // ── Build plan rows ──
     // ADDON path: rows come ONLY from body.installments (ignore photo plan).
-    // PHOTO path: rows come from body.installments first (the same schedule
-    //   the bride saw on screen), then fall back to wedding.custom_payment_plan
-    //   unpaid installments. body.installments does NOT require the wedding row
-    //   to have custom_payment_plan.enabled — a standard plan's rows are valid.
+    // PHOTO path: wedding.custom_payment_plan (when enabled) wins and ignores
+    //   body installments that don't match it; never the $99/$250 fallback.
+    //   Otherwise body.installments (the bride's on-screen schedule), then a
+    //   server-built standard plan when there is more to collect than firstDue.
     const _todayStr = ymd(0);
     // Resolve wedding date: wedding.date first, else body.wedding_date, else
     // the last dated row in body.installments. Without a date the builder

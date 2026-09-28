@@ -89,7 +89,7 @@ export async function ensureWeddingForProposal(
             addons: proposal.addons,
             second_shooter_hours: proposal.second_shooter_hours,
             second_shooter_type: proposal.second_shooter_type,
-            status: "pending",
+            status: "draft",
             payment_plan: resolvedPaymentPlan,
             custom_payment_plan: customPlan,
             total_amount: proposal.total_amount,

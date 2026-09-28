@@ -336,8 +336,8 @@ export async function confirmOffPlatformClaim(
     const method = wedding.offplatform_method || "other";
     const isCancelled = wedding.status === "cancelled";
 
-    // 1. Wedding: paid in full + BOOK (status upcoming unless cancelled) +
-    //    contract_date if null. This is the only place status → upcoming.
+    // 1. Wedding: paid in full + move to "pending" for staff review (do NOT
+    //    jump to upcoming) + contract_date if null.
     const update: Record<string, any> = {
       paid_amount: total,
       final_payment_verified: true,
@@ -345,7 +345,7 @@ export async function confirmOffPlatformClaim(
       offplatform_claimed_at: new Date().toISOString(),
     };
     if (!isCancelled) {
-      update.status = "upcoming";
+      update.status = "pending";
     }
     if (!wedding.contract_date) {
       update.contract_date = new Date().toISOString();
