@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { api } from "./api";
+import { resolveTerritoryId } from "./territory";
 
 export interface ReviseOverrides {
   package_id?: string | null;
@@ -118,6 +119,10 @@ export async function reviseProposal(
     is_upgrade: old.is_upgrade ?? false,
     original_wedding_id: old.original_wedding_id ?? null,
     amount_paid_so_far: old.amount_paid_so_far ?? 0,
+    // Carry the old proposal's area onto the revised row. If the old row never
+    // had one (legacy), resolve one now so the new proposal is never blank.
+    territory_id:
+      old.territory_id ?? (await resolveTerritoryId().catch(() => null)),
     // Explicitly fresh — no signed/invoice/off-platform/coverage state carried.
     status: "pending",
     contract_status: null,

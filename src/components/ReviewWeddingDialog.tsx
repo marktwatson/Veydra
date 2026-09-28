@@ -23,6 +23,7 @@ import {
 import { Plus, Trash2, Loader2, UserCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
+import { createJobWithTerritory } from "@/lib/create-job-territory";
 import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
 import { PACKAGES, ADDONS } from "@/lib/wedding-constants";
 import { DEFAULT_LOGO_URL } from "@/lib/utils";
@@ -260,7 +261,7 @@ export function ReviewWeddingDialog({
     mutationFn: async () => {
       for (const job of newJobs) {
         if (!job.role) continue;
-        await api.createJob({
+        await createJobWithTerritory({
           wedding_id: wedding.id,
           role: job.role,
           pay_type: job.pay_type,

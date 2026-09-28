@@ -83,6 +83,14 @@ export function useCreateProposal() {
       console.warn("Could not fetch wedding_contract_template snapshot:", e);
     }
 
+    // Never insert a proposal without territory_id. If the mount-time resolve
+    // hasn't landed (or returned null), resolve synchronously here before insert.
+    let stampTerritoryId = territoryId;
+    if (!stampTerritoryId) {
+      stampTerritoryId = await resolveTerritoryId(user?.id).catch(() => null);
+      if (stampTerritoryId) setTerritoryId(stampTerritoryId);
+    }
+
     const payload = {
       client_name: formData.clientName,
       client_email: formData.clientEmail,
@@ -116,7 +124,7 @@ export function useCreateProposal() {
       is_upgrade: !!upgradeWeddingId,
       original_wedding_id: upgradeWeddingId || null,
       amount_paid_so_far: amountPaidSoFar,
-      ...(territoryId ? { territory_id: territoryId } : {}),
+      territory_id: stampTerritoryId,
       ...(snapshotTemplate
         ? { custom_contract_snapshot: snapshotTemplate }
         : {}),
@@ -208,6 +216,14 @@ export function useCreateProposal() {
         console.warn("Could not fetch wedding_contract_template snapshot:", e);
       }
 
+      // Never insert a proposal without territory_id. If the mount-time resolve
+      // hasn't landed (or returned null), resolve synchronously here.
+      let stampTerritoryId = territoryId;
+      if (!stampTerritoryId) {
+        stampTerritoryId = await resolveTerritoryId(user?.id).catch(() => null);
+        if (stampTerritoryId) setTerritoryId(stampTerritoryId);
+      }
+
       const payload = {
         client_name: formData.clientName,
         client_email: formData.clientEmail,
@@ -241,7 +257,7 @@ export function useCreateProposal() {
         is_upgrade: !!upgradeWeddingId,
         original_wedding_id: upgradeWeddingId || null,
         amount_paid_so_far: amountPaidSoFar,
-        ...(territoryId ? { territory_id: territoryId } : {}),
+        territory_id: stampTerritoryId,
         ...(snapshotTemplate
           ? { custom_contract_snapshot: snapshotTemplate }
           : {}),

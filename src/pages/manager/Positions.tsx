@@ -40,6 +40,7 @@ import {
 import { Loader2, Plus, AlertCircle, Send, Info } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { api, getEligibleContractorsForJob } from "@/lib/api";
+import { createJobWithTerritory } from "@/lib/create-job-territory";
 import { cn, getRateCalculationTooltip, formatDisplayDate } from "@/lib/utils";
 
 function ResendAlertsDialog({
@@ -323,7 +324,7 @@ export default function PositionsTab() {
   });
 
   const createJobMutation = useMutation({
-    mutationFn: api.createJob,
+    mutationFn: createJobWithTerritory,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       setIsDialogOpen(false);

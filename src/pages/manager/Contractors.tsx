@@ -101,6 +101,7 @@ import { useToast } from "@/hooks/use-toast";
 import { toast as sonnerToast } from "sonner";
 import { ToastAction } from "@/components/ui/toast";
 import { api, DbContractor } from "@/lib/api";
+import { addContractorWithTerritory } from "@/lib/contractor-territory";
 import { parseRegions } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
@@ -1176,7 +1177,7 @@ export default function ManagerContractors() {
     };
 
     try {
-      await api.addContractor(pendingContractor);
+      await addContractorWithTerritory(pendingContractor);
       const token = crypto.randomUUID();
       const settings = await api.getPortalSettings();
       const baseUrl = (settings?.app_url || window.location.origin).replace(

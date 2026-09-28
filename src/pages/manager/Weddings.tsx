@@ -105,6 +105,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { api, DbWedding } from "@/lib/api";
+import { createJobWithTerritory } from "@/lib/create-job-territory";
 import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -781,7 +782,7 @@ export function ManageWeddingSheet({
             status: status === "cancelled" ? "cancelled" : jobStatus,
           });
         } else if (status !== "cancelled") {
-          const newJob = await api.createJob({
+          const newJob = await createJobWithTerritory({
             wedding_id: wedding.id,
             role: job.role,
             pay_type: job.pay_type,
