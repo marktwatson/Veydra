@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
 import { currentTerritoryId } from "./current-territory";
 import { HONEYSUCKLE_TERRITORY_ID } from "./territory";
+import { activeTerritoryId } from "./active-territory";
 import { updatePortalSettingsRow } from "./portal-settings-update";
 import type { DbPortalSettings } from "./api";
 
@@ -44,11 +45,10 @@ function parseRegionsArray(regions: any): string[] {
  * always include territory_id and upsert on (id, territory_id).
  */
 
-/** Resolve the territory_id to stamp on a write: manager's territory, or
- *  Honeysuckle for super admin (currentTerritoryId() === null). */
+/** Resolve the territory_id to stamp on a write: the active territory
+ *  (manager's own, or the super-admin picker selection / Honeysuckle). */
 export async function writeTerritoryId(): Promise<string> {
-  const t = await currentTerritoryId();
-  return t ?? HONEYSUCKLE_TERRITORY_ID;
+  return activeTerritoryId();
 }
 
 // ---------------------------------------------------------------------------
@@ -192,10 +192,14 @@ export async function updatePortalSettings(
 // ---------------------------------------------------------------------------
 
 export async function getPackages(includeArchived = false) {
-  // Unfiltered in JS — RLS scopes by my_territory_id(). Super admin sees all.
+  // Scope by the active territory so a super admin never sees every area's
+  // packages at once. RLS also scopes, but the explicit filter guarantees the
+  // picker selection is honored on the client.
+  const territoryId = await activeTerritoryId();
   let query = supabase
     .from("pricing_packages")
     .select("*")
+    .eq("territory_id", territoryId)
     .order("sort_order", { ascending: true });
   if (!includeArchived) query = query.eq("is_archived", false);
   const { data, error } = await query;
@@ -282,10 +286,14 @@ export async function deletePackage(id: string) {
 // ---------------------------------------------------------------------------
 
 export async function getAddons(includeArchived = false) {
-  // Unfiltered in JS — RLS scopes by my_territory_id(). Super admin sees all.
+  // Scope by the active territory so a super admin never sees every area's
+  // addons at once. RLS also scopes, but the explicit filter guarantees the
+  // picker selection is honored on the client.
+  const territoryId = await activeTerritoryId();
   let query = supabase
     .from("pricing_addons")
     .select("*")
+    .eq("territory_id", territoryId)
     .order("sort_order", { ascending: true });
   if (!includeArchived) query = query.eq("is_archived", false);
   const { data, error } = await query;
