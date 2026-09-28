@@ -1,5 +1,6 @@
 import { createClient } from "jsr:@supabase/supabase-js";
-const SCHEMA_HEAL_SQL = "ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS wedding_id UUID; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_id TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_ids JSONB DEFAULT '[]'::jsonb; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_url TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_status TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_amount NUMERIC; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_created_date TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_schedule JSONB DEFAULT '[]'::jsonb; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS total_amount NUMERIC DEFAULT 0; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS paid_amount NUMERIC DEFAULT 0; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS custom_payment_plan JSONB; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS ghl_invoice_base_url TEXT; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_user_id TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS territory_id UUID; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS territory_id UUID; NOTIFY pgrst, 'reload schema';";
+// Plan-rows logic is inlined below (no sibling module) so this deploys as a
+// single index.ts. See buildPlanRows / buildServerPlanRows / normalizePlanRows.
 const SCHEMA_HEAL_SQL = "ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS wedding_id UUID; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_id TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_ids JSONB DEFAULT '[]'::jsonb; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_url TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_status TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_amount NUMERIC; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_created_date TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_schedule JSONB DEFAULT '[]'::jsonb; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS total_amount NUMERIC DEFAULT 0; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS paid_amount NUMERIC DEFAULT 0; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS custom_payment_plan JSONB; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS ghl_invoice_base_url TEXT; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_user_id TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS territory_id UUID; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS territory_id UUID; NOTIFY pgrst, 'reload schema';";
 
 const corsHeaders = {
@@ -58,7 +59,10 @@ function ghlMsg(r: { data: any; body: string }): string {
   return r.body.slice(0, 500);
 }
 
+
+// ── Plan rows (inlined — no sibling module) ──
 interface PlanRow { date: string; amount: number; }
+type PlanSource = "body" | "wedding" | "built" | "none";
 const money2 = (n: number) => Math.round(n * 100) / 100;
 function normalizePlanRows(raw: any[], remaining: number, todayStr: string): PlanRow[] {
   const rows: PlanRow[] = []; let scheduled = 0;
@@ -76,10 +80,91 @@ function normalizePlanRows(raw: any[], remaining: number, todayStr: string): Pla
   if (sumRows > remaining + 0.01 && merged.length > 0) { const diff = money2(sumRows - remaining); merged[merged.length - 1].amount = money2(merged[merged.length - 1].amount - diff); }
   return merged;
 }
+function firstOfNextMonth(from: string): string {
+  const [y, m] = from.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1, 1));
+  d.setUTCMonth(d.getUTCMonth() + 1);
+  return d.toISOString().slice(0, 10);
+}
+function addMonths(ymdStr: string, months: number): string {
+  const [y, m] = ymdStr.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1, 1));
+  d.setUTCMonth(d.getUTCMonth() + months);
+  return d.toISOString().slice(0, 10);
+}
+function tenDaysBefore(weddingDate: string): string | null {
+  if (!weddingDate) return null;
+  const part = weddingDate.split("T")[0];
+  const [y, m, d] = part.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const w = new Date(Date.UTC(y, m - 1, d));
+  w.setUTCDate(w.getUTCDate() - 10);
+  return w.toISOString().slice(0, 10);
+}
+function buildServerPlanRows(wedding: any, remaining: number, todayStr: string): PlanRow[] {
+  if (remaining <= 0) return [];
+  const pp = String(wedding.payment_plan || "").toLowerCase();
+  const tdb = tenDaysBefore(wedding.date || "");
+  const finalDate = tdb && tdb >= todayStr ? tdb : todayStr;
+  if (pp === "full") return [{ date: todayStr, amount: money2(remaining) }];
+  if (pp === "half" || pp === "fifty_fifty") {
+    const half = money2(remaining / 2);
+    const rest = money2(remaining - half);
+    const rows: PlanRow[] = [{ date: todayStr, amount: half }];
+    if (rest > 0) rows.push({ date: finalDate, amount: rest });
+    return rows;
+  }
+  if (pp === "custom") {
+    try {
+      const cppRaw = wedding.custom_payment_plan || {};
+      const cpp = typeof cppRaw === "string" ? JSON.parse(cppRaw) : cppRaw;
+      const cppEnabled = cpp.enabled === true || cpp.enabled === "true" || cpp.enabled === 1;
+      const insts: any[] = Array.isArray(cpp.installments) ? cpp.installments : [];
+      if (cppEnabled && insts.length > 0) {
+        const deposit = Math.min(Number(cpp.deposit) || 0, remaining);
+        const rows: PlanRow[] = []; if (deposit > 0) rows.push({ date: todayStr, amount: money2(deposit) });
+        let scheduled = deposit;
+        for (const inst of insts) {
+          const amt = Number(inst.amount || 0); if (amt <= 0) continue;
+          let due = (inst.date || inst.dueDate || "").slice(0, 10); if (!due) continue;
+          if (due < todayStr) due = todayStr;
+          const rowAmt = Math.min(amt, Math.max(0, remaining - scheduled)); if (rowAmt <= 0) break;
+          rows.push({ date: due, amount: money2(rowAmt) }); scheduled += rowAmt;
+        }
+        return normalizePlanRows(rows, remaining, todayStr);
+      }
+    } catch (_e) {}
+  }
+  // Standard: $99 retainer today, $250 on the 1st of each following month
+  // until 10 days before the wedding, last row = leftover on that date.
+  const retainer = Math.min(99, remaining);
+  const rows: PlanRow[] = [{ date: todayStr, amount: money2(retainer) }];
+  let left = money2(remaining - retainer);
+  if (left <= 0 || !tdb) {
+    if (left > 0) rows.push({ date: todayStr, amount: left });
+    return rows;
+  }
+  let cursor = firstOfNextMonth(todayStr);
+  while (left > 0 && cursor <= tdb) {
+    const amt = Math.min(250, left);
+    rows.push({ date: cursor, amount: money2(amt) });
+    left = money2(left - amt);
+    cursor = addMonths(cursor, 1);
+  }
+  if (left > 0) rows.push({ date: finalDate, amount: money2(left) });
+  return normalizePlanRows(rows, remaining, todayStr);
+}
 // ADDON: rows from body.installments only. PHOTO: body.installments first
 // (the schedule the bride saw — does NOT require wedding.custom_payment_plan
-// .enabled), then fall back to the wedding row's unpaid installments.
-function buildPlanRows(isAddon: boolean, installments: any, wedding: any, numAmount: number, todayStr: string): { planRows: PlanRow[]; hasMultiPlan: boolean; source: "body" | "wedding" | "none" } {
+// .enabled), then wedding.custom_payment_plan unpaid installments, then a
+// server-built standard plan when there is more to collect than firstDue.
+function buildPlanRows(
+  isAddon: boolean,
+  installments: any,
+  wedding: any,
+  numAmount: number,
+  todayStr: string,
+): { planRows: PlanRow[]; hasMultiPlan: boolean; source: PlanSource } {
   const totalAmt = Number(wedding.total_amount) || 0; const paid = Number(wedding.paid_amount) || 0;
   const remaining = Math.max(0, totalAmt - paid);
   if (isAddon) {
@@ -112,6 +197,10 @@ function buildPlanRows(isAddon: boolean, installments: any, wedding: any, numAmo
       if (planRows.length >= 2) return { planRows, hasMultiPlan: true, source: "wedding" };
     }
   } catch (_e) {}
+  if (remaining > numAmount + 1) {
+    const built = buildServerPlanRows(wedding, remaining, todayStr);
+    if (built.length >= 2) return { planRows: built, hasMultiPlan: true, source: "built" };
+  }
   return { planRows: [], hasMultiPlan: false, source: "none" };
 }
 
@@ -362,7 +451,7 @@ Deno.serve(async (req) => {
       numAmount,
       _todayStr,
     );
-    console.log(`[ghl-invoice] planRows.length=${planRows.length} hasMultiPlan=${hasMultiPlan} source=${planSource} isAddon=${isAddon}`);
+    console.log(`[ghl-invoice] planRows.length=${planRows.length} hasMultiPlan=${hasMultiPlan} source=${planSource} isAddon=${isAddon} rows=${JSON.stringify(planRows)}`);
 
     // 2b. Idempotency — reuse today's draft/sent invoice for same amount.
     // Skip reuse ONLY for addons and explicit forceNew. Multi-row photography
@@ -475,6 +564,7 @@ Deno.serve(async (req) => {
       lineAmount: number,
       sched?: PlanRow[],
       plain = false,
+      pct = false,
     ): Promise<{ ok: boolean; status: number; data: any; body: string }> {
       // When a multi-row schedule is present, the invoice dueDate MUST be the
       // latest schedule row date (the CRM rejects schedules past the due date).
@@ -508,14 +598,16 @@ Deno.serve(async (req) => {
         return r;
       }
 
-      // Multi-row schedule: items.amount = sum of rows (2dp), value as NUMBER.
+      // Multi-row schedule: items.amount = sum of rows (2dp).
       // Strict schedule rules:
       // 1. Each row dueDate >= today.
       // 2. Each row dueDate strictly ascending (> previous date).
       // 3. Invoice dueDate >= latest schedule dueDate.
+      // pct=true  → type "percentage", value = pct of sum (sums to 100).
+      // pct=false → type "fixed", value = real dollars (sums to items.amount).
       const sumAmt = money(sched.reduce((s, r) => s + r.amount, 0));
       let lastDue = todayYmd;
-      const normalizedSchedules = sched.map((r, idx) => {
+      const dueDates = sched.map((r, idx) => {
         let rowDue = r.date < todayYmd ? todayYmd : r.date;
         if (idx > 0 && rowDue <= lastDue) {
           const prev = new Date(lastDue + "T00:00:00Z");
@@ -523,18 +615,28 @@ Deno.serve(async (req) => {
           rowDue = prev.toISOString().slice(0, 10);
         }
         lastDue = rowDue;
-        return { dueDate: rowDue, value: money(r.amount) };
+        return rowDue;
       });
-      const maxDue = normalizedSchedules[normalizedSchedules.length - 1].dueDate;
+      const maxDue = dueDates[dueDates.length - 1];
       const finalInvoiceDue = latestDue < maxDue ? maxDue : latestDue;
+
+      let schedules: { dueDate: string; value: number }[];
+      if (pct) {
+        let pcts = sched.map((r) => (r.amount / sumAmt) * 100).map((p) => Math.round(p * 100) / 100);
+        const pSum = pcts.reduce((a, b) => a + b, 0);
+        pcts[pcts.length - 1] = Math.round((pcts[pcts.length - 1] + (100 - pSum)) * 100) / 100;
+        schedules = dueDates.map((d, i) => ({ dueDate: d, value: pcts[i] }));
+      } else {
+        schedules = dueDates.map((d, i) => ({ dueDate: d, value: money(sched[i].amount) }));
+      }
 
       const payload = {
         ...basePayload,
         dueDate: finalInvoiceDue,
         items: [{ name: label || "Wedding Payment", qty: 1, amount: sumAmt, currency: "USD" }],
-        paymentSchedule: { type: "fixed", schedules: normalizedSchedules },
+        paymentSchedule: { type: pct ? "percentage" : "fixed", schedules },
       };
-      console.log("[ghl-invoice] create invoice (fixed schedule) payload:", JSON.stringify(payload, null, 2));
+      console.log(`[ghl-invoice] create invoice (${pct ? "percentage" : "fixed"} schedule) payload:`, JSON.stringify(payload, null, 2));
       const res = await postInvoice(payload);
       console.log("[ghl-invoice] create status:", res.status, "body:", res.body.slice(0, 800));
       return res;
@@ -550,36 +652,52 @@ Deno.serve(async (req) => {
     let scheduleError = "";
 
     if (hasMultiPlan) {
-      // ONE invoice = full balance + paymentSchedule (fixed, real $ rows).
+      // ONE invoice = full balance + paymentSchedule. Try fixed $ rows first;
+      // on 4xx retry as percentage (values sum to 100); on 4xx again fall back
+      // to a plain firstDue-only invoice so Sign & Pay still opens a payable
+      // link. Never calls POST /invoices/schedule (that is rrule recurring).
       invoiceTotal = planRows.reduce((s, r) => s + r.amount, 0);
-      const invRes = await createInvoice(invoiceTotal, planRows, false);
 
-      if (invRes.ok) {
+      // 1. fixed $ schedule (values sum to items.amount).
+      const fixedRes = await createInvoice(invoiceTotal, planRows, false, false);
+      if (fixedRes.ok) {
         path = "invoice+paymentSchedule";
-        invoiceId = invRes.data?._id || invRes.data?.invoice?._id || invRes.data?.id || null;
+        invoiceId = fixedRes.data?._id || fixedRes.data?.invoice?._id || fixedRes.data?.id || null;
       } else {
-        // Schedule failed (4xx) — capture real GHL message, fall back to PLAIN
-        // firstDue-only (today's amount) so Sign & Pay opens a valid payable link.
-        const msg = ghlMsg(invRes);
-        console.log("[ghl-invoice] schedule invoice failed, falling back to plain firstDue. error:", msg);
-        scheduleError = String(msg);
+        const fixedMsg = ghlMsg(fixedRes);
+        console.log("[ghl-invoice] fixed schedule failed, retrying percentage. error:", fixedMsg);
+        scheduleError = String(fixedMsg);
 
-        const firstDue = planRows[0]?.amount || numAmount;
-        const plainRes = await createInvoice(firstDue, undefined, true);
-        if (plainRes.ok) {
-          invoiceId = plainRes.data?._id || plainRes.data?.invoice?._id || plainRes.data?.id || null;
-          invoiceTotal = firstDue;
-          path = "plain-firstDue";
+        // 2. percentage schedule (values sum to 100).
+        const pctRes = await createInvoice(invoiceTotal, planRows, false, true);
+        if (pctRes.ok) {
+          path = "invoice+paymentSchedule";
+          invoiceId = pctRes.data?._id || pctRes.data?.invoice?._id || pctRes.data?.id || null;
+          scheduleError = "";
         } else {
-          const plainMsg = ghlMsg(plainRes);
-          return jsonResp({
-            error: `Failed to create invoice (${plainRes.status}): ${plainMsg || msg}`,
-            path,
-            ghlStatus: plainRes.status,
-            ghlBodyPreview: plainRes.body.slice(0, 800),
-            ghlFull: plainRes.body,
-            scheduleAttempt: { status: invRes.status, message: msg, body: invRes.body },
-          }, 500);
+          const pctMsg = ghlMsg(pctRes);
+          console.log("[ghl-invoice] percentage schedule failed, falling back to plain firstDue. error:", pctMsg);
+          scheduleError = String(pctMsg);
+
+          // 3. plain firstDue-only (single payable line, no schedule).
+          const firstDue = planRows[0]?.amount || numAmount;
+          const plainRes = await createInvoice(firstDue, undefined, true);
+          if (plainRes.ok) {
+            invoiceId = plainRes.data?._id || plainRes.data?.invoice?._id || plainRes.data?.id || null;
+            invoiceTotal = firstDue;
+            path = "plain-firstDue";
+          } else {
+            const plainMsg = ghlMsg(plainRes);
+            return jsonResp({
+              error: `Failed to create invoice (${plainRes.status}): ${plainMsg || pctMsg}`,
+              path,
+              ghlStatus: plainRes.status,
+              ghlBodyPreview: plainRes.body.slice(0, 800),
+              ghlFull: plainRes.body,
+              fixedAttempt: { status: fixedRes.status, message: fixedMsg, body: fixedRes.body },
+              pctAttempt: { status: pctRes.status, message: pctMsg, body: pctRes.body },
+            }, 500);
+          }
         }
       }
     } else {
