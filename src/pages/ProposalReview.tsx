@@ -30,6 +30,7 @@ import {
   generatePaymentSchedule,
 } from "@/lib/utils";
 import { api } from "@/lib/api";
+import { loadProposalAndBranding } from "@/lib/proposal-review-data";
 import confetti from "canvas-confetti";
 
 import {
@@ -82,79 +83,24 @@ export default function ProposalReview() {
       if (!id) return;
 
       try {
-        const [proposalRes, settingsRes] = await Promise.all([
-          supabase.from("proposals").select("*").eq("id", id).single(),
-          supabase.from("portal_settings").select("*").single(),
-        ]);
+        const {
+          proposal: proposalData,
+          branding: brandingData,
+          notFound,
+        } = await loadProposalAndBranding(id);
 
-        if (proposalRes.error || !proposalRes.data) {
+        if (notFound) {
           toast({
             title: "Error",
             description: "Proposal not found or expired.",
             variant: "destructive",
           });
         } else {
-          let proposalData = proposalRes.data;
-
-          // Normalize custom_payment_plan from JSONB — ensure booleans are actual booleans
-          let rawPlan = proposalData.custom_payment_plan;
-          if (typeof rawPlan === "string") {
-            try {
-              rawPlan = JSON.parse(rawPlan);
-            } catch (e) {}
-          }
-          if (rawPlan && typeof rawPlan === "object") {
-            proposalData = {
-              ...proposalData,
-              custom_payment_plan: {
-                enabled:
-                  rawPlan.enabled === true ||
-                  rawPlan.enabled === "true" ||
-                  rawPlan.enabled === 1,
-                deposit: Number(rawPlan.deposit) || 0,
-                installments: Array.isArray(rawPlan.installments)
-                  ? rawPlan.installments
-                  : [],
-              },
-            };
-          } else {
-            proposalData = {
-              ...proposalData,
-              custom_payment_plan: {
-                enabled: false,
-                deposit: 0,
-                installments: [],
-              },
-            };
-          }
-
-          // Mark as viewed if first time opening
-          if (
-            !proposalData.viewed_at &&
-            proposalData.status !== "accepted" &&
-            proposalData.status !== "paid"
-          ) {
-            const viewedAt = new Date().toISOString();
-            await supabase
-              .from("proposals")
-              .update({ viewed_at: viewedAt, status: "viewed" })
-              .eq("id", id);
-            api.logAdminActivity(
-              "Proposal Viewed",
-              `Client ${proposalData.client_name} viewed their proposal`,
-              true,
-            );
-            proposalData = {
-              ...proposalData,
-              viewed_at: viewedAt,
-              status: "viewed",
-            };
-          }
           setProposal(proposalData);
         }
 
-        if (settingsRes.data) {
-          setBranding(settingsRes.data);
+        if (brandingData) {
+          setBranding(brandingData);
         }
       } catch (err) {
         console.error("Error loading portal data:", err);
