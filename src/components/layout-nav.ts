@@ -91,29 +91,27 @@ export const areasNavItem = {
   path: "/manager/areas",
 };
 
-// Legacy exports kept so Layout.tsx imports keep compiling. They are no longer
-// rendered: Areas is served via areasNavItem, and Territory Fleet is hidden.
+// Legacy export kept so older imports compile. Not rendered — Territory Fleet
+// is hidden from the sidebar everywhere.
 export const territoryFleetNavItem = {
   icon: Globe,
   label: "Territory Fleet",
   path: "/manager/territories",
 };
 
-// Proxy exports that Layout.tsx imports and appends for super_admin in the
-// System Control group. royaltyNavItem now also points at the Areas page so
-// super admins see exactly one "Areas" item; stripePayoutNavItem is a no-op
-// (rendered only as a duplicate guard) — set to Areas to keep a single source
-// of truth.
+// Royalty dashboard nav item (super_admin only). Appended to System Control.
 export const royaltyNavItem = {
-  icon: MapPin,
-  label: "Areas",
-  path: "/manager/areas",
+  icon: DollarSign,
+  label: "Royalty",
+  path: "/manager/royalty",
 };
 
+// Stripe payout nav item. Unused in the active nav groups but kept for any
+// legacy imports.
 export const stripePayoutNavItem = {
-  icon: MapPin,
-  label: "Areas",
-  path: "/manager/areas",
+  icon: CreditCard,
+  label: "Stripe Payout",
+  path: "/manager/stripe-payout",
 };
 
 // Owner-specific nav item for their royalty dashboard

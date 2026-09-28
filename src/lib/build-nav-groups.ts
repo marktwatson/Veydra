@@ -1,6 +1,7 @@
 import {
   managerNavGroups,
   areasNavItem,
+  royaltyNavItem,
   ownerRoyaltyNavItem,
 } from "@/components/layout-nav";
 
@@ -35,7 +36,10 @@ export function buildVisibleManagerNavGroups(role: string): NavGroup[] {
         return { ...group, items: filteredItems };
       }
       if (role === "super_admin" && group.label === "System Control") {
-        return { ...group, items: [...group.items, areasNavItem] };
+        return {
+          ...group,
+          items: [...group.items, areasNavItem, royaltyNavItem],
+        };
       }
       if (role === "owner" || role === "owner_readonly") {
         const filteredItems = group.items.filter(
