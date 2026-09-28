@@ -27,7 +27,7 @@ import { MailCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const LOGIN_LOGO_URL =
-  "https://vibe.filesafe.space/1790534143074987697/attachments/291000ea-6aed-4c01-8d4f-af9fd8372eef.gif";
+  "https://assets.cdn.filesafe.space/76EKIVBXrGYIny0RbqcE/media/6abaa38a7ef452865a26c67d.gif";
 
 export default function Login() {
   const [email, setEmail] = useState("");
