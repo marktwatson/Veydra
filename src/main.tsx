@@ -3,6 +3,9 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PaymentDueAlert } from "@/components/PaymentDueAlert";
 import App from "@/App";
 import "@/index.css";
+// Territory-scoped overrides for getPortalSettings / savePackage / saveAddon /
+// updatePortalSettings. Must run before any component reads settings/packages.
+import "@/lib/api-territory-patch";
 
 // Register the push service worker on the published origin. We only register
 // on the real app domain (not the AI Studio preview iframe, which is a

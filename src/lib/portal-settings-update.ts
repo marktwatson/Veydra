@@ -1,4 +1,6 @@
 import { supabase } from "./supabase";
+import { currentTerritoryId } from "./current-territory";
+import { HONEYSUCKLE_TERRITORY_ID } from "./territory";
 
 // Use a loose type to avoid a circular import with api.ts.
 type PortalSettingsPatch = Record<string, any>;
@@ -58,17 +60,31 @@ async function selfHealColumns(patch: PortalSettingsPatch): Promise<void> {
  */
 export async function updatePortalSettingsRow(
   settings: PortalSettingsPatch,
+  territoryId?: string,
 ): Promise<Record<string, any>> {
   const nowIso = new Date().toISOString();
+
+  // Resolve the territory if the caller didn't pass one (e.g. the legacy
+  // api.updatePortalSettings path). Super admin → Honeysuckle. This guarantees
+  // every update targets a single area row — never a bare unscoped .limit(1).
+  if (!territoryId) {
+    try {
+      const t = await currentTerritoryId();
+      territoryId = t ?? HONEYSUCKLE_TERRITORY_ID;
+    } catch {
+      territoryId = HONEYSUCKLE_TERRITORY_ID;
+    }
+  }
 
   // Self-heal newer columns before saving so they actually persist.
   await selfHealColumns(settings);
 
-  // Find the existing row.
-  const { data: existingRows, error: selectError } = await supabase
-    .from("portal_settings")
-    .select("id")
-    .limit(1);
+  // Find the existing row for THIS territory only. Never a bare .limit(1) —
+  // portal_settings now has one row per area, so an unscoped select would
+  // update another area's keys/templates.
+  let selectQuery = supabase.from("portal_settings").select("id");
+  if (territoryId) selectQuery = selectQuery.eq("territory_id", territoryId);
+  const { data: existingRows, error: selectError } = await selectQuery.limit(1);
   if (selectError) {
     console.warn("Select error in updatePortalSettings:", selectError);
   }
@@ -77,9 +93,11 @@ export async function updatePortalSettingsRow(
 
   // --- INSERT path (no row yet) ---
   if (!existing) {
+    const insertPayload: PortalSettingsPatch = { ...settings };
+    if (territoryId) insertPayload.territory_id = territoryId;
     const { data, error } = await supabase
       .from("portal_settings")
-      .insert(settings)
+      .insert(insertPayload)
       .select();
     if (error) throw error;
     return (data?.[0] as PortalSettingsPatch) ?? {};
