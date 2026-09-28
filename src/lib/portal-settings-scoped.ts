@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import type { DbPortalSettings } from "./api";
+import type { DbPortalSettings } from "./portal-settings-types";
 import { currentTerritoryId } from "./current-territory";
 import { HONEYSUCKLE_TERRITORY_ID } from "./territory";
 import { getPortalSettingsForTerritory } from "./apply-territory-settings";

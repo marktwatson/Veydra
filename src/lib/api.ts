@@ -1,3 +1,9 @@
+import {
+  getScopedCrmCredentials,
+  getScopedPortalSettingsFull,
+  getScopedPortalSettings,
+} from "./portal-settings-scoped";
+import type { DbPortalSettings } from "./portal-settings-types";
 import { supabase, supabaseUrl, supabaseAnonKey } from "./supabase";
 import { resolveTerritoryId } from "./territory";
 import { updatePortalSettingsRow } from "./portal-settings-update";
@@ -242,247 +248,7 @@ export interface DbActivityLog {
   created_at: string;
 }
 
-export interface DbPortalSettings {
-  id: string;
-  company_name?: string | null;
-  app_url?: string | null;
-  logo_url: string | null;
-  app_icon_url?: string | null;
-  invite_webhook?: string | null;
-  admin_invite_webhook?: string | null;
-  new_job_webhook?: string | null;
-  assignment_webhook?: string | null;
-  payout_webhook?: string | null;
-  editor_assignment_webhook?: string | null;
-  hl_api_key?: string | null;
-  hl_location_id?: string | null;
-  hl_user_id?: string | null;
-  hl_proposal_link_field_id?: string | null;
-  ghl_invoice_base_url?: string | null;
-  fb_access_token?: string | null;
-  fb_ad_account_id?: string | null;
-  excluded_campaign_ids?: string[] | null;
-  manual_expenses?: any[] | null;
-  regions?: string[] | null;
-  timezone?: string | null;
-  photo_pay_rate?: number | null;
-  video_pay_rate?: number | null;
-  bartender_pay_rate?: number | null;
-  editor_video_pricing?: any | null;
-  photo_bid_min?: number | null;
-  photo_bid_max?: number | null;
-  video_bid_min?: number | null;
-  video_bid_max?: number | null;
-  smtp_host?: string | null;
-  smtp_port?: number | null;
-  smtp_user?: string | null;
-  smtp_pass?: string | null;
-  smtp_from_email?: string | null;
-  smtp_from_name?: string | null;
-  email_delivery_method?: "webhook" | "smtp" | null;
-  email_invite_enabled?: boolean | null;
-  email_invite_subject?: string | null;
-  email_invite_template?: string | null;
-  email_reset_enabled?: boolean | null;
-  email_outbid_enabled?: boolean | null;
-  email_outbid_subject?: string | null;
-  email_outbid_template?: string | null;
-  sms_outbid_enabled?: boolean | null;
-  sms_outbid_template?: string | null;
-  email_reset_subject?: string | null;
-  email_reset_template?: string | null;
-  email_assignment_enabled?: boolean | null;
-  email_assignment_subject?: string | null;
-  email_assignment_template?: string | null;
-  email_new_job_enabled?: boolean | null;
-  email_new_job_subject?: string | null;
-  email_new_job_template?: string | null;
-  email_reminder_enabled?: boolean | null;
-  email_reminder_subject?: string | null;
-  email_reminder_template?: string | null;
-  email_payout_enabled?: boolean | null;
-  email_payout_subject?: string | null;
-  email_payout_template?: string | null;
-  email_manager_invite_enabled?: boolean | null;
-  email_manager_invite_subject?: string | null;
-  email_manager_invite_template?: string | null;
-  email_manager_reset_enabled?: boolean | null;
-  email_manager_reset_subject?: string | null;
-  email_manager_reset_template?: string | null;
-  email_editor_invite_enabled?: boolean | null;
-  email_editor_invite_subject?: string | null;
-  email_editor_invite_template?: string | null;
-  email_editor_reset_enabled?: boolean | null;
-  email_editor_reset_subject?: string | null;
-  email_editor_reset_template?: string | null;
-  email_editor_assigned_enabled?: boolean | null;
-  email_editor_assigned_subject?: string | null;
-  email_editor_assigned_template?: string | null;
-  email_editor_raw_media_enabled?: boolean | null;
-  email_editor_raw_media_subject?: string | null;
-  email_editor_raw_media_template?: string | null;
-  email_editor_revisions_enabled?: boolean | null;
-  email_editor_revisions_subject?: string | null;
-  email_editor_revisions_template?: string | null;
-  email_editor_payout_enabled?: boolean | null;
-  email_editor_payout_subject?: string | null;
-  email_editor_payout_template?: string | null;
-  sms_invite_enabled?: boolean | null;
-  sms_invite_template?: string | null;
-  sms_reset_enabled?: boolean | null;
-  sms_reset_template?: string | null;
-  sms_manager_invite_enabled?: boolean | null;
-  sms_manager_invite_template?: string | null;
-  sms_manager_reset_enabled?: boolean | null;
-  sms_manager_reset_template?: string | null;
-  sms_assignment_enabled?: boolean | null;
-  sms_assignment_template?: string | null;
-  sms_new_job_enabled?: boolean | null;
-  sms_new_job_template?: string | null;
-  sms_reminder_enabled?: boolean | null;
-  sms_reminder_template?: string | null;
-  sms_reminder_hours?: number | null;
-  sms_contractor_prep_enabled?: boolean | null;
-  sms_contractor_prep_template?: string | null;
-  sms_contractor_prep_days?: number | null;
-  email_contractor_prep_enabled?: boolean | null;
-  email_contractor_prep_subject?: string | null;
-  email_contractor_prep_template?: string | null;
-  sms_payout_enabled?: boolean | null;
-  sms_payout_template?: string | null;
-  email_bride_welcome_enabled?: boolean | null;
-  email_bride_welcome_subject?: string | null;
-  email_bride_welcome_template?: string | null;
-  sms_bride_welcome_enabled?: boolean | null;
-  sms_bride_welcome_template?: string | null;
-  sms_bride_pre_wedding_enabled?: boolean | null;
-  sms_bride_pre_wedding_template?: string | null;
-  sms_bride_pre_wedding_hours?: number | null;
-  email_bride_pre_wedding_enabled?: boolean | null;
-  email_bride_pre_wedding_subject?: string | null;
-  email_bride_pre_wedding_template?: string | null;
-  sms_bride_delivery_enabled?: boolean | null;
-  sms_bride_delivery_template?: string | null;
-  email_bride_delivery_enabled?: boolean | null;
-  email_bride_delivery_subject?: string | null;
-  email_bride_delivery_template?: string | null;
-  sms_bride_rating_enabled?: boolean | null;
-  sms_bride_rating_template?: string | null;
-  email_bride_rating_enabled?: boolean | null;
-  email_bride_rating_subject?: string | null;
-  email_bride_rating_template?: string | null;
-  sms_bride_day_after_enabled?: boolean | null;
-  sms_bride_day_after_template?: string | null;
-  email_bride_day_after_enabled?: boolean | null;
-  email_bride_day_after_subject?: string | null;
-  email_bride_day_after_template?: string | null;
-
-  sms_bride_gift_enabled?: boolean | null;
-  sms_bride_gift_template?: string | null;
-  email_bride_gift_enabled?: boolean | null;
-  email_bride_gift_subject?: string | null;
-  email_bride_gift_template?: string | null;
-  sms_editor_assigned_enabled?: boolean | null;
-  sms_editor_assigned_template?: string | null;
-  sms_editor_raw_media_enabled?: boolean | null;
-  sms_editor_raw_media_template?: string | null;
-  sms_editor_revisions_enabled?: boolean | null;
-  sms_editor_revisions_template?: string | null;
-  sms_editor_payout_enabled?: boolean | null;
-  sms_editor_payout_template?: string | null;
-  sms_admin_application_enabled?: boolean | null;
-  sms_admin_application_template?: string | null;
-  sms_admin_assignment_accepted_enabled?: boolean | null;
-  sms_admin_assignment_accepted_template?: string | null;
-  sms_admin_raw_media_enabled?: boolean | null;
-  sms_admin_raw_media_template?: string | null;
-  sms_admin_feedback_enabled?: boolean | null;
-  sms_admin_feedback_template?: string | null;
-  sms_admin_edit_completed_enabled?: boolean | null;
-  sms_admin_edit_completed_template?: string | null;
-  admin_notification_emails?: string | null;
-  sms_admin_booking_enabled?: boolean | null;
-  sms_admin_booking_template?: string | null;
-  email_admin_booking_enabled?: boolean | null;
-  email_admin_booking_subject?: string | null;
-  email_admin_booking_template?: string | null;
-  sms_editor_invite_enabled?: boolean | null;
-  sms_editor_invite_template?: string | null;
-  sms_editor_reset_enabled?: boolean | null;
-  sms_editor_reset_template?: string | null;
-  email_pipeline_enabled?: boolean | null;
-  email_pipeline_subject?: string | null;
-  email_pipeline_template?: string | null;
-  sms_pipeline_enabled?: boolean | null;
-  sms_pipeline_template?: string | null;
-  email_pipeline_interview_enabled?: boolean | null;
-  email_pipeline_interview_subject?: string | null;
-  email_pipeline_interview_template?: string | null;
-  sms_pipeline_interview_enabled?: boolean | null;
-  sms_pipeline_interview_template?: string | null;
-  email_pipeline_paperwork_enabled?: boolean | null;
-  email_pipeline_paperwork_subject?: string | null;
-  email_pipeline_paperwork_template?: string | null;
-  sms_pipeline_paperwork_enabled?: boolean | null;
-  sms_pipeline_paperwork_template?: string | null;
-  email_pipeline_hired_enabled?: boolean | null;
-  email_pipeline_hired_subject?: string | null;
-  email_pipeline_hired_template?: string | null;
-  sms_pipeline_hired_enabled?: boolean | null;
-  sms_pipeline_hired_template?: string | null;
-  email_pipeline_rejected_enabled?: boolean | null;
-  email_pipeline_rejected_subject?: string | null;
-  email_pipeline_rejected_template?: string | null;
-  sms_pipeline_rejected_enabled?: boolean | null;
-  sms_pipeline_rejected_template?: string | null;
-  email_applicant_welcome_enabled?: boolean | null;
-  email_applicant_welcome_subject?: string | null;
-  email_applicant_welcome_template?: string | null;
-  sms_applicant_welcome_enabled?: boolean | null;
-  sms_applicant_welcome_template?: string | null;
-  email_doc_expiry_enabled?: boolean | null;
-  email_doc_expiry_subject?: string | null;
-  email_doc_expiry_template?: string | null;
-  sms_doc_expiry_enabled?: boolean | null;
-  sms_doc_expiry_template?: string | null;
-  doc_expiry_reminder_days?: number | null;
-  contract_template?: string | null;
-  email_pipeline_gallery_enabled?: boolean | null;
-  email_pipeline_gallery_subject?: string | null;
-  email_pipeline_gallery_template?: string | null;
-  sms_pipeline_gallery_enabled?: boolean | null;
-  sms_pipeline_gallery_template?: string | null;
-  last_heartbeat_date?: string | null;
-  email_payment_failed_enabled?: boolean | null;
-  email_bride_cancellation_enabled?: boolean | null;
-  email_bride_cancellation_subject?: string | null;
-  email_bride_cancellation_template?: string | null;
-  sms_bride_cancellation_enabled?: boolean | null;
-  sms_bride_cancellation_template?: string | null;
-  email_contractor_cancellation_enabled?: boolean | null;
-  email_contractor_cancellation_subject?: string | null;
-  email_contractor_cancellation_template?: string | null;
-  sms_contractor_cancellation_enabled?: boolean | null;
-  sms_contractor_cancellation_template?: string | null;
-  email_bride_songs_enabled?: boolean | null;
-  email_bride_songs_subject?: string | null;
-  email_bride_songs_template?: string | null;
-  sms_bride_songs_enabled?: boolean | null;
-  sms_bride_songs_template?: string | null;
-  upload_account_email?: string | null;
-  upload_account_password?: string | null;
-  upload_instructions?: string | null;
-  portal_theme?: any | null;
-  bartending_module_enabled?: boolean | null;
-  upsell_bartending_enabled?: boolean | null;
-  upsell_bartending_headline?: string | null;
-  upsell_bartending_subtext?: string | null;
-  upsell_bartending_packages?: any[] | null;
-  upsell_bartending_email_subject?: string | null;
-  upsell_bartending_email_template?: string | null;
-  upsell_bartending_sms_template?: string | null;
-  updated_at: string;
-}
+export type { DbPortalSettings } from "./portal-settings-types";
 
 export interface DbCoupon {
   id: string;
@@ -1064,8 +830,6 @@ export async function sendOvantaSms(
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const { getScopedCrmCredentials } =
-        await import("./portal-settings-scoped");
       const settings = await getScopedCrmCredentials({});
       if (!settings?.hl_api_key || !settings?.hl_location_id) {
         throw new Error("Missing Ovanta API credentials in the database.");
@@ -1269,8 +1033,6 @@ export async function sendOvantaEmail(
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const { getScopedCrmCredentials } =
-        await import("./portal-settings-scoped");
       const settings = await getScopedCrmCredentials({});
       if (!settings?.hl_api_key || !settings?.hl_location_id) {
         throw new Error("Missing Ovanta API credentials in the database.");
@@ -1387,8 +1149,6 @@ export async function sendAdminNotification(
     variables?: Record<string, string>;
   } = {},
 ) {
-  const { getScopedPortalSettingsFull } =
-    await import("./portal-settings-scoped");
   const settings = await getScopedPortalSettingsFull({});
   if (!settings) return;
 
@@ -1443,8 +1203,6 @@ export const api = {
   sendAdminNotification,
   async syncContractorCRM(contractorId: string) {
     try {
-      const { getScopedCrmCredentials } =
-        await import("./portal-settings-scoped");
       const settings = await getScopedCrmCredentials({ contractorId });
       if (!settings?.hl_api_key || !settings?.hl_location_id) {
         throw new Error(
@@ -3269,8 +3027,6 @@ export const api = {
     // For bookings via /book or /proposal, the Stripe webhook handles CRM tagging AFTER payment succeeds.
     if (syncToCrmOnCreate && data.client_email) {
       try {
-        const { getScopedCrmCredentials } =
-          await import("./portal-settings-scoped");
         const settings = await getScopedCrmCredentials({ weddingId: data.id });
         if (settings?.hl_api_key && settings?.hl_location_id) {
           const headers = {
@@ -3375,8 +3131,6 @@ export const api = {
       );
 
       try {
-        const { getScopedPortalSettingsFull } =
-          await import("./portal-settings-scoped");
         const settings = await getScopedPortalSettingsFull({ weddingId: id });
         let webhookUrl = settings?.editor_assignment_webhook;
         if (!webhookUrl && typeof window !== "undefined") {
@@ -3428,8 +3182,6 @@ export const api = {
       }
 
       try {
-        const { getScopedPortalSettingsFull } =
-          await import("./portal-settings-scoped");
         const settings = await getScopedPortalSettingsFull({ weddingId: id });
         const { data: editor } = await supabase
           .from("editors")
@@ -3599,8 +3351,7 @@ export const api = {
           }
 
           // Notify Bride of Delivery & Rating
-          const { getScopedPortalSettingsFull } =
-            await import("./portal-settings-scoped");
+
           const settings = await getScopedPortalSettingsFull({ weddingId: id });
 
           // Prioritize client_email (main Details email) over questionnaire email
@@ -3724,8 +3475,6 @@ export const api = {
 
         if (data.editor_id) {
           try {
-            const { getScopedPortalSettingsFull } =
-              await import("./portal-settings-scoped");
             const settings = await getScopedPortalSettingsFull({
               weddingId: id,
             });
@@ -3814,8 +3563,6 @@ export const api = {
           data.editor_id
         ) {
           try {
-            const { getScopedPortalSettingsFull } =
-              await import("./portal-settings-scoped");
             const settings = await getScopedPortalSettingsFull({
               weddingId: id,
             });
@@ -4026,8 +3773,7 @@ export const api = {
             });
           }
           // Email/SMS notifications
-          const { getScopedPortalSettingsFull } =
-            await import("./portal-settings-scoped");
+
           const settings = await getScopedPortalSettingsFull({
             weddingId: wedding.id,
           });
@@ -4129,8 +3875,6 @@ export const api = {
         }
 
         if (brideEmail) {
-          const { getScopedPortalSettingsFull } =
-            await import("./portal-settings-scoped");
           const settings = await getScopedPortalSettingsFull({
             weddingId: wedding.id,
           });
@@ -4464,8 +4208,6 @@ export const api = {
         const weddingRegion = wedding?.region;
         const date = wedding?.date || "";
 
-        const { getScopedPortalSettingsFull } =
-          await import("./portal-settings-scoped");
         const settings = await getScopedPortalSettingsFull({
           weddingId: job.wedding_id,
         });
@@ -4542,8 +4284,6 @@ export const api = {
           const weddingRegion = wedding?.region;
           const date = wedding?.date || "";
 
-          const { getScopedPortalSettingsFull } =
-            await import("./portal-settings-scoped");
           const settings = await getScopedPortalSettingsFull({
             weddingId: oldJob.wedding_id,
           });
@@ -4701,8 +4441,7 @@ export const api = {
     const location = (job.weddings as any)?.location || "";
     const weddingRegion = (job.weddings as any)?.region;
     const date = (job.weddings as any)?.date || "";
-    const { getScopedPortalSettingsFull } =
-      await import("./portal-settings-scoped");
+
     const settings = await getScopedPortalSettingsFull({
       weddingId: job.wedding_id,
     });
@@ -4786,8 +4525,6 @@ export const api = {
 
     let settings: any = null;
     try {
-      const { getScopedPortalSettingsFull } =
-        await import("./portal-settings-scoped");
       settings = await getScopedPortalSettingsFull({ jobId: job_id });
     } catch (e) {}
 
@@ -5206,8 +4943,6 @@ export const api = {
 
       // Send SMS and Email via Ovanta
       try {
-        const { getScopedPortalSettingsFull } =
-          await import("./portal-settings-scoped");
         const settings = await getScopedPortalSettingsFull({
           weddingId: job?.wedding_id,
           contractorId: data.contractor_id,
@@ -5393,8 +5128,6 @@ export const api = {
 
     // Send SMS and Email via Ovanta
     try {
-      const { getScopedPortalSettingsFull } =
-        await import("./portal-settings-scoped");
       const settings = await getScopedPortalSettingsFull({ contractorId });
       const { data: contractor } = await supabase
         .from("contractors")
@@ -6083,8 +5816,6 @@ export const api = {
           .eq("id", weddingId)
           .single();
         if (updatedWedding) {
-          const { getScopedPortalSettingsFull } =
-            await import("./portal-settings-scoped");
           const settings = await getScopedPortalSettingsFull({ weddingId });
           if (
             settings?.hl_api_key &&
@@ -6196,8 +5927,7 @@ export const api = {
       await supabase.from("weddings").update(updatePayload).eq("id", weddingId);
 
       // Send CRM Sync
-      const { getScopedPortalSettingsFull } =
-        await import("./portal-settings-scoped");
+
       const settings = await getScopedPortalSettingsFull({ weddingId });
       if (
         settings?.hl_api_key &&
@@ -6730,8 +6460,6 @@ export const api = {
 
   async _getCrmCustomFieldMap(): Promise<Record<string, string>> {
     try {
-      const { getScopedCrmCredentials } =
-        await import("./portal-settings-scoped");
       const settings = await getScopedCrmCredentials({});
       if (!settings?.hl_api_key || !settings?.hl_location_id) return {};
 
@@ -6882,8 +6610,6 @@ export const api = {
   /** Fetch leads from CRM. Paginates through up to 500 contacts using v3 API. */
   async getOvantaLeads(tagFilter?: string) {
     try {
-      const { getScopedCrmCredentials } =
-        await import("./portal-settings-scoped");
       const settings = await getScopedCrmCredentials({});
       if (!settings?.hl_api_key || !settings?.hl_location_id) return [];
 

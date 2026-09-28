@@ -8,6 +8,12 @@ import "@/index.css";
 // updatePortalSettings. Must run before any component reads settings/packages.
 import "@/lib/api-territory-patch";
 
+// Auto-reload on stale chunk failures so after an app update, cached
+// browser sessions seamlessly refresh the newer JavaScript modules.
+window.addEventListener("vite:preloadError", () => {
+  window.location.reload();
+});
+
 // Register the push service worker on the published origin. We only register
 // on the real app domain (not the AI Studio preview iframe, which is a
 // different origin where a SW would be useless for push and could conflict).
