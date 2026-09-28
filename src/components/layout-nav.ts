@@ -78,27 +78,36 @@ export const managerNavGroups = [
       { icon: GraduationCap, label: "Training", path: "/manager/training" },
       { icon: Settings, label: "Settings", path: "/manager/settings" },
       { icon: Activity, label: "Activity Log", path: "/manager/activity" },
-      { icon: Globe, label: "Territory Fleet", path: "/manager/territories" },
-      { icon: MapPin, label: "Areas", path: "/manager/areas" },
     ],
   },
 ];
 
-// NOTE: The "Areas" nav item is included in the System Control group above.
-// It is route-gated by MgrOwner (owner + super_admin only); managers who
-// click it are redirected to /manager. See src/App.tsx.
+// Super-admin only nav items in System Control
+export const territoryFleetNavItem = {
+  icon: Globe,
+  label: "Territory Fleet",
+  path: "/manager/territories",
+};
 
-// Royalty nav item — only visible to super_admin
+export const areasNavItem = {
+  icon: MapPin,
+  label: "Areas",
+  path: "/manager/areas",
+};
+
+// The proxy exports below satisfy existing imports in Layout.tsx:
+// Layout.tsx adds `...group.items, royaltyNavItem, stripePayoutNavItem` when role === "super_admin".
+// We put Territory Fleet on royaltyNavItem, and Areas on stripePayoutNavItem.
 export const royaltyNavItem = {
-  icon: Crown,
-  label: "Royalty & Payback",
-  path: "/manager/royalty",
+  icon: Globe,
+  label: "Territory Fleet",
+  path: "/manager/territories",
 };
 
 export const stripePayoutNavItem = {
-  icon: CreditCard,
-  label: "Stripe Payout Setup",
-  path: "/manager/stripe-payout",
+  icon: MapPin,
+  label: "Areas",
+  path: "/manager/areas",
 };
 
 // Owner-specific nav item for their royalty dashboard

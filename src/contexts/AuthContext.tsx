@@ -90,9 +90,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         const isSuperAdmin =
-          savedRole === "super_admin" ||
-          savedRole === "manager" ||
-          savedRole === "editor" ||
           isSuperAdminEmail(session.user.email) ||
           manager?.role === "super_admin";
 

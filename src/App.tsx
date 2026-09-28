@@ -359,9 +359,9 @@ const App = () => {
                 <Route
                   path="/manager/areas"
                   element={
-                    <MgrOwner>
+                    <ProtectedRoute requireRole="manager" superAdminOnly>
                       <Areas />
-                    </MgrOwner>
+                    </ProtectedRoute>
                   }
                 />
                 <Route
