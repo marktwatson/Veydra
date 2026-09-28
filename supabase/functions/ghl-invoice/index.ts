@@ -101,10 +101,10 @@ function tenDaysBefore(weddingDate: string): string | null {
   w.setUTCDate(w.getUTCDate() - 10);
   return w.toISOString().slice(0, 10);
 }
-function buildServerPlanRows(wedding: any, remaining: number, todayStr: string): PlanRow[] {
+function buildServerPlanRows(wedding: any, remaining: number, todayStr: string, weddingDate: string): PlanRow[] {
   if (remaining <= 0) return [];
   const pp = String(wedding.payment_plan || "").toLowerCase();
-  const tdb = tenDaysBefore(wedding.date || "");
+  const tdb = tenDaysBefore(weddingDate || "");
   const finalDate = tdb && tdb >= todayStr ? tdb : todayStr;
   if (pp === "full") return [{ date: todayStr, amount: money2(remaining) }];
   if (pp === "half" || pp === "fifty_fifty") {
@@ -140,18 +140,14 @@ function buildServerPlanRows(wedding: any, remaining: number, todayStr: string):
   const retainer = Math.min(99, remaining);
   const rows: PlanRow[] = [{ date: todayStr, amount: money2(retainer) }];
   let left = money2(remaining - retainer);
-  if (left <= 0 || !tdb) {
-    if (left > 0) rows.push({ date: todayStr, amount: left });
-    return rows;
-  }
+  if (left <= 0) return normalizePlanRows(rows, remaining, todayStr);
   let cursor = firstOfNextMonth(todayStr);
-  while (left > 0 && cursor <= tdb) {
-    const amt = Math.min(250, left);
-    rows.push({ date: cursor, amount: money2(amt) });
-    left = money2(left - amt);
-    cursor = addMonths(cursor, 1);
+  if (tdb) {
+    while (left > 0 && cursor <= tdb) { rows.push({ date: cursor, amount: money2(Math.min(250, left)) }); left = money2(left - Math.min(250, left)); cursor = addMonths(cursor, 1); }
+    if (left > 0) rows.push({ date: finalDate, amount: money2(left) });
+  } else {
+    while (left > 0) { rows.push({ date: cursor, amount: money2(Math.min(250, left)) }); left = money2(left - Math.min(250, left)); cursor = addMonths(cursor, 1); }
   }
-  if (left > 0) rows.push({ date: finalDate, amount: money2(left) });
   return normalizePlanRows(rows, remaining, todayStr);
 }
 // ADDON: rows from body.installments only. PHOTO: body.installments first
@@ -163,7 +159,7 @@ function buildPlanRows(
   installments: any,
   wedding: any,
   numAmount: number,
-  todayStr: string,
+  todayStr: string, weddingDate: string,
 ): { planRows: PlanRow[]; hasMultiPlan: boolean; source: PlanSource } {
   const totalAmt = Number(wedding.total_amount) || 0; const paid = Number(wedding.paid_amount) || 0;
   const remaining = Math.max(0, totalAmt - paid);
@@ -198,7 +194,7 @@ function buildPlanRows(
     }
   } catch (_e) {}
   if (remaining > numAmount + 1) {
-    const built = buildServerPlanRows(wedding, remaining, todayStr);
+    const built = buildServerPlanRows(wedding, remaining, todayStr, weddingDate);
     if (built.length >= 2) return { planRows: built, hasMultiPlan: true, source: "built" };
   }
   return { planRows: [], hasMultiPlan: false, source: "none" };
@@ -224,7 +220,7 @@ Deno.serve(async (req) => {
       return jsonResp({ error: "Invalid JSON body" }, 400);
     }
 
-    const { weddingId, amount, label, action, kind, installments, forceNew, proposalEmail } = body;
+    const { weddingId, amount, label, action, kind, installments, forceNew, proposalEmail, wedding_date: bodyWeddingDate } = body;
     if (!weddingId) {
       return jsonResp({ error: "Missing weddingId" }, 400);
     }
@@ -242,7 +238,7 @@ Deno.serve(async (req) => {
     const { data: wedding, error: weddingErr } = await db
       .from("weddings")
       .select(
-        "id, client_name, client_email, client_phone, questionnaire_data, total_amount, paid_amount, custom_payment_plan, payment_plan, ghl_contact_id, ghl_invoice_id, ghl_invoice_ids, ghl_invoice_url, ghl_invoice_status, ghl_amount_paid, ghl_schedule, ghl_invoice_amount, ghl_invoice_created_date, territory_id",
+        "id, client_name, client_email, client_phone, questionnaire_data, total_amount, paid_amount, custom_payment_plan, payment_plan, ghl_contact_id, ghl_invoice_id, ghl_invoice_ids, ghl_invoice_url, ghl_invoice_status, ghl_amount_paid, ghl_schedule, ghl_invoice_amount, ghl_invoice_created_date, date, territory_id",
       )
       .eq("id", weddingId)
       .maybeSingle();
@@ -444,14 +440,13 @@ Deno.serve(async (req) => {
     //   unpaid installments. body.installments does NOT require the wedding row
     //   to have custom_payment_plan.enabled — a standard plan's rows are valid.
     const _todayStr = ymd(0);
-    const { planRows, hasMultiPlan, source: planSource } = buildPlanRows(
-      isAddon,
-      installments,
-      wedding,
-      numAmount,
-      _todayStr,
-    );
-    console.log(`[ghl-invoice] planRows.length=${planRows.length} hasMultiPlan=${hasMultiPlan} source=${planSource} isAddon=${isAddon} rows=${JSON.stringify(planRows)}`);
+    // Resolve wedding date: wedding.date first, else body.wedding_date, else
+    // the last dated row in body.installments. Without a date the builder
+    // walks $250 monthly (never dumps the rest on today). INV-000052 fix.
+    const _bDates: string[] = Array.isArray(installments) ? installments.map((i: any) => String(i.date || i.dueDate || "").slice(0, 10)).filter(Boolean) : [];
+    const _effDate = String(wedding.date || bodyWeddingDate || (_bDates.length ? _bDates.sort().pop() : "") || "");
+    const { planRows, hasMultiPlan, source: planSource } = buildPlanRows(isAddon, installments, wedding, numAmount, _todayStr, _effDate);
+    console.log(`[ghl-invoice] wedding.date=${wedding.date || "(none)"} effectiveDate=${_effDate || "(none)"} planRows.length=${planRows.length} hasMultiPlan=${hasMultiPlan} source=${planSource} isAddon=${isAddon} rows=${JSON.stringify(planRows)}`);
 
     // 2b. Idempotency — reuse today's draft/sent invoice for same amount.
     // Skip reuse ONLY for addons and explicit forceNew. Multi-row photography
