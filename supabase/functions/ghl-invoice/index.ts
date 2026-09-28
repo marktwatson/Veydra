@@ -1,5 +1,6 @@
 import { createClient } from "jsr:@supabase/supabase-js";
 const SCHEMA_HEAL_SQL = "ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS wedding_id UUID; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_id TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_ids JSONB DEFAULT '[]'::jsonb; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_url TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_status TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_amount NUMERIC; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_created_date TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_schedule JSONB DEFAULT '[]'::jsonb; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS total_amount NUMERIC DEFAULT 0; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS paid_amount NUMERIC DEFAULT 0; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS custom_payment_plan JSONB; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS ghl_invoice_base_url TEXT; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_user_id TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS territory_id UUID; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS territory_id UUID; NOTIFY pgrst, 'reload schema';";
+const SCHEMA_HEAL_SQL = "ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS wedding_id UUID; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_id TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_ids JSONB DEFAULT '[]'::jsonb; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_url TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_status TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_amount NUMERIC; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_invoice_created_date TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS ghl_schedule JSONB DEFAULT '[]'::jsonb; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS total_amount NUMERIC DEFAULT 0; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS paid_amount NUMERIC DEFAULT 0; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS custom_payment_plan JSONB; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS ghl_invoice_base_url TEXT; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_user_id TEXT; ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS territory_id UUID; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS territory_id UUID; NOTIFY pgrst, 'reload schema';";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -38,11 +39,6 @@ function ymd(offsetDays = 0): string {
   return `${y}-${m}-${day}`;
 }
 
-interface PlanRow {
-  date: string;
-  amount: number;
-}
-
 /** Extract a human-readable error message from a CRM response. */
 function ghlMsg(r: { data: any; body: string }): string {
   const d = r.data;
@@ -60,6 +56,63 @@ function ghlMsg(r: { data: any; body: string }): string {
     }
   }
   return r.body.slice(0, 500);
+}
+
+interface PlanRow { date: string; amount: number; }
+const money2 = (n: number) => Math.round(n * 100) / 100;
+function normalizePlanRows(raw: any[], remaining: number, todayStr: string): PlanRow[] {
+  const rows: PlanRow[] = []; let scheduled = 0;
+  for (const inst of raw) {
+    const amt = Number(inst.amount || 0); if (amt <= 0) continue;
+    let due = inst.date || inst.dueDate || ""; if (!due) continue;
+    if (due < todayStr) due = todayStr;
+    const rowAmt = Math.min(amt, Math.max(0, remaining - scheduled)); if (rowAmt <= 0) break;
+    rows.push({ date: due, amount: money2(rowAmt) }); scheduled += rowAmt;
+  }
+  const byDay: Record<string, number> = {}; const dayOrder: string[] = [];
+  for (const r of rows) { if (!byDay[r.date]) { byDay[r.date] = 0; dayOrder.push(r.date); } byDay[r.date] += r.amount; }
+  const merged = dayOrder.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).map((d) => ({ date: d, amount: money2(byDay[d]) }));
+  let sumRows = merged.reduce((s, r) => s + r.amount, 0);
+  if (sumRows > remaining + 0.01 && merged.length > 0) { const diff = money2(sumRows - remaining); merged[merged.length - 1].amount = money2(merged[merged.length - 1].amount - diff); }
+  return merged;
+}
+// ADDON: rows from body.installments only. PHOTO: body.installments first
+// (the schedule the bride saw — does NOT require wedding.custom_payment_plan
+// .enabled), then fall back to the wedding row's unpaid installments.
+function buildPlanRows(isAddon: boolean, installments: any, wedding: any, numAmount: number, todayStr: string): { planRows: PlanRow[]; hasMultiPlan: boolean; source: "body" | "wedding" | "none" } {
+  const totalAmt = Number(wedding.total_amount) || 0; const paid = Number(wedding.paid_amount) || 0;
+  const remaining = Math.max(0, totalAmt - paid);
+  if (isAddon) {
+    let planRows = normalizePlanRows(Array.isArray(installments) ? installments : [], remaining, todayStr);
+    if (planRows.length === 0) planRows = [{ date: todayStr, amount: numAmount }];
+    const hasMultiPlan = planRows.length >= 2;
+    return { planRows, hasMultiPlan, source: hasMultiPlan ? "body" : "none" };
+  }
+  const bodyInsts: any[] = Array.isArray(installments) ? installments : [];
+  if (bodyInsts.length >= 2) {
+    const planRows = normalizePlanRows(bodyInsts, remaining, todayStr);
+    if (planRows.length >= 2) return { planRows, hasMultiPlan: true, source: "body" };
+  }
+  try {
+    const cppRaw = wedding.custom_payment_plan || {};
+    const cpp = typeof cppRaw === "string" ? JSON.parse(cppRaw) : cppRaw;
+    const cppEnabled = cpp.enabled === true || cpp.enabled === "true" || cpp.enabled === 1;
+    const insts: any[] = Array.isArray(cpp.installments) ? cpp.installments : Array.isArray(cpp) ? cpp : [];
+    if (cppEnabled && insts.length > 0 && remaining > 0) {
+      const deposit = Math.min(Number(cpp.deposit) || 0, remaining);
+      const rows: PlanRow[] = []; if (deposit > 0) rows.push({ date: todayStr, amount: deposit });
+      let running = 0, scheduled = deposit;
+      for (const inst of insts) {
+        const amt = Number(inst.amount || 0); running += amt; if (running <= paid) continue;
+        const due = inst.date || inst.dueDate || ""; if (!due) continue;
+        const rowAmt = Math.min(amt, Math.max(0, remaining - scheduled)); if (rowAmt <= 0) break;
+        rows.push({ date: due, amount: rowAmt }); scheduled += rowAmt;
+      }
+      const planRows = normalizePlanRows(rows, remaining, todayStr);
+      if (planRows.length >= 2) return { planRows, hasMultiPlan: true, source: "wedding" };
+    }
+  } catch (_e) {}
+  return { planRows: [], hasMultiPlan: false, source: "none" };
 }
 
 Deno.serve(async (req) => {
@@ -297,76 +350,19 @@ Deno.serve(async (req) => {
 
     // ── Build plan rows ──
     // ADDON path: rows come ONLY from body.installments (ignore photo plan).
-    // PHOTO path: rows come from wedding.custom_payment_plan unpaid installments.
-    const _totalAmt = Number(wedding.total_amount) || 0;
-    const _paid = Number(wedding.paid_amount) || 0;
-    const _remaining = Math.max(0, _totalAmt - _paid);
-
-    let planRows: PlanRow[] = [];
-    let hasMultiPlan = false;
-
-    if (isAddon) {
-      const rawInsts: any[] = Array.isArray(installments) ? installments : [];
-      for (const inst of rawInsts) {
-        const amt = Number(inst.amount || 0);
-        const due = inst.date || inst.dueDate || "";
-        if (amt > 0 && due) planRows.push({ date: due, amount: amt });
-      }
-      if (planRows.length === 0) planRows.push({ date: ymd(0), amount: numAmount });
-      hasMultiPlan = planRows.length >= 2;
-    } else {
-      try {
-        const cppRaw = wedding.custom_payment_plan || {};
-        const cpp = typeof cppRaw === "string" ? JSON.parse(cppRaw) : cppRaw;
-        const cppEnabled = cpp.enabled === true || cpp.enabled === "true" || cpp.enabled === 1;
-        const insts: any[] = Array.isArray(cpp.installments)
-          ? cpp.installments
-          : Array.isArray(cpp) ? cpp : [];
-
-        if (cppEnabled && insts.length > 0 && _remaining > 0) {
-          // Deposit is ALWAYS a separate today row — never use the
-          // depositIncluded heuristic (it double-adds today's amount).
-          const deposit = Math.min(Number(cpp.deposit) || 0, _remaining);
-          const rows: PlanRow[] = [];
-          if (deposit > 0) rows.push({ date: ymd(0), amount: deposit });
-          let running = 0;
-          let scheduled = deposit;
-          for (const inst of insts) {
-            const amt = Number(inst.amount || 0);
-            running += amt;
-            if (running <= _paid) continue;
-            const due = inst.date || inst.dueDate || "";
-            if (!due) continue;
-            const rowAmt = Math.min(amt, Math.max(0, _remaining - scheduled));
-            if (rowAmt <= 0) break;
-            rows.push({ date: due, amount: rowAmt });
-            scheduled += rowAmt;
-          }
-          // Merge same-calendar-day rows into ONE amount before send.
-          const todayStr = ymd(0);
-          const byDay: Record<string, number> = {};
-          const dayOrder: string[] = [];
-          for (const r of rows) {
-            let d = r.date < todayStr ? todayStr : r.date;
-            if (!byDay[d]) { byDay[d] = 0; dayOrder.push(d); }
-            byDay[d] += r.amount;
-          }
-          planRows = dayOrder
-            .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
-            .map((d) => ({ date: d, amount: Math.round(byDay[d] * 100) / 100 }));
-          // Cap so sum(rows) === remaining (never exceed total - paid).
-          let sumRows = planRows.reduce((s, r) => s + r.amount, 0);
-          if (sumRows > _remaining + 0.01 && planRows.length > 0) {
-            const diff = Math.round((sumRows - _remaining) * 100) / 100;
-            planRows[planRows.length - 1].amount = Math.round((planRows[planRows.length - 1].amount - diff) * 100) / 100;
-          }
-          hasMultiPlan = planRows.length >= 2;
-        }
-      } catch (_e) {
-        planRows = [];
-        hasMultiPlan = false;
-      }
-    }
+    // PHOTO path: rows come from body.installments first (the same schedule
+    //   the bride saw on screen), then fall back to wedding.custom_payment_plan
+    //   unpaid installments. body.installments does NOT require the wedding row
+    //   to have custom_payment_plan.enabled — a standard plan's rows are valid.
+    const _todayStr = ymd(0);
+    const { planRows, hasMultiPlan, source: planSource } = buildPlanRows(
+      isAddon,
+      installments,
+      wedding,
+      numAmount,
+      _todayStr,
+    );
+    console.log(`[ghl-invoice] planRows.length=${planRows.length} hasMultiPlan=${hasMultiPlan} source=${planSource} isAddon=${isAddon}`);
 
     // 2b. Idempotency — reuse today's draft/sent invoice for same amount.
     // Skip reuse ONLY for addons and explicit forceNew. Multi-row photography
