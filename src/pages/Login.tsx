@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { isSuperAdminEmail } from "@/lib/super-admin";
 import { supabase } from "@/lib/supabase";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -29,6 +29,48 @@ import { useToast } from "@/hooks/use-toast";
 const LOGIN_LOGO_URL =
   "https://assets.cdn.filesafe.space/76EKIVBXrGYIny0RbqcE/media/6abaa38a7ef452865a26c67d.gif";
 
+// Brand loading screen shown for ~3s after a successful sign-in, before the
+// user is routed to their destination. The logo zooms to fill the screen and
+// a progress bar + caption play out beneath it.
+function BootScreen({ caption }: { caption: string }) {
+  const [zoom, setZoom] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setZoom(true), 60);
+    return () => clearTimeout(t);
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-gradient-to-b from-background to-muted/40 overflow-hidden">
+      <img
+        src={LOGIN_LOGO_URL}
+        alt="Portal Logo"
+        className="object-contain transition-all duration-[1200ms] ease-out will-change-transform"
+        style={{
+          width: zoom ? "min(33vw, 33vh)" : "125px",
+          transform: zoom ? "scale(1)" : "scale(0.92)",
+          opacity: zoom ? 1 : 0.85,
+        }}
+      />
+      <div className="mt-10 flex flex-col items-center gap-4">
+        <p className="text-lg font-medium tracking-wide text-foreground">
+          {caption}
+          <span className="inline-flex w-6">
+            <span className="animate-bounce [animation-delay:-0.3s]">.</span>
+            <span className="animate-bounce [animation-delay:-0.15s]">.</span>
+            <span className="animate-bounce">.</span>
+          </span>
+        </p>
+        <div className="w-64 max-w-[70vw] h-1.5 rounded-full bg-muted overflow-hidden">
+          <div
+            className="h-full rounded-full bg-primary transition-[width] duration-[3000ms] ease-linear"
+            style={{ width: zoom ? "100%" : "0%" }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -39,12 +81,25 @@ export default function Login() {
   const [isSendingMagicLink, setIsSendingMagicLink] = useState(false);
   const [showMagicLinkModal, setShowMagicLinkModal] = useState(false);
   const [magicLinkEmail, setMagicLinkEmail] = useState("");
+  // Boot sequence state.
+  const [booting, setBooting] = useState(false);
+  const [bootDest, setBootDest] = useState("/");
+  const [bootCaption, setBootCaption] = useState("Loading your workspace");
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
 
   const from = location.state?.from?.pathname || "/";
+
+  // Route the user after the 3s boot screen finishes.
+  useEffect(() => {
+    if (!booting) return;
+    const t = setTimeout(() => {
+      navigate(bootDest, { replace: true });
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [booting, bootDest, navigate]);
 
   const handleLogin = async (
     e: React.FormEvent,
@@ -61,13 +116,28 @@ export default function Login() {
         description: `Successfully logged in as ${type}.`,
       });
 
-      if (type === "editor") {
-        navigate(from === "/" ? "/editor" : from, { replace: true });
-      } else if (type === "manager" || isSuperAdminEmail(email)) {
-        navigate(from === "/" ? "/manager" : from, { replace: true });
-      } else {
-        navigate(from, { replace: true });
-      }
+      const dest =
+        type === "editor"
+          ? from === "/"
+            ? "/editor"
+            : from
+          : type === "manager" || isSuperAdminEmail(email)
+            ? from === "/"
+              ? "/manager"
+              : from
+            : from;
+
+      const caption =
+        type === "manager" || isSuperAdminEmail(email)
+          ? "Loading your dashboard"
+          : type === "editor"
+            ? "Loading the editor"
+            : "Loading your workspace";
+
+      // Emulate a loading screen before routing the user in.
+      setBootDest(dest);
+      setBootCaption(caption);
+      setBooting(true);
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -324,6 +394,8 @@ export default function Login() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {booting && <BootScreen caption={bootCaption} />}
     </div>
   );
 }

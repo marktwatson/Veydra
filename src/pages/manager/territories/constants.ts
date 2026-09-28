@@ -4,6 +4,7 @@ export const THIS_SUPABASE_URL = "https://oosmhtzqdmntlzhheofw.supabase.co";
 export interface Territory {
   id: string;
   name: string;
+  slug: string | null;
   project_ref: string;
   supabase_url: string;
   access_token: string;
@@ -11,6 +12,11 @@ export interface Territory {
   last_sync_status: string;
   last_sync_result: any;
   is_primary: boolean;
+  royalty_percentage: number | null;
+  payback_percentage: number | null;
+  purchase_price: number | null;
+  remaining_balance: number | null;
+  processing_day_of_week: number | null;
   created_at: string;
 }
 

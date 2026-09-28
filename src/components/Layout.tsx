@@ -29,7 +29,10 @@ import {
   CreditCard,
   Globe,
 } from "lucide-react";
-import { buildFlatNavItems } from "@/lib/flat-nav-items";
+import {
+  buildFlatNavItems,
+  buildVisibleManagerNavGroups,
+} from "@/lib/flat-nav-items";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { CHANGELOG_DATA } from "@/pages/manager/Changelog";
 import {
@@ -650,56 +653,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const isTerminated =
     role === "contractor" && profile?.status === "terminated";
 
-  const visibleManagerNavGroups = managerNavGroups
-    .map((group) => {
-      if (role === "manager") {
-        if (group.label === "Intel & Growth") return null;
-        const filteredItems = group.items.filter(
-          (item) =>
-            item.path !== "/manager/team" &&
-            item.path !== "/manager/accounting" &&
-            item.path !== "/manager/team" &&
-            item.path !== "/manager/accounting" &&
-            item.path !== "/manager/growth" &&
-            item.path !== "/manager/leads" &&
-            item.path !== "/manager/ad-campaigns" &&
-            item.path !== "/manager/territories",
-        );
-        if (filteredItems.length === 0) return null;
-        return {
-          ...group,
-          items: filteredItems,
-        };
-      }
-      // Add royalty + stripe payout nav for super_admin only
-      if (role === "super_admin" && group.label === "System Control") {
-        return {
-          ...group,
-          items: [...group.items, royaltyNavItem, stripePayoutNavItem],
-        };
-      }
-      // For owners (and owner_readonly): show full manager nav (minus territory fleet + royalty management)
-      // plus their own royalty dashboard at the end.
-      // NOTE: owner_readonly CAN see Intelligence Hub — only managers are restricted.
-      if (role === "owner" || role === "owner_readonly") {
-        const filteredItems = group.items.filter(
-          (item) =>
-            item.path !== "/manager/territories" &&
-            item.path !== "/manager/areas",
-        );
-        if (filteredItems.length === 0) return null;
-        // Append owner's royalty dashboard to the System Control group
-        if (group.label === "System Control") {
-          return {
-            ...group,
-            items: [...filteredItems, ownerRoyaltyNavItem],
-          };
-        }
-        return { ...group, items: filteredItems };
-      }
-      return group;
-    })
-    .filter(Boolean) as typeof managerNavGroups;
+  const visibleManagerNavGroups = buildVisibleManagerNavGroups(role);
 
   // Owners use the same filtered manager nav groups (with their royalty dashboard appended)
   const effectiveNavGroups = visibleManagerNavGroups;

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Loader2, Plus, Key } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,85 +11,171 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Territory } from "./constants";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
-interface AddDialogProps {
+const SLUG_RE = /^[a-z0-9-]+$/;
+const DAYS = [
+  { value: "0", label: "Sunday" },
+  { value: "1", label: "Monday" },
+  { value: "2", label: "Tuesday" },
+  { value: "3", label: "Wednesday" },
+  { value: "4", label: "Thursday" },
+  { value: "5", label: "Friday" },
+  { value: "6", label: "Saturday" },
+];
+
+interface AddAreaDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAdd: (t: {
     name: string;
-    project_ref: string;
-    supabase_url: string;
-    access_token: string;
+    slug: string;
+    royalty_percentage: number;
+    payback_percentage: number;
+    purchase_price: number;
+    remaining_balance: number;
+    processing_day_of_week: number;
   }) => void;
   pending: boolean;
 }
 
-export function AddTerritoryDialog({
+export function AddAreaDialog({
   open,
   onOpenChange,
   onAdd,
   pending,
-}: AddDialogProps) {
-  const [territory, setTerritory] = useState({
-    name: "",
-    project_ref: "",
-    supabase_url: "",
-    access_token: "",
-  });
+}: AddAreaDialogProps) {
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [royalty, setRoyalty] = useState("");
+  const [payback, setPayback] = useState("");
+  const [purchase, setPurchase] = useState("");
+  const [remaining, setRemaining] = useState("");
+  const [processingDay, setProcessingDay] = useState("5");
+
+  const slugValid = slug.length > 0 && SLUG_RE.test(slug);
+  const nameValid = name.trim().length > 0;
+  const num = (v: string) => (v.trim() === "" ? 0 : Number(v) || 0);
+
+  const reset = () => {
+    setName("");
+    setSlug("");
+    setRoyalty("");
+    setPayback("");
+    setPurchase("");
+    setRemaining("");
+    setProcessingDay("5");
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) reset();
+        onOpenChange(o);
+      }}
+    >
+      <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
-          <DialogTitle>Add New Territory</DialogTitle>
+          <DialogTitle>Add New Area</DialogTitle>
           <DialogDescription>
-            Enter the Supabase project details for this territory. You'll need a
-            Personal Access Token from the territory's Supabase dashboard.
+            Add a new area to this database. Same app, same Supabase.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div className="space-y-2">
-            <Label htmlFor="terr-name">Territory Name</Label>
+            <Label htmlFor="area-name">Name</Label>
             <Input
-              id="terr-name"
+              id="area-name"
               placeholder="e.g. Nashville, TN"
-              value={territory.name}
-              onChange={(e) =>
-                setTerritory({ ...territory, name: e.target.value })
-              }
+              value={name}
+              onChange={(e) => setName(e.target.value)}
             />
-            <p className="text-xs text-muted-foreground">
-              Found in Supabase Dashboard → Settings → General → Reference ID
-            </p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="terr-ref">Supabase Project Ref</Label>
+            <Label htmlFor="area-slug">Slug</Label>
             <Input
-              id="terr-ref"
-              placeholder="e.g. abcdefghijklmnop"
-              value={territory.project_ref}
-              onChange={(e) =>
-                setTerritory({ ...territory, project_ref: e.target.value })
+              id="area-slug"
+              placeholder="nashville-tn"
+              value={slug}
+              onChange={(e) => setSlug(e.target.value.toLowerCase())}
+              className={
+                !slugValid && slug.length > 0 ? "border-destructive" : ""
               }
             />
             <p className="text-xs text-muted-foreground">
-              Found in Supabase Dashboard → Settings → General → Reference ID
+              Lowercase letters, numbers, and hyphens only. Used for{" "}
+              <code>/apply/{slug || "{slug}"}</code>.
             </p>
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label htmlFor="area-royalty">Royalty %</Label>
+              <Input
+                id="area-royalty"
+                type="number"
+                inputMode="decimal"
+                placeholder="0"
+                value={royalty}
+                onChange={(e) => setRoyalty(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="area-payback">Payback %</Label>
+              <Input
+                id="area-payback"
+                type="number"
+                inputMode="decimal"
+                placeholder="0"
+                value={payback}
+                onChange={(e) => setPayback(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label htmlFor="area-purchase">Purchase Price</Label>
+              <Input
+                id="area-purchase"
+                type="number"
+                inputMode="decimal"
+                placeholder="0"
+                value={purchase}
+                onChange={(e) => setPurchase(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="area-remaining">Remaining Balance</Label>
+              <Input
+                id="area-remaining"
+                type="number"
+                inputMode="decimal"
+                placeholder="0"
+                value={remaining}
+                onChange={(e) => setRemaining(e.target.value)}
+              />
+            </div>
+          </div>
           <div className="space-y-2">
-            <Label htmlFor="terr-token">Supabase Personal Access Token</Label>
-            <Input
-              id="terr-token"
-              type="password"
-              placeholder="sbp_xxxxxxxxxxxxxxxxxxxx"
-              value={territory.access_token}
-              onChange={(e) =>
-                setTerritory({ ...territory, access_token: e.target.value })
-              }
-            />
-            <p className="text-xs text-muted-foreground">
-              Generate at: Supabase Dashboard → Account → Access Tokens
-            </p>
+            <Label>Processing Day of Week</Label>
+            <Select value={processingDay} onValueChange={setProcessingDay}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {DAYS.map((d) => (
+                  <SelectItem key={d.value} value={d.value}>
+                    {d.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
         <DialogFooter>
@@ -97,12 +183,17 @@ export function AddTerritoryDialog({
             Cancel
           </Button>
           <Button
-            onClick={() => onAdd(territory)}
-            disabled={
-              !territory.name ||
-              !territory.project_ref ||
-              !territory.access_token ||
-              pending
+            disabled={!nameValid || !slugValid || pending}
+            onClick={() =>
+              onAdd({
+                name: name.trim(),
+                slug: slug.trim(),
+                royalty_percentage: num(royalty),
+                payback_percentage: num(payback),
+                purchase_price: num(purchase),
+                remaining_balance: num(remaining),
+                processing_day_of_week: Number(processingDay) || 5,
+              })
             }
           >
             {pending ? (
@@ -110,7 +201,7 @@ export function AddTerritoryDialog({
             ) : (
               <Plus className="mr-2 h-4 w-4" />
             )}
-            Add Territory
+            Add Area
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -118,66 +209,10 @@ export function AddTerritoryDialog({
   );
 }
 
-interface TokenDialogProps {
-  territory: Territory | null;
-  onClose: () => void;
-  onSave: (token: string) => void;
+// Kept (unused by Areas page now) so legacy imports do not break.
+export function AddTerritoryDialog() {
+  return null;
 }
-
-export function TokenDialog({ territory, onClose, onSave }: TokenDialogProps) {
-  const [token, setToken] = useState(territory?.access_token || "");
-  return (
-    <Dialog
-      open={!!territory}
-      onOpenChange={(open) => {
-        if (!open) {
-          setToken("");
-          onClose();
-        }
-      }}
-    >
-      <DialogContent className="sm:max-w-[500px]">
-        <DialogHeader>
-          <DialogTitle>Set Access Token</DialogTitle>
-          <DialogDescription>
-            Enter a Supabase Personal Access Token for{" "}
-            <strong>{territory?.name}</strong>. Generate one at Supabase
-            Dashboard → Account → Access Tokens.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4 py-4">
-          <div className="space-y-2">
-            <Label htmlFor="token-input">Personal Access Token</Label>
-            <Input
-              id="token-input"
-              type="password"
-              autoComplete="off"
-              placeholder="sbp_xxxxxxxxxxxxxxxxxxxx"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">
-              This token is stored in the territories table and used to deploy
-              edge functions via the Supabase Management API.
-            </p>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setToken("");
-              onClose();
-            }}
-          >
-            Cancel
-          </Button>
-          <Button onClick={() => onSave(token)} disabled={!token.trim()}>
-            <Key className="mr-2 h-4 w-4" />
-            Save Token
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
+export function TokenDialog() {
+  return null;
 }

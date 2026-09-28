@@ -82,26 +82,32 @@ export const managerNavGroups = [
   },
 ];
 
-// Super-admin only nav items in System Control
-export const territoryFleetNavItem = {
-  icon: Globe,
-  label: "Territory Fleet",
-  path: "/manager/territories",
-};
-
+// Areas nav item — the single Areas page (Areas.tsx at /manager/areas),
+// visible to super_admin + owner. The old /manager/territories route is kept
+// for bookmarks but is hidden from the sidebar.
 export const areasNavItem = {
   icon: MapPin,
   label: "Areas",
   path: "/manager/areas",
 };
 
-// The proxy exports below satisfy existing imports in Layout.tsx:
-// Layout.tsx adds `...group.items, royaltyNavItem, stripePayoutNavItem` when role === "super_admin".
-// We put Territory Fleet on royaltyNavItem, and Areas on stripePayoutNavItem.
-export const royaltyNavItem = {
+// Legacy exports kept so Layout.tsx imports keep compiling. They are no longer
+// rendered: Areas is served via areasNavItem, and Territory Fleet is hidden.
+export const territoryFleetNavItem = {
   icon: Globe,
   label: "Territory Fleet",
   path: "/manager/territories",
+};
+
+// Proxy exports that Layout.tsx imports and appends for super_admin in the
+// System Control group. royaltyNavItem now also points at the Areas page so
+// super admins see exactly one "Areas" item; stripePayoutNavItem is a no-op
+// (rendered only as a duplicate guard) — set to Areas to keep a single source
+// of truth.
+export const royaltyNavItem = {
+  icon: MapPin,
+  label: "Areas",
+  path: "/manager/areas",
 };
 
 export const stripePayoutNavItem = {

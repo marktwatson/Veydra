@@ -1,6 +1,8 @@
 import { Home, Receipt, BookOpen } from "lucide-react";
 import { contractorNavItems, editorNavItems } from "@/components/layout-nav";
 
+export { buildVisibleManagerNavGroups } from "@/lib/build-nav-groups";
+
 type NavItem = { icon: any; label: string; path: string };
 
 export function buildFlatNavItems(opts: {
