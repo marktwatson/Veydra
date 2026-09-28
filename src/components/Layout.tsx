@@ -683,7 +683,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
       // NOTE: owner_readonly CAN see Intelligence Hub — only managers are restricted.
       if (role === "owner" || role === "owner_readonly") {
         const filteredItems = group.items.filter(
-          (item) => item.path !== "/manager/territories",
+          (item) =>
+            item.path !== "/manager/territories" &&
+            item.path !== "/manager/areas",
         );
         if (filteredItems.length === 0) return null;
         // Append owner's royalty dashboard to the System Control group
