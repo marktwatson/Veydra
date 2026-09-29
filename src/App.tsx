@@ -26,6 +26,7 @@ import ResetPassword from "@/pages/ResetPassword";
 import BridePortal from "@/pages/BridePortal";
 import ClientFeedback from "@/pages/ClientFeedback";
 import Book from "@/pages/Book";
+import BuildProposal from "@/pages/BuildProposal";
 import GiftWedding from "@/pages/GiftWedding";
 import ProposalReview from "@/pages/ProposalReview";
 import PaymentPlanApproval from "@/pages/PaymentPlanApproval";
@@ -82,6 +83,10 @@ const App = () => {
                 <Route path="/apply" element={<Apply />} />
                 <Route path="/apply/:slug" element={<Apply />} />
                 <Route path="/book" element={<Book />} />
+                <Route
+                  path="/build-proposal/:slug"
+                  element={<BuildProposal />}
+                />
                 <Route path="/bride-portal/:id" element={<BridePortal />} />
                 <Route path="/gift/:id" element={<GiftWedding />} />
                 <Route path="/feedback/:id" element={<ClientFeedback />} />

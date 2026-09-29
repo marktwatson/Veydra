@@ -47,6 +47,8 @@ interface Props {
   coveragePending?: boolean;
   /** Called after a successful send so the parent can refresh. */
   onSent?: () => void;
+  /** Called when the user clicks "Start a new proposal" (reset form). */
+  onReset?: () => void;
 }
 
 /** Post-create share modal for a generated proposal link. */
@@ -59,6 +61,7 @@ export default function ProposalShareModal({
   clientPhone,
   coveragePending,
   onSent,
+  onReset,
 }: Props) {
   const [copied, setCopied] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -182,6 +185,23 @@ export default function ProposalShareModal({
               Send to client
             </Button>
           </DialogFooter>
+          {onReset && (
+            <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  onClose();
+                  onReset();
+                }}
+                className="sm:flex-1"
+              >
+                Start a new proposal
+              </Button>
+              <Button variant="ghost" onClick={onClose} className="sm:flex-1">
+                Close
+              </Button>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

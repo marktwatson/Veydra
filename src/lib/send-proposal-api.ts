@@ -10,6 +10,7 @@ export interface SendProposalResult {
   message?: {
     email?: string | null;
     sms?: string | null;
+    smsNote?: string | null;
     contactId?: string | null;
     tagStatus?: string;
   };
@@ -30,12 +31,16 @@ export function describeSendResult(result: SendProposalResult): string {
   const msg = result.message;
   const emailOk = msg?.email === "sent";
   const smsOk = msg?.sms === "sent";
+  const smsNote = msg?.smsNote;
   const areaTag = result.territoryIdUsed
     ? ` Area ${result.territoryIdUsed.slice(0, 8)}.`
     : "";
 
   if (emailOk && smsOk) {
     return `Email + SMS sent. ${dayLabel} review clock started.${areaTag}${expires}`;
+  }
+  if (emailOk && !smsOk && smsNote) {
+    return `Email sent. ${smsNote}.${areaTag}${expires}`;
   }
   if (result.crmWarning) {
     return `Clock started. ${result.crmWarning}${areaTag}${expires}`;

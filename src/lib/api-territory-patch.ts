@@ -17,6 +17,12 @@
  */
 import { api } from "./api";
 import { logAdminActivity } from "./api-admin-activity";
+import { currentTerritoryId } from "./current-territory";
+import {
+  fetchJobsForTerritory,
+  fetchAssignmentsForTerritory,
+  fetchApplicationsForTerritory,
+} from "./api-territory-scoped";
 import {
   getPortalSettings as getPortalSettingsScoped,
   updatePortalSettings as updatePortalSettingsScoped,
@@ -54,6 +60,22 @@ export function patchApiForTerritory(): void {
   (api as any).getAddons = getAddonsScoped;
   (api as any).saveAddon = saveAddonScoped;
   (api as any).deleteAddon = deleteAddonScoped;
+
+  // List fetches — scope to the current user's area so the manager Dashboard
+  // (which calls getWeddings / getContractors / getJobs / getAssignments
+  // directly) honors the super-admin area picker. null = All Areas (no
+  // filter). The dedicated list pages already call the *ForTerritory variants
+  // directly, so they are unaffected by these overrides.
+  (api as any).getWeddings = () =>
+    currentTerritoryId().then((tid) => api.getWeddingsForTerritory(tid));
+  (api as any).getContractors = () =>
+    currentTerritoryId().then((tid) => api.getContractorsForTerritory(tid));
+  (api as any).getJobs = () =>
+    currentTerritoryId().then((tid) => fetchJobsForTerritory(tid));
+  (api as any).getAssignments = () =>
+    currentTerritoryId().then((tid) => fetchAssignmentsForTerritory(tid));
+  (api as any).getApplications = () =>
+    currentTerritoryId().then((tid) => fetchApplicationsForTerritory(tid));
 }
 
 // Auto-patch on import so any entry point that imports api gets the scoped

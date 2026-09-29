@@ -46,6 +46,7 @@ ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_api_key text;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_location_id text;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_proposal_link_field_id text;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS territory_id UUID;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS sales_pin text;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS contract_status text;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS wedding_id UUID;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS territory_id UUID;
@@ -278,6 +279,7 @@ Deno.serve(async (req) => {
       message: {
         email: messageResult?.email || null,
         sms: messageResult?.sms || null,
+        smsNote: messageResult?.smsNote || null,
         contactId: messageResult?.contactId || null,
         tagStatus: messageResult?.tagStatus || "skipped",
       },
@@ -382,6 +384,7 @@ Deno.serve(async (req) => {
     message: {
       email: messageResult?.email || null,
       sms: messageResult?.sms || null,
+      smsNote: messageResult?.smsNote || null,
       contactId: messageResult?.contactId || null,
       tagStatus: messageResult?.tagStatus || "skipped",
     },
@@ -642,16 +645,37 @@ async function sendCrmMessages({
           }),
         },
       );
-      results.sms = smsRes.ok ? "sent" : `error:${smsRes.status}`;
-      if (!smsRes.ok) {
+      if (smsRes.ok) {
+        results.sms = "sent";
+      } else {
         const t = await smsRes.text();
         console.warn(
           `[send-proposal] sms send failed ${smsRes.status}:`,
           t.slice(0, 500),
         );
+        // Classify the failure so the client toast is human-readable.
+        let smsStatus = `error:${smsRes.status}`;
+        let note = `SMS failed (${smsRes.status})`;
+        try {
+          const ej = JSON.parse(t);
+          if (
+            ej?.canonicalCode === "CONVERSATIONS_MSG_UNSUBSCRIBED_SMS" ||
+            /unsubscribed/i.test(ej?.message || "")
+          ) {
+            smsStatus = "unsubscribed";
+            note = "SMS skipped — that number has unsubscribed from texts";
+          } else if (ej?.message) {
+            note = `SMS failed: ${String(ej.message).slice(0, 120)}`;
+          }
+        } catch (_e) {
+          /* non-JSON error body — keep the generic note */
+        }
+        results.sms = smsStatus;
+        results.smsNote = note;
       }
     } catch (e: any) {
       results.sms = `error:${e?.message}`;
+      results.smsNote = `SMS failed: ${e?.message}`;
     }
   }
 

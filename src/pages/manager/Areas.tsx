@@ -65,13 +65,14 @@ interface SettingsLite {
   proposal_expiry_days: number | null;
   app_url: string | null;
   company_name: string | null;
+  sales_pin: string | null;
   timezone: string | null;
 }
 
 const SETTINGS_FIELDS: Array<{
   key: keyof SettingsLite;
   label: string;
-  type?: "number" | "text";
+  type?: "number" | "text" | "password";
 }> = [
   { key: "hl_api_key", label: "CRM API Key" },
   { key: "hl_location_id", label: "CRM Location ID" },
@@ -85,6 +86,7 @@ const SETTINGS_FIELDS: Array<{
   },
   { key: "app_url", label: "App URL" },
   { key: "company_name", label: "Company Name" },
+  { key: "sales_pin", label: "Sales PIN (public builder)", type: "password" },
   { key: "timezone", label: "Timezone" },
 ];
 
@@ -120,7 +122,7 @@ export default function Areas() {
       const { data, error } = await supabase
         .from("portal_settings")
         .select(
-          "territory_id, hl_api_key, hl_location_id, hl_user_id, ghl_invoice_base_url, ghl_webhook_secret, proposal_expiry_days, app_url, company_name, timezone",
+          "territory_id, hl_api_key, hl_location_id, hl_user_id, ghl_invoice_base_url, ghl_webhook_secret, proposal_expiry_days, app_url, company_name, sales_pin, timezone",
         )
         .not("territory_id", "is", null);
       if (error) throw error;
@@ -137,6 +139,11 @@ export default function Areas() {
     if (!settingsByTerritory[t.id]) return false;
     const s = settingsByTerritory[t.id];
     return Boolean(s.hl_api_key || s.hl_location_id || s.company_name);
+  };
+
+  const hasPin = (t: AreaRow) => {
+    const s = settingsByTerritory[t.id];
+    return Boolean(s?.sales_pin && s.sales_pin.trim());
   };
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -175,6 +182,7 @@ export default function Areas() {
           proposal_expiry_days: 2,
           app_url: window.location.origin,
           company_name: name,
+          sales_pin: "",
           timezone: "",
         });
       if (settingsError) {
@@ -183,7 +191,7 @@ export default function Areas() {
       }
 
       toast.success("Area created", {
-        description: `${name} is ready. Apply path: /apply/${slug}`,
+        description: `${name} is ready. Builder: /build-proposal/${slug} · Apply: /apply/${slug}`,
       });
       queryClient.invalidateQueries({ queryKey: ["areas"] });
       queryClient.invalidateQueries({ queryKey: ["areas-settings"] });
@@ -200,7 +208,16 @@ export default function Areas() {
   const copyApplyPath = (t: AreaRow) => {
     const path = t.slug ? `/apply/${t.slug}` : "/apply/honeysuckle";
     navigator.clipboard.writeText(`${window.location.origin}${path}`);
-    setCopiedId(t.id);
+    setCopiedId(`${t.id}-apply`);
+    setTimeout(() => setCopiedId(null), 1500);
+  };
+
+  const copyBuilderPath = (t: AreaRow) => {
+    const path = t.slug
+      ? `/build-proposal/${t.slug}`
+      : "/build-proposal/honeysuckle";
+    navigator.clipboard.writeText(`${window.location.origin}${path}`);
+    setCopiedId(`${t.id}-builder`);
     setTimeout(() => setCopiedId(null), 1500);
   };
 
@@ -308,8 +325,9 @@ export default function Areas() {
                   <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Slug</TableHead>
-                    <TableHead>Apply Path</TableHead>
+                    <TableHead>Public Links</TableHead>
                     <TableHead>CRM Settings</TableHead>
+                    <TableHead>Sales Access</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -333,23 +351,47 @@ export default function Areas() {
                         {t.slug || "—"}
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-mono">
-                            {t.slug ? `/apply/${t.slug}` : "/apply/honeysuckle"}
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={() => copyApplyPath(t)}
-                            title="Copy apply link"
-                          >
-                            {copiedId === t.id ? (
-                              <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
-                            ) : (
-                              <Copy className="h-3.5 w-3.5" />
-                            )}
-                          </Button>
+                        <div className="flex flex-col gap-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-mono">
+                              {t.slug
+                                ? `/apply/${t.slug}`
+                                : "/apply/honeysuckle"}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              onClick={() => copyApplyPath(t)}
+                              title="Copy contractor apply link"
+                            >
+                              {copiedId === `${t.id}-apply` ? (
+                                <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+                              ) : (
+                                <Copy className="h-3.5 w-3.5" />
+                              )}
+                            </Button>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-mono">
+                              {t.slug
+                                ? `/build-proposal/${t.slug}`
+                                : "/build-proposal/honeysuckle"}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              onClick={() => copyBuilderPath(t)}
+                              title="Copy sales proposal builder link"
+                            >
+                              {copiedId === `${t.id}-builder` ? (
+                                <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+                              ) : (
+                                <Copy className="h-3.5 w-3.5" />
+                              )}
+                            </Button>
+                          </div>
                         </div>
                       </TableCell>
                       <TableCell>
@@ -366,6 +408,23 @@ export default function Areas() {
                             className="text-[10px] bg-amber-50/60 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400"
                           >
                             Missing
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {hasPin(t) ? (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] bg-emerald-50/60 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400"
+                          >
+                            PIN set
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] bg-amber-50/60 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400"
+                          >
+                            Open access
                           </Badge>
                         )}
                       </TableCell>
@@ -428,6 +487,7 @@ function EditAreaSheet({
     proposal_expiry_days: 2,
     app_url: "",
     company_name: area.name,
+    sales_pin: "",
     timezone: "",
   });
   const [open, setOpen] = useState(true);
@@ -440,7 +500,7 @@ function EditAreaSheet({
       const { data, error } = await supabase
         .from("portal_settings")
         .select(
-          "territory_id, hl_api_key, hl_location_id, hl_user_id, ghl_invoice_base_url, ghl_webhook_secret, proposal_expiry_days, app_url, company_name, timezone",
+          "territory_id, hl_api_key, hl_location_id, hl_user_id, ghl_invoice_base_url, ghl_webhook_secret, proposal_expiry_days, app_url, company_name, sales_pin, timezone",
         )
         .eq("territory_id", area.id)
         .maybeSingle();
@@ -456,6 +516,7 @@ function EditAreaSheet({
           proposal_expiry_days: data.proposal_expiry_days ?? 2,
           app_url: data.app_url ?? "",
           company_name: data.company_name ?? "",
+          sales_pin: data.sales_pin ?? "",
           timezone: data.timezone ?? "",
         });
       }
@@ -497,6 +558,7 @@ function EditAreaSheet({
             : Number(settings.proposal_expiry_days),
         app_url: settings.app_url || null,
         company_name: settings.company_name || null,
+        sales_pin: settings.sales_pin || null,
         timezone: settings.timezone || null,
       };
 
@@ -577,7 +639,13 @@ function EditAreaSheet({
                   <Label htmlFor={`s-${f.key}`}>{f.label}</Label>
                   <Input
                     id={`s-${f.key}`}
-                    type={f.type === "number" ? "number" : "text"}
+                    type={
+                      f.type === "number"
+                        ? "number"
+                        : f.type === "password"
+                          ? "password"
+                          : "text"
+                    }
                     value={(settings[f.key] as any) ?? ""}
                     onChange={(e) =>
                       setSettings({

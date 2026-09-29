@@ -16,4 +16,9 @@ ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS territory_id UUID;
 -- application to the correct area. Idempotent so it is safe to re-run.
 ALTER TABLE public.territories ADD COLUMN IF NOT EXISTS slug text;
 
+-- Per-area PIN that gates the public proposal builder's "Send to client"
+-- action. Nullable: if null/empty the public builder requires only the
+-- salesperson's name + email before sending.
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS sales_pin text;
+
 NOTIFY pgrst, 'reload schema';

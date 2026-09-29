@@ -3,10 +3,49 @@ import { isSuperAdminEmail } from "./super-admin";
 import { HONEYSUCKLE_TERRITORY_ID } from "./territory";
 
 /**
+ * localStorage key holding the super admin's chosen "view area" for the main
+ * manager lists (Weddings, Proposals, Contractors, Payment Audit).
+ *
+ *  - Absent / "all"  → All Areas (no territory filter; see everything).
+ *  - A territory id  → lists are scoped to that single area.
+ *
+ * This is read by currentTerritoryId() for super admins, which in turn feeds
+ * the four list pages. activeTerritoryId() (Packages page) also calls
+ * currentTerritoryId() first, so picking an area here scopes Packages too;
+ * when "All Areas" is selected, Packages fall back to its own picker.
+ */
+export const SUPER_ADMIN_VIEW_KEY = "veydra_view_territory_id";
+export const ALL_AREAS_VALUE = "all";
+
+/** Read the super-admin view territory (null = All Areas). Sync, no auth call. */
+export function getSuperAdminViewTerritory(): string | null {
+  try {
+    const v = localStorage.getItem(SUPER_ADMIN_VIEW_KEY);
+    if (v && v.trim() !== "" && v !== ALL_AREAS_VALUE) return v;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+/** Set the super-admin view territory. Pass null / "all" to clear (All Areas). */
+export function setSuperAdminViewTerritory(id: string | null): void {
+  try {
+    if (id && id !== ALL_AREAS_VALUE) {
+      localStorage.setItem(SUPER_ADMIN_VIEW_KEY, id);
+    } else {
+      localStorage.removeItem(SUPER_ADMIN_VIEW_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
  * The territory the current logged-in user is scoped to.
  *
- *  - Super admin (isSuperAdminEmail) → null, meaning "all territories"
- *    (manager list fetches must NOT filter).
+ *  - Super admin (isSuperAdminEmail) → the picked view area, or null meaning
+ *    "All Areas" (manager list fetches must NOT filter).
  *  - A manager with managers.territory_id set → that id.
  *  - Anyone else with no managers row → the Honeysuckle fallback.
  *
@@ -22,8 +61,8 @@ export async function currentTerritoryId(): Promise<string | null> {
     const email = user?.email ?? null;
     const id = user?.id ?? null;
 
-    // Super admin sees all territories.
-    if (isSuperAdminEmail(email)) return null;
+    // Super admin: respect the area picker. null = All Areas (no filter).
+    if (isSuperAdminEmail(email)) return getSuperAdminViewTerritory();
 
     // Look up the managers row by email (case-insensitive), then by id.
     if (email) {

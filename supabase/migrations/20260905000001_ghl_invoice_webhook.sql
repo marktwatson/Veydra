@@ -20,6 +20,7 @@ ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS phone text;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_api_key text;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_location_id text;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_proposal_link_field_id text;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS sales_pin text;
 ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS contract_status text;
 DROP TRIGGER IF EXISTS trg_coverage_auto_assign ON public.applications;
 DROP FUNCTION IF EXISTS public.fn_coverage_auto_assign();
