@@ -531,39 +531,42 @@ async function sendCrmMessages({
   // Try three payload shapes until one returns 2xx (different CRM versions
   // accept different field-key/value naming).
   let linkFieldStatus = "skipped";
+  const proposalAmount = Number(proposal.total_amount) || 0;
+  const amountStr = String(proposalAmount);
+  const amountFieldKey = "contact.proposal_amount";
   if (contactId) {
+    let linkId = hlProposalLinkFieldId;
+    let amountId = amountFieldKey;
+    try {
+      const defRes = await fetch(`https://services.leadconnectorhq.com/contacts/customFields?locationId=${hlLocationId}`, { headers: crmHeaders });
+      if (defRes.ok) {
+        const defData = await defRes.json();
+        for (const f of defData.customFields || defData.fields || []) {
+          const fn = String(f.name || "").toLowerCase();
+          const fk = String(f.fieldKey || "").toLowerCase();
+          if (f.id === hlProposalLinkFieldId || fn.includes("proposal link") || fk === "contact.proposal_link") linkId = f.id;
+          if (fn.includes("proposal amount") || fk === "contact.proposal_amount" || fk.includes("proposal_amount")) amountId = f.id;
+        }
+      }
+    } catch (_e) {}
+    console.log(`[send-proposal] writing fields: link=${linkId}, amount=${amountId}, amountVal=${amountStr}`);
     const payloads = [
-      { customFields: [{ key: hlProposalLinkFieldId, fieldValue: publicUrl }] },
-      { customFields: [{ key: hlProposalLinkFieldId, field_value: publicUrl }] },
-      { customFields: [{ id: hlProposalLinkFieldId, fieldValue: publicUrl }] },
+      { customFields: [{ id: linkId, field_value: publicUrl }, { id: amountId, field_value: amountStr }] },
+      { customFields: [{ id: linkId, field_value: publicUrl }, { key: amountFieldKey, field_value: amountStr }] },
     ];
     for (let pi = 0; pi < payloads.length; pi++) {
       try {
-        const linkRes = await fetch(
-          `https://services.leadconnectorhq.com/contacts/${contactId}`,
-          {
-            method: "PUT",
-            headers: crmHeaders,
-            body: JSON.stringify(payloads[pi]),
-          },
-        );
-        if (linkRes.ok) {
-          linkFieldStatus = "sent";
-          break;
-        }
-        const linkErrText = await linkRes.text();
-        console.warn(
-          `[send-proposal] custom field PUT payload ${pi + 1} ${linkRes.status}:`,
-          linkErrText.slice(0, 300),
-        );
-        if (pi === payloads.length - 1) {
-          linkFieldStatus = `error:${linkRes.status}`;
-        }
+        const linkRes = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
+          method: "PUT",
+          headers: crmHeaders,
+          body: JSON.stringify(payloads[pi]),
+        });
+        if (linkRes.ok) { linkFieldStatus = "sent"; break; }
+        const err = await linkRes.text();
+        console.warn(`[send-proposal] custom field PUT ${pi + 1} (${linkRes.status}):`, err.slice(0, 300));
+        if (pi === payloads.length - 1) linkFieldStatus = `error:${linkRes.status}`;
       } catch (e: any) {
-        console.warn(`[send-proposal] custom field PUT payload ${pi + 1} failed:`, e?.message);
-        if (pi === payloads.length - 1) {
-          linkFieldStatus = `error:${e?.message}`;
-        }
+        if (pi === payloads.length - 1) linkFieldStatus = `error:${e?.message}`;
       }
     }
   }
