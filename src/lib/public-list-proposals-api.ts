@@ -14,13 +14,17 @@ export interface PublicProposalListItem {
 
 /**
  * Calls the public-list-proposals edge function to fetch the proposals a
- * salesperson built for a given area, matched by their email. Gated by the
- * area PIN if one is set.
+ * salesperson built for a given area, matched by their email. The area PIN
+ * (if any) is validated server-side with per-IP rate limiting.
+ *
+ * `verifyOnly: true` skips the listing and ONLY validates the PIN — used by
+ * the gate modal to unlock the builder without exposing the stored PIN.
  */
 export async function publicListProposals(input: {
   slug: string;
   salespersonEmail: string;
   pin?: string;
+  verifyOnly?: boolean;
 }): Promise<PublicProposalListItem[]> {
   const functionUrl = `${supabaseUrl}/functions/v1/public-list-proposals`;
   const response = await fetch(functionUrl, {
@@ -34,7 +38,10 @@ export async function publicListProposals(input: {
   });
   const result = await response.json();
   if (!response.ok || !result.success) {
-    throw new Error(result.error || "Failed to load proposals");
+    const err = new Error(result.error || "Failed to load proposals");
+    (err as any).retryAfter = result.retryAfter;
+    (err as any).attemptsRemaining = result.attemptsRemaining;
+    throw err;
   }
-  return result.proposals as PublicProposalListItem[];
+  return (result.proposals || []) as PublicProposalListItem[];
 }

@@ -11,19 +11,27 @@
 //   never exposes the service key to the browser and writes only the fields a
 //   salesperson controls.
 //
+// PIN + bot protection (server-side):
+//   If the area has a portal_settings.sales_pin, the request must include a
+//   matching `pin`. The PIN is validated HERE, never in the browser. Failed
+//   attempts are rate-limited per IP in public_pin_attempts (3 tries → 10 min
+//   lockout). One bad IP only locks that IP; real salespeople are unaffected.
+//   The rate-limit table is optional — if it is missing, the function still
+//   validates the PIN (fail-open on the table, never fail-open on the PIN).
+//
 // Body:
 //   {
 //     slug: string,            // territory slug (required)
 //     salespersonName?: string, // optional, for audit
 //     salespersonEmail?: string,// optional, for audit
+//     pin?: string,             // required only if the area has a PIN
 //     proposal: { ...CreateProposal payload fields... }
 //   }
 //
 // Returns: { success, proposalId, link, territoryId }
+//   On wrong/missing PIN: { error, attemptsRemaining } (403)
+//   On locked IP: { error, retryAfter } (429)
 //   link = `${app_url || origin}/proposal/${id}`
-//
-// Does NOT send the proposal (no email/SMS/timer). Sending is a separate,
-// gated action that calls the existing send-proposal function.
 
 import { createClient } from "jsr:@supabase/supabase-js";
 
@@ -43,6 +51,21 @@ function jsonResp(body: any, status = 200) {
 
 const HONEYSUCKLE_TERRITORY_ID = "0bbaebfc-1c51-4ebe-98b4-e2e9697ef33d";
 
+const MAX_ATTEMPTS = 3;
+const LOCK_MS = 10 * 60 * 1000; // 10 minutes
+
+// Best-effort client IP. Supabase edge functions run behind a proxy that
+// forwards the real client IP in these headers.
+function clientIp(req: Request): string {
+  const headers = req.headers;
+  return (
+    headers.get("cf-connecting-ip") ||
+    headers.get("x-real-ip") ||
+    (headers.get("x-forwarded-for") || "").split(",")[0].trim() ||
+    "unknown"
+  );
+}
+
 // Self-heal the columns this function touches so a stale Sync still works.
 // Run each statement individually so one failure doesn't abort the rest.
 const HEAL_STATEMENTS = [
@@ -58,8 +81,77 @@ const HEAL_STATEMENTS = [
   "ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS sales_pin text",
   "ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS app_url text",
   "ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS wedding_contract_template text",
+  "CREATE TABLE IF NOT EXISTS public.public_pin_attempts (ip text NOT NULL, territory_id uuid NOT NULL, failed_at timestamptz NOT NULL DEFAULT now())",
+  "CREATE INDEX IF NOT EXISTS public_pin_attempts_idx ON public.public_pin_attempts (ip, territory_id, failed_at)",
   "NOTIFY pgrst, 'reload schema'",
 ];
+
+/** Returns remaining locked milliseconds (0 if not locked). Table-missing
+ *  tolerant — treats a missing/errored table as "not locked" (fail-open). */
+async function lockedRemaining(db: any, ip: string, territoryId: string): Promise<number> {
+  try {
+    const since = new Date(Date.now() - LOCK_MS).toISOString();
+    const { count, error } = await db
+      .from("public_pin_attempts")
+      .select("id", { count: "exact", head: true })
+      .eq("ip", ip)
+      .eq("territory_id", territoryId)
+      .gte("failed_at", since);
+    if (error) return 0;
+    if ((count ?? 0) < MAX_ATTEMPTS) return 0;
+    // Locked — compute how long until the oldest relevant attempt ages out.
+    const { data: oldest } = await db
+      .from("public_pin_attempts")
+      .select("failed_at")
+      .eq("ip", ip)
+      .eq("territory_id", territoryId)
+      .gte("failed_at", since)
+      .order("failed_at", { ascending: true })
+      .limit(1);
+    if (!oldest || oldest.length === 0) return LOCK_MS;
+    const unlockAt = new Date(oldest[0].failed_at).getTime() + LOCK_MS;
+    return Math.max(0, unlockAt - Date.now());
+  } catch {
+    return 0;
+  }
+}
+
+async function clearAttempts(db: any, ip: string, territoryId: string) {
+  try {
+    await db
+      .from("public_pin_attempts")
+      .delete()
+      .eq("ip", ip)
+      .eq("territory_id", territoryId);
+  } catch {
+    /* ignore */
+  }
+}
+
+async function countRecentAttempts(db: any, ip: string, territoryId: string): Promise<number> {
+  try {
+    const since = new Date(Date.now() - LOCK_MS).toISOString();
+    const { count } = await db
+      .from("public_pin_attempts")
+      .select("id", { count: "exact", head: true })
+      .eq("ip", ip)
+      .eq("territory_id", territoryId)
+      .gte("failed_at", since);
+    return count ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function recordFailedAttempt(db: any, ip: string, territoryId: string) {
+  try {
+    await db.from("public_pin_attempts").insert([
+      { ip, territory_id: territoryId, failed_at: new Date().toISOString() },
+    ]);
+  } catch {
+    /* ignore */
+  }
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -75,7 +167,6 @@ Deno.serve(async (req) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || serviceKey;
 
   if (!supabaseUrl || !serviceKey) {
     return jsonResp({ error: "Missing Supabase env" }, 500);
@@ -134,13 +225,57 @@ Deno.serve(async (req) => {
     territoryId = terr.id;
   }
 
-  // Load the area's portal_settings for app_url + contract template snapshot.
+  // Load the area's portal_settings: app_url + contract template + the PIN.
   const { data: settings } = await db
     .from("portal_settings")
-    .select("app_url, wedding_contract_template")
+    .select("app_url, wedding_contract_template, sales_pin")
     .eq("territory_id", territoryId)
     .limit(1)
     .maybeSingle();
+
+  // ---- Server-side PIN validation + per-IP rate limiting ----
+  const areaPin = (settings?.sales_pin || "").trim();
+  const ip = clientIp(req);
+  if (areaPin) {
+    // Already locked?
+    const left = await lockedRemaining(db, ip, territoryId);
+    if (left > 0) {
+      return jsonResp(
+        {
+          error: "Too many failed attempts. Try again later.",
+          retryAfter: Math.ceil(left / 1000),
+          locked: true,
+        },
+        429,
+      );
+    }
+    const providedPin = String(body.pin || "").trim();
+    if (providedPin !== areaPin) {
+      await recordFailedAttempt(db, ip, territoryId);
+      const attempts = await countRecentAttempts(db, ip, territoryId);
+      if (attempts >= MAX_ATTEMPTS) {
+        return jsonResp(
+          {
+            error: "Too many failed attempts. This IP is locked for 10 minutes.",
+            retryAfter: Math.ceil(LOCK_MS / 1000),
+            locked: true,
+          },
+          429,
+        );
+      }
+      const remaining = MAX_ATTEMPTS - attempts;
+      return jsonResp(
+        {
+          error: "Incorrect area PIN.",
+          attemptsRemaining: remaining,
+        },
+        403,
+      );
+    }
+    // Correct PIN — clear this IP's attempts.
+    await clearAttempts(db, ip, territoryId);
+  }
+  // No area pin → open access (no rate limiting needed).
 
   const p = body.proposal || {};
   const salespersonName = String(body.salespersonName || "").trim();

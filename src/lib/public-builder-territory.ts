@@ -1,44 +1,78 @@
 import { supabase } from "./supabase";
 import { resolveTerritoryBySlug } from "./territory";
-import { getPortalSettingsForTerritory } from "./apply-territory-settings";
 import { HONEYSUCKLE_TERRITORY_ID } from "./territory";
 
 export interface PublicBuilderTerritory {
   id: string;
   found: boolean;
+  /** Whether the area has a sales PIN set. The PIN VALUE is never returned —
+   *  only this boolean, so the page can decide whether to show the gate. */
+  hasPin: boolean;
   settings: {
     company_name?: string | null;
     logo_url?: string | null;
     app_url?: string | null;
-    sales_pin?: string | null;
   } | null;
 }
 
 /**
- * Resolve the territory for the public proposal builder from a slug, and
- * load that area's portal_settings (company name, logo, sales PIN). Returns
- * found:false for an unknown slug so the page can render the "Unknown
- * location" state without inserting anything.
+ * Resolve the territory for the public proposal builder from a slug, and load
+ * that area's portal_settings (company name, logo, app_url). Returns found:false
+ * for an unknown slug so the page can render the "Unknown location" state.
+ *
+ * The sales PIN is intentionally NOT loaded here. We only return `hasPin`
+ * (computed via a head/count query that never returns the value) so the browser
+ * never receives the PIN. The PIN is validated server-side by the edge
+ * functions (public-create-proposal / public-list-proposals) with per-IP rate
+ * limiting.
  */
 export async function loadPublicBuilderTerritory(
   slug?: string,
 ): Promise<PublicBuilderTerritory> {
   const resolved = await resolveTerritoryBySlug(slug);
   if (!resolved.found || !resolved.id) {
-    return { id: "", found: false, settings: null };
+    return { id: "", found: false, hasPin: false, settings: null };
   }
-  const settings = await getPortalSettingsForTerritory(resolved.id);
+
+  // Non-secret branding columns only.
+  let settings: PublicBuilderTerritory["settings"] = null;
+  try {
+    const { data } = await supabase
+      .from("portal_settings")
+      .select("company_name, logo_url, app_url")
+      .eq("territory_id", resolved.id)
+      .limit(1)
+      .maybeSingle();
+    if (data) {
+      settings = {
+        company_name: data.company_name,
+        logo_url: data.logo_url,
+        app_url: data.app_url,
+      };
+    }
+  } catch {
+    /* keep null */
+  }
+
+  // Does a PIN exist for this area? head/count query — the value never ships.
+  let hasPin = false;
+  try {
+    const { count } = await supabase
+      .from("portal_settings")
+      .select("id", { count: "exact", head: true })
+      .eq("territory_id", resolved.id)
+      .not("sales_pin", "is", null)
+      .neq("sales_pin", "");
+    hasPin = (count ?? 0) > 0;
+  } catch {
+    /* assume no pin → open access */
+  }
+
   return {
     id: resolved.id,
     found: true,
-    settings: settings
-      ? {
-          company_name: settings.company_name,
-          logo_url: (settings as any).logo_url,
-          app_url: settings.app_url,
-          sales_pin: (settings as any).sales_pin,
-        }
-      : null,
+    hasPin,
+    settings,
   };
 }
 

@@ -15,7 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useParams } from "react-router-dom";
-import { Loader2, ChevronRight, Lock, RotateCcw, List } from "lucide-react";
+import { Loader2, ChevronRight, List } from "lucide-react";
 import { checkCustomPlanBalance } from "@/lib/custom-plan-balance";
 import ProposalShareModal from "@/components/ProposalShareModal";
 import {
@@ -33,6 +33,8 @@ import { PackageSelectionCard } from "@/components/build-proposal/PackageSelecti
 import { CustomLineItemsCard } from "@/components/build-proposal/CustomLineItemsCard";
 import { CustomPaymentPlanCard } from "@/components/build-proposal/CustomPaymentPlanCard";
 import { PublicBuilderMyProposals } from "@/components/build-proposal/PublicBuilderMyProposals";
+import { PublicBuilderGateModal } from "@/components/build-proposal/PublicBuilderGateModal";
+import { PublicBuilderYourDetailsCard } from "@/components/build-proposal/PublicBuilderYourDetailsCard";
 
 export default function BuildProposal() {
   const { slug } = useParams<{ slug?: string }>();
@@ -167,6 +169,7 @@ export default function BuildProposal() {
         slug: (slug ?? "").toLowerCase(),
         salespersonName,
         salespersonEmail,
+        pin: salesPin || undefined,
         proposal: {
           client_name: formData.clientName,
           client_email: formData.clientEmail,
@@ -219,17 +222,9 @@ export default function BuildProposal() {
       });
       return;
     }
-    const areaPin = territory?.settings?.sales_pin;
-    if (areaPin && areaPin.trim() !== "") {
-      if (salesPin.trim() !== areaPin.trim()) {
-        toast({
-          title: "Incorrect PIN",
-          description: "The area PIN does not match. Ask your manager.",
-          variant: "destructive",
-        });
-        return;
-      }
-    }
+    // The area PIN (if any) was already verified server-side by the gate
+    // modal before the builder unlocked, so no client-side check is needed
+    // here. Sending uses the authenticated send-proposal function.
     setSending(true);
     try {
       const result = await sendProposalToClient(savedProposalId);
@@ -352,56 +347,20 @@ export default function BuildProposal() {
         {activeTab === "mine" ? (
           <PublicBuilderMyProposals
             slug={(slug ?? "").toLowerCase()}
-            areaPin={territory.settings?.sales_pin}
+            areaHasPin={territory.hasPin}
           />
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
             <div className="lg:col-span-2 space-y-8">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Lock className="h-4 w-4" />
-                    Your Details
-                  </CardTitle>
-                  <CardDescription>
-                    Required before you can send a proposal to a client. For
-                    internal tracking only.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Your Name *</Label>
-                      <Input
-                        value={salespersonName}
-                        onChange={(e) => setSalespersonName(e.target.value)}
-                        placeholder="Jane Sales"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Your Email *</Label>
-                      <Input
-                        type="email"
-                        value={salespersonEmail}
-                        onChange={(e) => setSalespersonEmail(e.target.value)}
-                        placeholder="jane@example.com"
-                      />
-                    </div>
-                  </div>
-                  {territory.settings?.sales_pin &&
-                    territory.settings.sales_pin.trim() !== "" && (
-                      <div className="space-y-2 max-w-xs">
-                        <Label>Area PIN *</Label>
-                        <Input
-                          type="password"
-                          value={salesPin}
-                          onChange={(e) => setSalesPin(e.target.value)}
-                          placeholder="Enter the PIN for this area"
-                        />
-                      </div>
-                    )}
-                </CardContent>
-              </Card>
+              <PublicBuilderYourDetailsCard
+                salespersonName={salespersonName}
+                salespersonEmail={salespersonEmail}
+                salesPin={salesPin}
+                hasPin={territory.hasPin}
+                onName={setSalespersonName}
+                onEmail={setSalespersonEmail}
+                onPin={setSalesPin}
+              />
 
               {loadingPackages && (
                 <div className="flex items-center justify-center py-8">
@@ -702,6 +661,18 @@ export default function BuildProposal() {
         coveragePending={false}
         onSent={() => {}}
         onReset={handleReset}
+      />
+
+      <PublicBuilderGateModal
+        slug={(slug ?? "").toLowerCase()}
+        areaHasPin={territory.hasPin}
+        companyName={companyName}
+        logoUrl={logoUrl}
+        onUnlock={(info) => {
+          setSalespersonName(info.name);
+          setSalespersonEmail(info.email);
+          setSalesPin(info.pin);
+        }}
       />
     </div>
   );

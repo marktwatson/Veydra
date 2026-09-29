@@ -4,6 +4,9 @@ export interface PublicCreateProposalInput {
   slug: string;
   salespersonName?: string;
   salespersonEmail?: string;
+  /** The area PIN the salesperson entered. Validated server-side (never
+   *  compared in the browser). Required only if the area has a PIN set. */
+  pin?: string;
   proposal: {
     client_name: string;
     client_email: string;
@@ -47,7 +50,8 @@ export interface PublicCreateProposalResult {
 
 /**
  * Calls the public-create-proposal edge function (service role) to insert a
- * proposal row scoped to the territory resolved from the slug. No login
+ * proposal row scoped to the territory resolved from the slug. The area PIN
+ * (if any) is validated server-side with per-IP rate limiting; no login
  * required — this is the unauthenticated salesperson path.
  */
 export async function publicCreateProposal(
@@ -71,7 +75,12 @@ export async function publicCreateProposal(
   }
   if (!response.ok || !result.success) {
     const detail = result.detail ? ` — ${result.detail}` : "";
-    throw new Error(`${result.error || "Failed to create proposal"}${detail}`);
+    const err = new Error(
+      `${result.error || "Failed to create proposal"}${detail}`,
+    );
+    (err as any).retryAfter = result.retryAfter;
+    (err as any).attemptsRemaining = result.attemptsRemaining;
+    throw err;
   }
   return result as PublicCreateProposalResult;
 }

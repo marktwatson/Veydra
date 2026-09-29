@@ -10,7 +10,9 @@ import { useToast } from "@/hooks/use-toast";
 
 interface Props {
   slug: string;
-  areaPin?: string | null;
+  /** True when the area has a sales PIN configured. The PIN VALUE is never
+   *  passed to the browser; verification happens server-side. */
+  areaHasPin?: boolean;
 }
 
 const statusLabel = (s: string | null) => {
@@ -21,14 +23,14 @@ const statusLabel = (s: string | null) => {
   return s.charAt(0).toUpperCase() + s.slice(1);
 };
 
-export function PublicBuilderMyProposals({ slug, areaPin }: Props) {
+export function PublicBuilderMyProposals({ slug, areaHasPin }: Props) {
   const { toast } = useToast();
   const [email, setEmail] = useState("");
   const [pin, setPin] = useState("");
   const [query, setQuery] = useState("");
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ["public-builder-mine", slug, query],
+    queryKey: ["public-builder-mine", slug, query, pin],
     queryFn: () =>
       publicListProposals({
         slug,
@@ -47,15 +49,13 @@ export function PublicBuilderMyProposals({ slug, areaPin }: Props) {
       });
       return;
     }
-    if (areaPin && areaPin.trim() !== "") {
-      if (pin.trim() !== areaPin.trim()) {
-        toast({
-          title: "Incorrect PIN",
-          description: "The area PIN does not match. Ask your manager.",
-          variant: "destructive",
-        });
-        return;
-      }
+    if (areaHasPin && !pin.trim()) {
+      toast({
+        title: "Area PIN required",
+        description: "This area requires a PIN to view proposals.",
+        variant: "destructive",
+      });
+      return;
     }
     setQuery(email.trim().toLowerCase());
     await refetch();
@@ -82,7 +82,7 @@ export function PublicBuilderMyProposals({ slug, areaPin }: Props) {
                 placeholder="jane@example.com"
               />
             </div>
-            {areaPin && areaPin.trim() !== "" && (
+            {areaHasPin && (
               <div className="space-y-2">
                 <Label>Area PIN *</Label>
                 <Input
