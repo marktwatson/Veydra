@@ -12,32 +12,12 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  PlusSquare,
-  ExternalLink,
-  Copy,
-  CheckCircle2,
-  Trash2,
-  Pencil,
-  CheckCircle,
-  Users,
-} from "lucide-react";
+import { PlusSquare, Users } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { formatDisplayDate } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Sheet,
@@ -63,6 +43,7 @@ import {
   ProposalCoverageBlock,
 } from "@/components/ProposalSheetActions";
 import { CoverageApplicants } from "@/components/CoverageApplicants";
+import { ProposalRowActions } from "@/components/ProposalRowActions";
 
 const PACKAGES = [
   { id: "pearl", name: "Pearl", isArchived: true },
@@ -243,10 +224,19 @@ export default function ManagerProposals() {
             Manage open proposals and their statuses
           </p>
         </div>
-        <Button onClick={() => navigate("/build-proposal")}>
-          <PlusSquare className="w-4 h-4 mr-2" />
-          Create Proposal
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => navigate("/manager/sales-reps")}
+          >
+            <Users className="w-4 h-4 mr-2" />
+            Sales Reps
+          </Button>
+          <Button onClick={() => navigate("/build-proposal")}>
+            <PlusSquare className="w-4 h-4 mr-2" />
+            Create Proposal
+          </Button>
+        </div>
       </div>
 
       <Tabs
@@ -431,110 +421,19 @@ export default function ManagerProposals() {
                         <TableCell>
                           {new Date(proposal.created_at).toLocaleDateString()}
                         </TableCell>
-                        <TableCell
-                          className="text-right"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <div className="flex items-center justify-end gap-2">
-                            {awaiting ? (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-xs"
-                                onClick={() => setDetailProposal(proposal)}
-                                title="Review coverage / applicants"
-                              >
-                                <Users className="w-4 h-4 mr-1" />
-                                Review
-                              </Button>
-                            ) : (
-                              <>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => copyLink(proposal.id)}
-                                  title="Copy Link"
-                                >
-                                  {copiedId === proposal.id ? (
-                                    <CheckCircle2 className="w-4 h-4 text-green-500" />
-                                  ) : (
-                                    <Copy className="w-4 h-4" />
-                                  )}
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() =>
-                                    navigate(`/edit-proposal/${proposal.id}`)
-                                  }
-                                  title="Edit Proposal"
-                                >
-                                  <Pencil className="w-4 h-4" />
-                                </Button>
-                                {proposal.status !== "accepted" &&
-                                  proposal.status !== "paid" &&
-                                  proposal.status !== "superseded" && (
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      onClick={() =>
-                                        handleMarkAsBooked(proposal)
-                                      }
-                                      title="Mark as Booked"
-                                    >
-                                      <CheckCircle className="w-4 h-4 text-green-500" />
-                                    </Button>
-                                  )}
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() =>
-                                    window.open(
-                                      `/proposal/${proposal.id}`,
-                                      "_blank",
-                                    )
-                                  }
-                                  title="Preview"
-                                >
-                                  <ExternalLink className="w-4 h-4" />
-                                </Button>
-                              </>
-                            )}
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                                  title="Delete"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>
-                                    Are you absolutely sure?
-                                  </AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    This action cannot be undone. This will
-                                    permanently delete the proposal and it will
-                                    no longer be accessible via the link.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    onClick={() => deleteProposal(proposal.id)}
-                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                  >
-                                    Delete
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          </div>
-                        </TableCell>
+                        <ProposalRowActions
+                          proposal={proposal}
+                          awaiting={awaiting}
+                          copied={copiedId === proposal.id}
+                          onCopy={copyLink}
+                          onEdit={(id) => navigate(`/edit-proposal/${id}`)}
+                          onMarkBooked={handleMarkAsBooked}
+                          onPreview={(id) =>
+                            window.open(`/proposal/${id}`, "_blank")
+                          }
+                          onReview={setDetailProposal}
+                          onDelete={deleteProposal}
+                        />
                       </TableRow>
                     );
                   })}

@@ -36,6 +36,7 @@ import ManagerDashboard from "@/pages/manager/Dashboard";
 import ManagerWeddings from "@/pages/manager/Weddings";
 import CreateProposal from "@/pages/manager/CreateProposal";
 import ManagerProposals from "@/pages/manager/Proposals";
+import SalesRepsPage from "@/pages/manager/SalesReps";
 import ManagerPositions from "@/pages/manager/Positions";
 import ManagerApplications from "@/pages/manager/Applications";
 import ManagerAssignments from "@/pages/manager/Assignments";
@@ -214,6 +215,14 @@ const App = () => {
                   element={
                     <Mgr>
                       <CreateProposal />
+                    </Mgr>
+                  }
+                />
+                <Route
+                  path="/manager/sales-reps"
+                  element={
+                    <Mgr>
+                      <SalesRepsPage />
                     </Mgr>
                   }
                 />
