@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -18,6 +18,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   ChevronDown,
   ChevronRight,
   Users,
@@ -25,6 +35,8 @@ import {
   Calendar,
   DollarSign,
   Clock,
+  Loader2,
+  CheckCircle,
 } from "lucide-react";
 import { formatDisplayDate } from "@/lib/utils";
 import { isBooked, resolveWedding } from "@/lib/proposal-tabs";
@@ -34,6 +46,15 @@ import {
   computeAwards,
   type AwardId,
 } from "@/components/SalesRepPodium";
+import { supabase } from "@/lib/supabase";
+import { useToast } from "@/hooks/use-toast";
+import {
+  healSalespersonPayoutSchema,
+  getSalespersonSendFees,
+  markSalespersonPaid,
+  feeFor,
+  DEFAULT_SALESPERSON_SEND_FEE,
+} from "@/lib/salesperson-payouts";
 
 const AWARD_LABELS: Record<AwardId, string> = {
   volume: "Volume",
@@ -45,42 +66,52 @@ const AWARD_LABELS: Record<AwardId, string> = {
 
 interface Props {
   proposals: any[];
+  onRefresh?: () => void;
 }
-
 type RangeKey = "all" | "30" | "90" | "month";
 
 interface RepRow {
-  key: string; // salesperson_email (lowercased)
+  key: string;
   name: string;
   email: string;
   sent: number;
   booked: number;
   totalValue: number;
   bookedValue: number;
-  /** Sum of days-to-book across booked proposals (for averaging). */
   daysToBookSum: number;
   daysToBookCount: number;
   proposals: any[];
+  owed: number;
+  paidCount: number;
+  paidAmount: number;
+  unpaidProposalIds: string[];
+  unpaidClientNames: string[];
 }
 
-/**
- * Groups public-builder proposals by salesperson (salesperson_email +
- * salesperson_name). Only proposals that came through the public builder
- * (i.e. have a salesperson_email) are shown — internal manager-built
- * proposals have no salesperson and are excluded so this tab tracks the
- * hired-salespeople pipeline only.
- *
- * For each rep: # sent, # booked, close ratio (booked / sent), average deal
- * size, days-to-book (sent → contract signed), and total / booked proposal
- * value. A date-range filter narrows by proposal created_at.
- */
-export function ProposalSalesRepsTab({ proposals }: Props) {
+/** Staff-only salesperson send-fee payouts. First send only; not visible to
+ *  salespeople. Owed fees can be batch-marked paid (idempotent). */
+export function ProposalSalesRepsTab({ proposals, onRefresh }: Props) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [range, setRange] = useState<RangeKey>("all");
+  const [feeByTerritory, setFeeByTerritory] = useState<Map<string, number>>(
+    new Map(),
+  );
+  const [confirmRep, setConfirmRep] = useState<RepRow | null>(null);
+  const [paying, setPaying] = useState(false);
+
+  useEffect(() => {
+    healSalespersonPayoutSchema();
+  }, []);
+  useEffect(() => {
+    const ids = Array.from(
+      new Set(proposals.map((p) => p.territory_id).filter(Boolean) as string[]),
+    );
+    getSalespersonSendFees(ids).then(setFeeByTerritory);
+  }, [proposals]);
 
   const rangeMs = useMemo(() => {
-    if (range === "30") return 30 * 24 * 60 * 60 * 1000;
-    if (range === "90") return 90 * 24 * 60 * 60 * 1000;
+    if (range === "30") return 30 * 86400000;
+    if (range === "90") return 90 * 86400000;
     return 0;
   }, [range]);
 
@@ -92,24 +123,22 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
         now.getMonth(),
         1,
       ).getTime();
-      return proposals.filter((p) => {
-        const t = new Date(p.created_at || p.sent_at || 0).getTime();
-        return t >= monthStart;
-      });
+      return proposals.filter(
+        (p) => new Date(p.created_at || p.sent_at || 0).getTime() >= monthStart,
+      );
     }
     if (!rangeMs) return proposals;
     const cutoff = Date.now() - rangeMs;
-    return proposals.filter((p) => {
-      const t = new Date(p.created_at || p.sent_at || 0).getTime();
-      return t >= cutoff;
-    });
+    return proposals.filter(
+      (p) => new Date(p.created_at || p.sent_at || 0).getTime() >= cutoff,
+    );
   }, [proposals, rangeMs, range]);
 
   const reps = useMemo<RepRow[]>(() => {
     const map = new Map<string, RepRow>();
     for (const p of scoped) {
       const email = (p.salesperson_email || "").trim().toLowerCase();
-      if (!email) continue; // not a public-builder proposal
+      if (!email) continue;
       const name = (p.salesperson_name || "").trim() || email;
       let row = map.get(email);
       if (!row) {
@@ -124,22 +153,31 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
           daysToBookSum: 0,
           daysToBookCount: 0,
           proposals: [],
+          owed: 0,
+          paidCount: 0,
+          paidAmount: 0,
+          unpaidProposalIds: [],
+          unpaidClientNames: [],
         };
         map.set(email, row);
       }
-      // Only count proposals that were actually sent (sent_at set) toward
-      // the close ratio. Unsent drafts are still listed but don't inflate
-      // the denominator.
       if (p.sent_at) row.sent += 1;
-      // Pipeline value: only sent, non-superseded, not-yet-booked proposals.
-      if (p.sent_at && p.status !== "superseded" && !isBooked(p)) {
+      if (p.sent_at && p.status !== "superseded" && !isBooked(p))
         row.totalValue += Number(p.total_amount || 0);
+      if (p.sent_at) {
+        const fee = feeFor(feeByTerritory, p.territory_id);
+        if (p.salesperson_paid_at) {
+          row.paidCount += 1;
+          row.paidAmount += fee;
+        } else {
+          row.owed += fee;
+          row.unpaidProposalIds.push(p.id);
+          if (p.client_name) row.unpaidClientNames.push(p.client_name);
+        }
       }
-      const booked = isBooked(p);
-      if (booked) {
+      if (isBooked(p)) {
         row.booked += 1;
         row.bookedValue += Number(p.total_amount || 0);
-        // Days to book: sent_at → signed date (proposal first, then wedding).
         const w = resolveWedding(p);
         const signedAt =
           p.contract_signed_at ||
@@ -149,7 +187,7 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
         if (p.sent_at && signedAt) {
           const days =
             (new Date(signedAt).getTime() - new Date(p.sent_at).getTime()) /
-            (24 * 60 * 60 * 1000);
+            86400000;
           if (days >= 0) {
             row.daysToBookSum += days;
             row.daysToBookCount += 1;
@@ -158,27 +196,22 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
       }
       row.proposals.push(p);
     }
-    // Sort reps by sent DESC (primary rank), then bookedValue, then booked.
     return Array.from(map.values()).sort(
       (a, b) =>
         b.sent - a.sent || b.bookedValue - a.bookedValue || b.booked - a.booked,
     );
-  }, [scoped]);
+  }, [scoped, feeByTerritory]);
 
   const totals = useMemo(() => {
     const sent = reps.reduce((s, r) => s + r.sent, 0);
     const booked = reps.reduce((s, r) => s + r.booked, 0);
-    const totalValue = reps.reduce((s, r) => s + r.totalValue, 0);
-    const bookedValue = reps.reduce((s, r) => s + r.bookedValue, 0);
     const daysSum = reps.reduce((s, r) => s + r.daysToBookSum, 0);
     const daysCount = reps.reduce((s, r) => s + r.daysToBookCount, 0);
     return {
       sent,
       booked,
+      owed: reps.reduce((s, r) => s + r.owed, 0),
       ratio: sent > 0 ? Math.round((booked / sent) * 100) : 0,
-      totalValue,
-      bookedValue,
-      avgDeal: booked > 0 ? Math.round(bookedValue / booked) : 0,
       avgDays: daysCount > 0 ? Math.round(daysSum / daysCount) : 0,
     };
   }, [reps]);
@@ -194,6 +227,47 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
     return m;
   }, [awards]);
 
+  const { toast } = useToast();
+  const handleConfirmPay = async () => {
+    if (!confirmRep) return;
+    setPaying(true);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const res = await markSalespersonPaid({
+        email: confirmRep.email,
+        name: confirmRep.name,
+        proposalIds: confirmRep.unpaidProposalIds,
+        paidBy: user?.email || "staff",
+        feeByTerritory,
+      });
+      if (res) {
+        toast({
+          title: "Sales rep paid",
+          description: `Recorded $${res.amount.toLocaleString()} for ${res.count} proposal${res.count === 1 ? "" : "s"}.`,
+        });
+        setConfirmRep(null);
+        onRefresh?.();
+      } else {
+        toast({
+          title: "Nothing to pay",
+          description: "These proposals were already marked paid.",
+        });
+        setConfirmRep(null);
+        onRefresh?.();
+      }
+    } catch (e: any) {
+      toast({
+        variant: "destructive",
+        title: "Failed to mark paid",
+        description: e?.message || "Unknown error",
+      });
+    } finally {
+      setPaying(false);
+    }
+  };
+
   if (reps.length === 0) {
     return (
       <div className="text-center p-8 text-muted-foreground">
@@ -205,7 +279,6 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* Date-range filter */}
       <div className="flex items-center gap-2">
         <Calendar className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm text-muted-foreground">Period:</span>
@@ -222,10 +295,8 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
         </Select>
       </div>
 
-      {/* Hero award strip */}
       <SalesRepPodium reps={reps} />
 
-      {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <Card>
           <CardContent className="pt-4">
@@ -259,17 +330,17 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="border-amber-500/20">
           <CardContent className="pt-4">
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Clock className="h-3.5 w-3.5" />
-              Avg Days to Book
+              <DollarSign className="h-3.5 w-3.5" />
+              Owed (send fees)
             </div>
-            <div className="text-2xl font-semibold mt-1">
-              {totals.avgDays || "—"}
+            <div className="text-2xl font-semibold mt-1 text-amber-600 dark:text-amber-400">
+              ${totals.owed.toLocaleString()}
             </div>
-            <div className="text-xs text-muted-foreground mt-0.5">
-              sent → signed
+            <div className="text-[10px] text-muted-foreground mt-0.5">
+              ${DEFAULT_SALESPERSON_SEND_FEE}/first send · staff only
             </div>
           </CardContent>
         </Card>
@@ -298,12 +369,10 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
                   <TableHead className="text-center">Sent</TableHead>
                   <TableHead className="text-center">Booked</TableHead>
                   <TableHead className="text-center">Close Ratio</TableHead>
-                  <TableHead className="text-right">Avg Deal</TableHead>
-                  <TableHead className="text-center">
-                    Avg Days to Book
-                  </TableHead>
                   <TableHead className="text-right">Booked Value</TableHead>
-                  <TableHead className="text-right">Pipeline Value</TableHead>
+                  <TableHead className="text-right">Pipeline</TableHead>
+                  <TableHead className="text-right">Owed</TableHead>
+                  <TableHead className="text-right">Payout</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -311,10 +380,6 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
                   const ratio =
                     rep.sent > 0
                       ? Math.round((rep.booked / rep.sent) * 100)
-                      : 0;
-                  const avgDeal =
-                    rep.booked > 0
-                      ? Math.round(rep.bookedValue / rep.booked)
                       : 0;
                   const avgDays =
                     rep.daysToBookCount > 0
@@ -411,22 +476,33 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
                           </div>
                         </TableCell>
                         <TableCell className="text-right font-medium">
-                          {avgDeal ? `$${avgDeal.toLocaleString()}` : "—"}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {avgDays !== null ? (
-                            <span className="text-sm font-medium">
-                              {avgDays}d
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right font-medium">
                           ${rep.bookedValue.toLocaleString()}
                         </TableCell>
                         <TableCell className="text-right text-muted-foreground">
                           ${rep.totalValue.toLocaleString()}
+                        </TableCell>
+                        <TableCell className="text-right font-bold text-amber-600 dark:text-amber-400">
+                          ${rep.owed.toLocaleString()}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            size="sm"
+                            disabled={rep.owed === 0}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirmRep(rep);
+                            }}
+                            className={
+                              rep.owed === 0
+                                ? "bg-muted text-muted-foreground opacity-50 cursor-not-allowed"
+                                : "bg-green-600 hover:bg-green-700 text-white"
+                            }
+                          >
+                            <CheckCircle className="mr-1 h-3.5 w-3.5" />
+                            {rep.owed > 0
+                              ? `Mark $${rep.owed.toLocaleString()}`
+                              : "Paid"}
+                          </Button>
                         </TableCell>
                       </TableRow>
                       {isOpen && (
@@ -558,6 +634,57 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
           </div>
         </CardContent>
       </Card>
+
+      <AlertDialog
+        open={!!confirmRep}
+        onOpenChange={(open) => {
+          if (!open) setConfirmRep(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark sales rep paid</AlertDialogTitle>
+            <AlertDialogDescription>
+              Record a ${confirmRep?.owed.toLocaleString()} send-fee payout for{" "}
+              {confirmRep?.unpaidProposalIds.length} proposal
+              {confirmRep?.unpaidProposalIds.length === 1 ? "" : "s"} sent by{" "}
+              {confirmRep?.name} ({confirmRep?.email}). First send only. Not
+              visible to the salesperson.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {confirmRep && confirmRep.unpaidClientNames.length > 0 && (
+            <div className="max-h-40 overflow-y-auto rounded-md border p-3 text-sm">
+              <div className="mb-1 flex items-center gap-1.5 font-medium text-muted-foreground">
+                <Users className="h-4 w-4" />
+                Proposals
+              </div>
+              <ul className="list-disc pl-5 space-y-0.5">
+                {confirmRep.unpaidClientNames.map((n, i) => (
+                  <li key={i}>{n}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={paying}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleConfirmPay();
+              }}
+              disabled={paying}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              {paying ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle className="mr-2 h-4 w-4" />
+              )}
+              Yes, mark paid
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

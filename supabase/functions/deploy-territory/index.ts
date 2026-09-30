@@ -96,16 +96,11 @@ ALTER TABLE public.sales_activity_runs ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "sar_auth_all" ON public.sales_activity_runs;
 CREATE POLICY "sar_auth_all" ON public.sales_activity_runs FOR ALL TO authenticated USING (true) WITH CHECK (true);
 CREATE INDEX IF NOT EXISTS idx_sales_activity_runs_ran_at ON public.sales_activity_runs(ran_at); ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_proposal_link_field_id text;
--- Nullable territory_id on core business tables — scope records to a
--- public.territories row on multi-territory instances. Nullable only (NO NOT
--- NULL, NO foreign keys yet). Idempotent. Mirrored in ghl_invoice_schema so a
--- stale edge_function_sources row can't leave a synced area missing them.
-ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS territory_id UUID;
-ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS territory_id UUID;
-ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS territory_id UUID;
-ALTER TABLE public.contractors ADD COLUMN IF NOT EXISTS territory_id UUID;
-ALTER TABLE public.managers ADD COLUMN IF NOT EXISTS territory_id UUID;
-ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS territory_id UUID;
+-- territory_id on core tables + salesperson send-fee payouts (first send only; NOT contractor assignments).
+ALTER TABLE public.weddings ADD COLUMN IF NOT EXISTS territory_id UUID; ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS territory_id UUID; ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS territory_id UUID; ALTER TABLE public.contractors ADD COLUMN IF NOT EXISTS territory_id UUID; ALTER TABLE public.managers ADD COLUMN IF NOT EXISTS territory_id UUID; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS territory_id UUID;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS salesperson_paid_at timestamptz; ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS salesperson_payout_batch_id uuid; ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS salesperson_send_fee numeric DEFAULT 25;
+CREATE TABLE IF NOT EXISTS public.salesperson_payout_batches (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), salesperson_email text NOT NULL, salesperson_name text, amount numeric NOT NULL, proposal_count int NOT NULL, proposal_ids uuid[] NOT NULL, status text NOT NULL DEFAULT 'paid', paid_at timestamptz DEFAULT now(), paid_by text, created_at timestamptz DEFAULT now());
+ALTER TABLE public.salesperson_payout_batches ENABLE ROW LEVEL SECURITY; DROP POLICY IF EXISTS spb_auth_insert ON public.salesperson_payout_batches; DROP POLICY IF EXISTS spb_auth_select ON public.salesperson_payout_batches; CREATE POLICY spb_auth_insert ON public.salesperson_payout_batches FOR INSERT TO authenticated WITH CHECK (true); CREATE POLICY spb_auth_select ON public.salesperson_payout_batches FOR SELECT TO authenticated USING (true);
 NOTIFY pgrst, 'reload schema';
 `;
 

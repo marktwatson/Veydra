@@ -323,5 +323,34 @@ ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS territory_id UUID;
 -- application to the correct area. Idempotent so Sync re-applies safely.
 ALTER TABLE public.territories ADD COLUMN IF NOT EXISTS slug text;
 
+-- ════════════════════════════════════════════════════════════════════════
+-- Salesperson send-fee payouts. A salesperson earns a fixed fee the first
+-- time a proposal they built is sent. salesperson_paid_at stamps that on the
+-- proposal (first send only); salesperson_payout_batch_id links it to a
+-- salesperson_payout_batches ledger row. portal_settings.salesperson_send_fee
+-- is the per-area fee (default 25). NOT contractor assignments.
+-- ════════════════════════════════════════════════════════════════════════
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS salesperson_paid_at timestamptz;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS salesperson_payout_batch_id uuid;
+ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS salesperson_send_fee numeric DEFAULT 25;
+
+CREATE TABLE IF NOT EXISTS public.salesperson_payout_batches (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  salesperson_email text NOT NULL,
+  salesperson_name text,
+  amount numeric NOT NULL,
+  proposal_count int NOT NULL,
+  proposal_ids uuid[] NOT NULL,
+  status text NOT NULL DEFAULT 'paid',
+  paid_at timestamptz DEFAULT now(),
+  paid_by text,
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE public.salesperson_payout_batches ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "spb_auth_insert" ON public.salesperson_payout_batches;
+DROP POLICY IF EXISTS "spb_auth_select" ON public.salesperson_payout_batches;
+CREATE POLICY "spb_auth_insert" ON public.salesperson_payout_batches FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "spb_auth_select" ON public.salesperson_payout_batches FOR SELECT TO authenticated USING (true);
+
 -- Reload PostgREST schema cache so the API sees the new columns immediately.
 NOTIFY pgrst, 'reload schema';

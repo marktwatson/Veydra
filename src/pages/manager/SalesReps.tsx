@@ -12,7 +12,7 @@ import { ProposalSalesRepsTab } from "@/components/ProposalSalesRepsTab";
  * / manager territory applies here too.
  */
 export default function SalesRepsPage() {
-  const { proposals, loading } = useProposalsData();
+  const { proposals, loading, refresh } = useProposalsData();
   const navigate = useNavigate();
 
   return (
@@ -39,7 +39,7 @@ export default function SalesRepsPage() {
           Loading proposals...
         </div>
       ) : (
-        <ProposalSalesRepsTab proposals={proposals} />
+        <ProposalSalesRepsTab proposals={proposals} onRefresh={refresh} />
       )}
     </div>
   );

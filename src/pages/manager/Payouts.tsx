@@ -1,5 +1,4 @@
 import { useState } from "react";
-// Force HMR reload
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import {
@@ -19,7 +18,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -47,6 +45,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { SalespersonPayoutsTab } from "@/components/SalespersonPayoutsTab";
+import { EditorPayoutsTable } from "@/components/EditorPayoutsTable";
 
 export default function ManagerPayouts() {
   const { toast } = useToast();
@@ -124,7 +124,6 @@ export default function ManagerPayouts() {
       const assignment = assignments.find((a: any) => a.id === id);
       if (!assignment) throw new Error("Assignment not found");
 
-      // 1. Process Stripe Payout FIRST (so if it fails, we don't mark as paid)
       if (paymentMethod === "Stripe") {
         const stripeAccountId = assignment.contractors?.stripe_account_id;
         if (!stripeAccountId) {
@@ -143,7 +142,6 @@ export default function ManagerPayouts() {
         }
       }
 
-      // 2. Mark as Completed in the database
       await api.approvePayoutWithRating(
         id,
         editorRating,
@@ -154,9 +152,8 @@ export default function ManagerPayouts() {
       );
 
       if (assignment.jobs?.wedding_id && markReadyToEdit) {
-        const weddingId = assignment.jobs.wedding_id;
         try {
-          await api.updateWedding(weddingId, {
+          await api.updateWedding(assignment.jobs.wedding_id, {
             editing_status: "ready_to_edit",
           });
         } catch (e) {
@@ -184,7 +181,6 @@ export default function ManagerPayouts() {
               wedding_name: assignment.jobs?.weddings?.client_name,
               role: assignment.jobs?.role,
             };
-
             fetch(webhookUrl, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -262,15 +258,7 @@ export default function ManagerPayouts() {
 
       if (editor.email) {
         const amount = wedding.editor_payout_amount || 0;
-        const html = `
-          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-            <h2>Payment Processed</h2>
-            <p>Hi ${editor.name || "Editor"},</p>
-            <p>Your invoice for <strong>${wedding.client_name}</strong> has been approved.</p>
-            <p>A payment of <strong>$${amount}</strong> has been processed via <strong>${paymentMethod}</strong>.</p>
-            <p>Thank you for your work!</p>
-          </div>
-        `;
+        const html = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px"><h2>Payment Processed</h2><p>Hi ${editor.name || "Editor"},</p><p>Your invoice for <strong>${wedding.client_name}</strong> has been approved.</p><p>A payment of <strong>$${amount}</strong> has been processed via <strong>${paymentMethod}</strong>.</p><p>Thank you for your work!</p></div>`;
         try {
           await api.sendOvantaEmail(
             editor.email,
@@ -613,6 +601,7 @@ export default function ManagerPayouts() {
               </span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="sales-reps">Sales reps</TabsTrigger>
         </TabsList>
 
         <TabsContent value="pending">
@@ -649,149 +638,22 @@ export default function ManagerPayouts() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Editor</TableHead>
-                    <TableHead>Wedding</TableHead>
-                    <TableHead>Details</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {editorInvoices.length === 0 ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={6}
-                        className="text-center py-8 text-muted-foreground"
-                      >
-                        No editor invoices found.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    editorInvoices
-                      .sort(
-                        (a, b) =>
-                          new Date(b.date).getTime() -
-                          new Date(a.date).getTime(),
-                      )
-                      .map((wedding) => {
-                        const editor = editors.find(
-                          (e) => e.id === wedding.editor_id,
-                        );
-                        return (
-                          <TableRow key={wedding.id}>
-                            <TableCell className="font-medium">
-                              {editor?.name || "Unknown Editor"}
-                            </TableCell>
-                            <TableCell>{wedding.client_name}</TableCell>
-                            <TableCell>
-                              <div className="text-xs text-muted-foreground">
-                                {wedding.editor_invoice_details?.photoCount >
-                                  0 && (
-                                  <span>
-                                    {wedding.editor_invoice_details.photoCount}{" "}
-                                    Photos
-                                  </span>
-                                )}
-                                {wedding.editor_invoice_details?.videos
-                                  ?.length > 0 && (
-                                  <span>
-                                    {" "}
-                                    •{" "}
-                                    {
-                                      wedding.editor_invoice_details.videos
-                                        .length
-                                    }{" "}
-                                    Videos
-                                  </span>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant={
-                                  wedding.editor_invoice_status === "paid"
-                                    ? "default"
-                                    : wedding.editor_invoice_status ===
-                                        "approved"
-                                      ? "secondary"
-                                      : "outline"
-                                }
-                              >
-                                {wedding.editor_invoice_status === "paid"
-                                  ? "Paid"
-                                  : wedding.editor_invoice_status === "approved"
-                                    ? "Approved"
-                                    : "Pending"}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-right font-bold text-green-600 dark:text-green-500">
-                              ${wedding.editor_payout_amount}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex items-center justify-end gap-2">
-                                {wedding.editor_invoice_status !== "paid" && (
-                                  <Button
-                                    size="sm"
-                                    onClick={() => {
-                                      if (
-                                        !editor?.venmo_handle &&
-                                        !editor?.stripe_account_id
-                                      ) {
-                                        toast({
-                                          title: "Payment Info Missing",
-                                          description:
-                                            "This editor hasn't connected a Stripe account or provided a Venmo handle, but you can still record the payout if you paid them another way.",
-                                        });
-                                      }
-                                      setEditorPayoutToConfirm(wedding.id);
-                                      setIdempotencyKey(crypto.randomUUID());
-                                    }}
-                                    disabled={paidIds.has(wedding.id)}
-                                    className="bg-green-600 hover:bg-green-700 text-white"
-                                  >
-                                    <CheckCircle className="mr-2 h-4 w-4" />{" "}
-                                    Approve and pay
-                                  </Button>
-                                )}
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-8 w-8 p-0"
-                                    >
-                                      <span className="sr-only">Open menu</span>
-                                      <MoreHorizontal className="h-4 w-4" />
-                                    </Button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end">
-                                    <DropdownMenuItem
-                                      className="text-destructive focus:bg-destructive focus:text-destructive-foreground"
-                                      onClick={() =>
-                                        deleteEditorInvoiceMutation.mutate(
-                                          wedding.id,
-                                        )
-                                      }
-                                    >
-                                      <Trash2 className="mr-2 h-4 w-4" />
-                                      Delete Payout
-                                    </DropdownMenuItem>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })
-                  )}
-                </TableBody>
-              </Table>
+              <EditorPayoutsTable
+                editorInvoices={editorInvoices}
+                editors={editors}
+                paidIds={paidIds}
+                onApprove={(id) => {
+                  setEditorPayoutToConfirm(id);
+                  setIdempotencyKey(crypto.randomUUID());
+                }}
+                onDelete={(id) => deleteEditorInvoiceMutation.mutate(id)}
+              />
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="sales-reps">
+          <SalespersonPayoutsTab />
         </TabsContent>
       </Tabs>
 
