@@ -877,7 +877,7 @@ export default function Dashboard() {
         </Alert>
       )}
 
-      {isBartenderDash && !contractor?.w9_signature && (
+      {!contractor?.w9_signature && (
         <Card className="border-amber-500/30 bg-amber-500/5">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">

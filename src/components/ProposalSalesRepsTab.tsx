@@ -34,7 +34,7 @@ interface Props {
   proposals: any[];
 }
 
-type RangeKey = "all" | "30" | "90";
+type RangeKey = "all" | "30" | "90" | "month";
 
 interface RepRow {
   key: string; // salesperson_email (lowercased)
@@ -72,13 +72,25 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
   }, [range]);
 
   const scoped = useMemo(() => {
+    if (range === "month") {
+      const now = new Date();
+      const monthStart = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        1,
+      ).getTime();
+      return proposals.filter((p) => {
+        const t = new Date(p.created_at || p.sent_at || 0).getTime();
+        return t >= monthStart;
+      });
+    }
     if (!rangeMs) return proposals;
     const cutoff = Date.now() - rangeMs;
     return proposals.filter((p) => {
       const t = new Date(p.created_at || p.sent_at || 0).getTime();
       return t >= cutoff;
     });
-  }, [proposals, rangeMs]);
+  }, [proposals, rangeMs, range]);
 
   const reps = useMemo<RepRow[]>(() => {
     const map = new Map<string, RepRow>();
@@ -135,7 +147,8 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
     }
     // Sort reps by sent desc, then booked desc.
     return Array.from(map.values()).sort(
-      (a, b) => b.sent - a.sent || b.booked - a.booked,
+      (a, b) =>
+        b.bookedValue - a.bookedValue || b.booked - a.booked || b.sent - a.sent,
     );
   }, [scoped]);
 
@@ -180,6 +193,7 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
             <SelectItem value="all">All time</SelectItem>
             <SelectItem value="30">Last 30 days</SelectItem>
             <SelectItem value="90">Last 90 days</SelectItem>
+            <SelectItem value="month">This month</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -234,6 +248,14 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
         </Card>
       </div>
 
+      {reps.some((r) => r.bookedValue > 0) && (
+        <div className="text-sm text-muted-foreground">
+          Leading this period:{" "}
+          <span className="font-medium text-foreground">{reps[0].name}</span> ·
+          ${reps[0].bookedValue.toLocaleString()} booked
+        </div>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>Sales Reps</CardTitle>
@@ -244,6 +266,7 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-8" />
+                  <TableHead className="w-12 text-center">Rank</TableHead>
                   <TableHead>Salesperson</TableHead>
                   <TableHead className="text-center">Sent</TableHead>
                   <TableHead className="text-center">Booked</TableHead>
@@ -257,7 +280,7 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {reps.map((rep) => {
+                {reps.map((rep, rankIndex) => {
                   const ratio =
                     rep.sent > 0
                       ? Math.round((rep.booked / rep.sent) * 100)
@@ -271,6 +294,7 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
                       ? Math.round(rep.daysToBookSum / rep.daysToBookCount)
                       : null;
                   const isOpen = expanded === rep.key;
+                  const rank = rankIndex + 1;
                   return (
                     <Fragment key={rep.key}>
                       <TableRow
@@ -286,6 +310,25 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
                             <ChevronDown className="h-4 w-4 text-muted-foreground" />
                           ) : (
                             <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {rank <= 3 ? (
+                            <Badge
+                              className={
+                                rank === 1
+                                  ? "bg-amber-500/15 text-amber-700 border-amber-500/30"
+                                  : rank === 2
+                                    ? "bg-slate-400/15 text-slate-600 dark:text-slate-300 border-slate-400/30"
+                                    : "bg-amber-700/15 text-amber-800 dark:text-amber-300 border-amber-700/30"
+                              }
+                            >
+                              {rank}
+                            </Badge>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">
+                              {rank}
+                            </span>
                           )}
                         </TableCell>
                         <TableCell>
@@ -337,7 +380,7 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
                       </TableRow>
                       {isOpen && (
                         <TableRow key={`${rep.key}-detail`}>
-                          <TableCell colSpan={9} className="bg-muted/20 p-0">
+                          <TableCell colSpan={10} className="bg-muted/20 p-0">
                             <div className="p-4">
                               <div className="flex items-center gap-2 mb-3 text-sm font-medium text-muted-foreground">
                                 <Users className="h-4 w-4" />

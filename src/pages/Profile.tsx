@@ -53,6 +53,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { parseRegions } from "@/lib/utils";
 import { BlackoutDatesManager } from "@/components/BlackoutDatesManager";
+import { W9Form } from "@/components/dashboard-applicant";
 import { useSearchParams } from "react-router-dom";
 
 export default function Profile() {
@@ -910,6 +911,23 @@ export default function Profile() {
             </TabsContent>
 
             <TabsContent value="documents" className="mt-4 space-y-6">
+              {!profile.w9_signature && (
+                <Card className="border-amber-500/30 bg-amber-500/5">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-lg">
+                      <FileText className="h-5 w-5 text-amber-600" />
+                      Form W-9
+                    </CardTitle>
+                    <CardDescription>
+                      Complete and sign your W-9 for tax reporting so we can
+                      process your payouts.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <W9Form contractor={profile} />
+                  </CardContent>
+                </Card>
+              )}
               {/* Native Digital Paperwork Section */}
               {(profile.w9_signature || profile.contract_signature) && (
                 <Card className="border-primary/20 bg-primary/5 shadow-sm">
