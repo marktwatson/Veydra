@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -106,14 +106,21 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
       // the close ratio. Unsent drafts are still listed but don't inflate
       // the denominator.
       if (p.sent_at) row.sent += 1;
-      row.totalValue += Number(p.total_amount || 0);
+      // Pipeline value: only sent, non-superseded, not-yet-booked proposals.
+      if (p.sent_at && p.status !== "superseded" && !isBooked(p)) {
+        row.totalValue += Number(p.total_amount || 0);
+      }
       const booked = isBooked(p);
       if (booked) {
         row.booked += 1;
         row.bookedValue += Number(p.total_amount || 0);
-        // Days to book: sent_at → wedding.contract_signed_at (best proxy).
+        // Days to book: sent_at → signed date (proposal first, then wedding).
         const w = resolveWedding(p);
-        const signedAt = w?.contract_signed_at;
+        const signedAt =
+          p.contract_signed_at ||
+          w?.contract_signed_at ||
+          w?.contract_date ||
+          p.contract_date;
         if (p.sent_at && signedAt) {
           const days =
             (new Date(signedAt).getTime() - new Date(p.sent_at).getTime()) /
@@ -265,9 +272,8 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
                       : null;
                   const isOpen = expanded === rep.key;
                   return (
-                    <>
+                    <Fragment key={rep.key}>
                       <TableRow
-                        key={rep.key}
                         className="cursor-pointer hover:bg-muted/40"
                         onClick={() =>
                           setExpanded((cur) =>
@@ -450,7 +456,7 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
                           </TableCell>
                         </TableRow>
                       )}
-                    </>
+                    </Fragment>
                   );
                 })}
               </TableBody>
