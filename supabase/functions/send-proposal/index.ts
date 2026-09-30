@@ -282,6 +282,10 @@ Deno.serve(async (req) => {
         smsNote: messageResult?.smsNote || null,
         contactId: messageResult?.contactId || null,
         tagStatus: messageResult?.tagStatus || "skipped",
+        linkFieldStatus: messageResult?.linkFieldStatus || null,
+        amountFieldStatus: messageResult?.amountFieldStatus || null,
+        resolvedAmountId: messageResult?.resolvedAmountId || null,
+        amountNumber: messageResult?.amountNumber ?? null,
       },
       crmWarning: usedFallback
         ? `${crmWarning ? crmWarning + " " : ""}(used Honeysuckle credentials — area settings had no API key/location)`
@@ -387,6 +391,10 @@ Deno.serve(async (req) => {
       smsNote: messageResult?.smsNote || null,
       contactId: messageResult?.contactId || null,
       tagStatus: messageResult?.tagStatus || "skipped",
+      linkFieldStatus: messageResult?.linkFieldStatus || null,
+      amountFieldStatus: messageResult?.amountFieldStatus || null,
+      resolvedAmountId: messageResult?.resolvedAmountId || null,
+      amountNumber: messageResult?.amountNumber ?? null,
     },
     crmWarning: usedFallback
       ? `${crmWarning ? crmWarning + " " : ""}(used Honeysuckle credentials — area settings had no API key/location)`
@@ -526,48 +534,41 @@ async function sendCrmMessages({
     }
   }
 
-  // Write the proposal URL onto the contact as a custom field so CRM
-  // workflows can email/SMS that link. Do NOT send tags in this PUT.
-  // Try three payload shapes until one returns 2xx (different CRM versions
-  // accept different field-key/value naming).
-  let linkFieldStatus = "skipped";
-  const proposalAmount = Number(proposal.total_amount) || 0;
-  const amountStr = String(proposalAmount);
-  const amountFieldKey = "contact.proposal_amount";
+  // Write proposal URL + total amount onto the contact as custom fields. No
+  // tags on this PUT. Amount MUST be a number — GHL drops strings on numeric.
+  let linkFieldStatus = "skipped", amountFieldStatus = "skipped", resolvedAmountId: string | null = null;
+  const amountNumber = Number(proposal.total_amount) || 0;
   if (contactId) {
-    let linkId = hlProposalLinkFieldId;
-    let amountId = amountFieldKey;
-    try {
-      const defRes = await fetch(`https://services.leadconnectorhq.com/contacts/customFields?locationId=${hlLocationId}`, { headers: crmHeaders });
-      if (defRes.ok) {
-        const defData = await defRes.json();
-        for (const f of defData.customFields || defData.fields || []) {
-          const fn = String(f.name || "").toLowerCase();
-          const fk = String(f.fieldKey || "").toLowerCase();
-          if (f.id === hlProposalLinkFieldId || fn.includes("proposal link") || fk === "contact.proposal_link") linkId = f.id;
-          if (fn.includes("proposal amount") || fk === "contact.proposal_amount" || fk.includes("proposal_amount")) amountId = f.id;
+    let linkId: string = hlProposalLinkFieldId, amountId: string | null = null;
+    for (const url of [`https://services.leadconnectorhq.com/locations/${hlLocationId}/customFields`, `https://services.leadconnectorhq.com/contacts/customFields?locationId=${hlLocationId}`]) {
+      if (amountId) break;
+      try {
+        const r = await fetch(url, { headers: crmHeaders });
+        if (!r.ok) { console.warn(`[send-proposal] field lookup ${url} -> ${r.status}`); continue; }
+        for (const f of (await r.json()).customFields || []) {
+          const fn = String(f.name || "").toLowerCase(), fk = String(f.fieldKey || f.key || "").toLowerCase();
+          if (!amountId && (fk === "contact.proposal_amount" || fk === "proposal_amount" || fn.includes("proposal amount"))) amountId = f.id;
+          if (fk === "contact.proposal_link" || fn.includes("proposal link") || (hlProposalLinkFieldId && f.id === hlProposalLinkFieldId)) linkId = f.id;
         }
-      }
-    } catch (_e) {}
-    console.log(`[send-proposal] writing fields: link=${linkId}, amount=${amountId}, amountVal=${amountStr}`);
-    const payloads = [
-      { customFields: [{ id: linkId, field_value: publicUrl }, { id: amountId, field_value: amountStr }] },
-      { customFields: [{ id: linkId, field_value: publicUrl }, { key: amountFieldKey, field_value: amountStr }] },
+      } catch (_e) {}
+    }
+    resolvedAmountId = amountId;
+    console.log(`[send-proposal] fields: link=${linkId}, amount=${amountId}, amountNumber=${amountNumber}`);
+    const amt = (a: string) => amountId ? [{ id: amountId, key: "contact.proposal_amount", [a]: amountNumber }] : [];
+    const payloads: any[] = [
+      { customFields: [{ id: linkId, key: "contact.proposal_link", field_value: publicUrl }, ...amt("field_value")] },
+      { customFields: [{ id: linkId, key: "contact.proposal_link", fieldValue: publicUrl }, ...amt("fieldValue")] },
+      { customFields: [{ key: "contact.proposal_link", field_value: publicUrl }, { key: "contact.proposal_amount", field_value: amountNumber }] },
+      { customFields: [{ key: "contact.proposal_link", fieldValue: publicUrl }, { key: "contact.proposal_amount", fieldValue: amountNumber }] },
+      { customFields: [{ key: "proposal_amount", field_value: amountNumber }, { key: "contact.proposal_link", field_value: publicUrl }] },
     ];
     for (let pi = 0; pi < payloads.length; pi++) {
       try {
-        const linkRes = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
-          method: "PUT",
-          headers: crmHeaders,
-          body: JSON.stringify(payloads[pi]),
-        });
-        if (linkRes.ok) { linkFieldStatus = "sent"; break; }
-        const err = await linkRes.text();
-        console.warn(`[send-proposal] custom field PUT ${pi + 1} (${linkRes.status}):`, err.slice(0, 300));
-        if (pi === payloads.length - 1) linkFieldStatus = `error:${linkRes.status}`;
-      } catch (e: any) {
-        if (pi === payloads.length - 1) linkFieldStatus = `error:${e?.message}`;
-      }
+        const pr = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, { method: "PUT", headers: crmHeaders, body: JSON.stringify(payloads[pi]) });
+        if (pr.ok) { linkFieldStatus = "sent"; amountFieldStatus = amountId ? "sent" : "no-field"; console.log(`[send-proposal] field PUT ${pi + 1} OK (winning shape)`); break; }
+        const e = await pr.text(); console.warn(`[send-proposal] field PUT ${pi + 1} (${pr.status}):`, e.slice(0, 300));
+        if (pi === payloads.length - 1) { linkFieldStatus = `error:${pr.status}`; amountFieldStatus = `error:${pr.status}`; }
+      } catch (e: any) { if (pi === payloads.length - 1) { linkFieldStatus = `error:${e?.message}`; amountFieldStatus = `error:${e?.message}`; } }
     }
   }
 
@@ -597,7 +598,7 @@ async function sendCrmMessages({
 </body></html>`;
   const plainText = `Hi ${firstName}, your ${companyName} wedding proposal is ready for review. Review, sign, and pay here: ${publicUrl}. Most proposals expire in ${expiryLabel}. Need more time? Contact your manager${companyPhone ? ` at ${companyPhone}` : ""}.`;
 
-  const results: any = { email: null, sms: null, contactId, tagStatus, linkFieldStatus };
+  const results: any = { email: null, sms: null, contactId, tagStatus, linkFieldStatus, amountFieldStatus, resolvedAmountId, amountNumber };
 
   // Email via CRM conversations/messages.
   if (contactId) {
