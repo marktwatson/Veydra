@@ -29,6 +29,19 @@ import {
 import { formatDisplayDate } from "@/lib/utils";
 import { isBooked, resolveWedding } from "@/lib/proposal-tabs";
 import { ProposalCountdownBadge } from "@/components/ProposalCountdownBadge";
+import {
+  SalesRepPodium,
+  computeAwards,
+  type AwardId,
+} from "@/components/SalesRepPodium";
+
+const AWARD_LABELS: Record<AwardId, string> = {
+  volume: "Volume",
+  closer: "Closer",
+  ratio: "Ratio",
+  fast: "Fast",
+  pipeline: "Pipeline",
+};
 
 interface Props {
   proposals: any[];
@@ -145,10 +158,10 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
       }
       row.proposals.push(p);
     }
-    // Sort reps by sent desc, then booked desc.
+    // Sort reps by sent DESC (primary rank), then bookedValue, then booked.
     return Array.from(map.values()).sort(
       (a, b) =>
-        b.bookedValue - a.bookedValue || b.booked - a.booked || b.sent - a.sent,
+        b.sent - a.sent || b.bookedValue - a.bookedValue || b.booked - a.booked,
     );
   }, [scoped]);
 
@@ -169,6 +182,17 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
       avgDays: daysCount > 0 ? Math.round(daysSum / daysCount) : 0,
     };
   }, [reps]);
+
+  const awards = useMemo(() => computeAwards(reps), [reps]);
+  const awardByRep = useMemo(() => {
+    const m = new Map<string, AwardId[]>();
+    for (const a of awards) {
+      const arr = m.get(a.winnerKey) || [];
+      arr.push(a.id);
+      m.set(a.winnerKey, arr);
+    }
+    return m;
+  }, [awards]);
 
   if (reps.length === 0) {
     return (
@@ -197,6 +221,9 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
           </SelectContent>
         </Select>
       </div>
+
+      {/* Hero award strip */}
+      <SalesRepPodium reps={reps} />
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -336,6 +363,18 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
                           <div className="text-xs text-muted-foreground">
                             {rep.email}
                           </div>
+                          {(awardByRep.get(rep.key) || []).length > 0 && (
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {(awardByRep.get(rep.key) || []).map((aid) => (
+                                <span
+                                  key={aid}
+                                  className="inline-flex items-center rounded-full border px-1.5 py-0 text-[10px] font-medium text-muted-foreground"
+                                >
+                                  {AWARD_LABELS[aid]}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-center font-medium">
                           {rep.sent}
@@ -358,6 +397,18 @@ export function ProposalSalesRepsTab({ proposals }: Props) {
                           >
                             {ratio}%
                           </Badge>
+                          <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-muted">
+                            <div
+                              className={
+                                ratio >= 50
+                                  ? "h-full bg-green-500"
+                                  : ratio >= 25
+                                    ? "h-full bg-amber-500"
+                                    : "h-full bg-slate-400"
+                              }
+                              style={{ width: `${Math.min(ratio, 100)}%` }}
+                            />
+                          </div>
                         </TableCell>
                         <TableCell className="text-right font-medium">
                           {avgDeal ? `$${avgDeal.toLocaleString()}` : "—"}

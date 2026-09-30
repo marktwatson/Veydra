@@ -21,7 +21,8 @@ export default function SalesRepsPage() {
         <div>
           <h1 className="text-3xl font-serif text-foreground">Sales Reps</h1>
           <p className="text-muted-foreground mt-1">
-            Close ratios and pipeline for proposals built by your salespeople
+            Ranked by proposals sent. Close ratios and pipeline for proposals
+            built by your salespeople.
           </p>
         </div>
         <Button
