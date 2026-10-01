@@ -10,12 +10,17 @@
  * Test against the contacts endpoint instead: it is sub-account accessible
  * and also validates that the Location ID belongs to this token (a
  * mismatched location returns 401/403).
+ *
+ * Inputs are trimmed — a pasted token with a trailing space or newline is the
+ * #1 cause of a 403 that "works on the old app".
  */
 export async function testCrmConnection(
   apiKey: string,
   locationId: string,
 ): Promise<{ ok: true; locationId: string } | { ok: false; message: string }> {
-  if (!apiKey || !locationId) {
+  const key = (apiKey || "").trim();
+  const loc = (locationId || "").trim();
+  if (!key || !loc) {
     return {
       ok: false,
       message: "Please enter both an API Key and Location ID.",
@@ -24,13 +29,16 @@ export async function testCrmConnection(
 
   try {
     const response = await fetch(
-      `https://services.leadconnectorhq.com/contacts?locationId=${encodeURIComponent(
-        locationId,
+      // Trailing slash matters: /contacts/?locationId=... is the route the
+      // working edge functions use; the no-slash /contacts?... variant 403s
+      // for sub-account Private Integration tokens.
+      `https://services.leadconnectorhq.com/contacts/?locationId=${encodeURIComponent(
+        loc,
       )}&limit=1`,
       {
         method: "GET",
         headers: {
-          Authorization: `Bearer ${apiKey}`,
+          Authorization: `Bearer ${key}`,
           Version: "2021-07-28",
           Accept: "application/json",
         },
@@ -38,20 +46,32 @@ export async function testCrmConnection(
     );
 
     if (!response.ok) {
-      // Surface a clearer message for the common auth/scope failures.
+      // Surface the actual CRM error body — it usually says exactly why
+      // (e.g. "Location not found", "access denied", "invalid token").
+      let detail = "";
+      try {
+        const errBody = await response.json();
+        detail = errBody?.message || errBody?.error || JSON.stringify(errBody);
+      } catch {
+        try {
+          detail = await response.text();
+        } catch {
+          /* ignore */
+        }
+      }
       if (response.status === 401 || response.status === 403) {
         return {
           ok: false,
-          message: `API returned ${response.status}. Ensure the API Key is a sub-account Private Integration token for this exact Location ID (${locationId}), with Contacts read access.`,
+          message: `API returned ${response.status}${detail ? `: ${detail}` : ""}. Ensure the API Key is a sub-account Private Integration token for this exact Location ID (${loc}), with Contacts read access.`,
         };
       }
       return {
         ok: false,
-        message: `API returned ${response.status}: ${response.statusText}`,
+        message: `API returned ${response.status}${detail ? `: ${detail}` : `: ${response.statusText}`}`,
       };
     }
 
-    return { ok: true, locationId };
+    return { ok: true, locationId: loc };
   } catch (error: any) {
     return {
       ok: false,

@@ -66,9 +66,7 @@ export async function fetchJobsForTerritory(territoryId: string | null) {
     )
     .order("created_at", { ascending: false });
   if (territoryId) {
-    q = q
-      .eq("territory_id", territoryId)
-      .or(`weddings.territory_id.eq.${territoryId}`);
+    q = q.eq("territory_id", territoryId);
   }
   const { data, error } = await q;
   if (error) throw error;
@@ -90,17 +88,13 @@ export async function fetchAssignmentsForTerritory(territoryId: string | null) {
     .select(
       `
       *,
-      jobs (id, status, role, pay_rate, hours, addons, contractor_todos, wedding_id, territory_id, weddings(client_name, date, location, region, timeline, vip_names, vendors, special_requests, questionnaire_data, questionnaire_completed, drive_link, upload_link, is_lgbtq, territory_id), applications(message, status)),
+      jobs!inner (id, status, role, pay_rate, hours, addons, contractor_todos, wedding_id, territory_id, weddings(client_name, date, location, region, timeline, vip_names, vendors, special_requests, questionnaire_data, questionnaire_completed, drive_link, upload_link, is_lgbtq, territory_id), applications(message, status)),
       contractors (first_name, last_name, email, venmo_handle, stripe_account_id)
     `,
     )
     .order("created_at", { ascending: false });
   if (territoryId) {
-    q = q
-      .eq("territory_id", territoryId)
-      .or(
-        `jobs.territory_id.eq.${territoryId},jobs.weddings.territory_id.eq.${territoryId}`,
-      );
+    q = q.eq("jobs.territory_id", territoryId);
   }
   const { data, error } = await q;
   if (error) throw error;
@@ -151,15 +145,13 @@ export async function fetchApplicationsForTerritory(
     .select(
       `
       *,
-      jobs (id, status, role, pay_rate, hours, addons, territory_id, weddings(client_name, date, location, region, timeline, vip_names, vendors, special_requests, questionnaire_data, questionnaire_completed, is_lgbtq, territory_id)),
+      jobs!inner (id, status, role, pay_rate, hours, addons, territory_id, weddings(client_name, date, location, region, timeline, vip_names, vendors, special_requests, questionnaire_data, questionnaire_completed, is_lgbtq, territory_id)),
       contractors (id, first_name, last_name, email, rating, specialty, region)
     `,
     )
     .order("created_at", { ascending: false });
   if (territoryId) {
-    q = q.or(
-      `jobs.territory_id.eq.${territoryId},jobs.weddings.territory_id.eq.${territoryId}`,
-    );
+    q = q.eq("jobs.territory_id", territoryId);
   }
   const { data, error } = await q;
   if (error) throw error;
