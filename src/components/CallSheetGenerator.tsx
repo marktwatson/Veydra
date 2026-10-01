@@ -1,6 +1,13 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { computeBookedHours } from "@/lib/booked-hours";
+import {
+  buildCallSheetHtml,
+  flattenQuestionnaire,
+  escapeHtml,
+  type TeamMemberLite,
+} from "@/lib/call-sheet-builders";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -10,20 +17,10 @@ import {
   DialogDescription,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  FileText,
-  Loader2,
-  Send,
-  Printer,
-  Mail,
-  Eye,
-  Users,
-} from "lucide-react";
+import { FileText, Loader2, Send, Printer, Mail, Users } from "lucide-react";
 import { formatDisplayDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-// DropdownMenuItem removed — using Button instead for standalone rendering
 import EmailPreviewModal, {
   EmailPreviewData,
 } from "@/components/EmailPreviewModal";
@@ -52,7 +49,6 @@ export function CallSheetGenerator({
   const [isSending, setIsSending] = useState(false);
   const { toast } = useToast();
 
-  // Preview-before-send state
   const [emailPreview, setEmailPreview] = useState<EmailPreviewData | null>(
     null,
   );
@@ -76,21 +72,12 @@ export function CallSheetGenerator({
   const isLoading = isLoadingWedding;
 
   // Build the team list from the nested wedding.jobs.assignments.contractors
-  // returned by getPublicWedding — this guarantees we use the same source of
-  // truth as the bride portal and includes contractor email + phone.
-  const teamMembers: Array<{
-    id: string;
-    role: string;
-    firstName: string;
-    lastName: string;
-    email?: string;
-    phone?: string;
-    avatarUrl?: string;
-  }> = (() => {
+  // returned by getPublicWedding — same source of truth as the bride portal.
+  const teamMembers: TeamMemberLite[] = (() => {
     if (!wedding) return [];
     const jobs = (wedding as any).jobs;
     if (!Array.isArray(jobs)) return [];
-    const members: Array<any> = [];
+    const members: TeamMemberLite[] = [];
     for (const job of jobs) {
       const assignments = job.assignments;
       if (!Array.isArray(assignments)) continue;
@@ -106,7 +93,6 @@ export function CallSheetGenerator({
           lastName: c.last_name || "",
           email: c.email || undefined,
           phone: c.phone || undefined,
-          avatarUrl: c.avatar_url || undefined,
         });
       }
     }
@@ -126,7 +112,6 @@ export function CallSheetGenerator({
     }
   }
 
-  // Parse the bride questionnaire so we can surface all of it on the call sheet.
   let questionnaire: any = null;
   if ((wedding as any)?.questionnaire_data) {
     try {
@@ -139,7 +124,6 @@ export function CallSheetGenerator({
     }
   }
 
-  // Highlight songs (separate column on the wedding record)
   let highlightSongs: Array<{
     title: string;
     artist: string;
@@ -158,251 +142,38 @@ export function CallSheetGenerator({
 
   const companyName = settings?.company_name || "Veydra";
 
-  // Package booked + total hours booked (sum across all jobs/positions).
+  // Package booked + booked hours (coverage = max of lead photo/video roles,
+  // never the sum of every job).
   const packageName =
     (wedding as any)?.package_name || (wedding as any)?.package || "";
   const totalHoursBooked = (() => {
     if (!wedding) return 0;
     const jobs = (wedding as any).jobs;
     if (!Array.isArray(jobs)) return 0;
-    let total = 0;
-    for (const job of jobs) {
-      const h = Number(job.hours);
-      if (!isNaN(h) && h > 0) total += h;
-    }
-    return total;
+    return computeBookedHours(jobs, (wedding as any)?.coverage_hours);
   })();
 
-  /** Flattens the questionnaire into labeled rows for display. */
-  const questionnaireRows: Array<{ label: string; value: string }> = (() => {
-    if (!questionnaire) return [];
-    const rows: Array<{ label: string; value: string }> = [];
-    const push = (label: string, value: any) => {
-      if (value === undefined || value === null) return;
-      const s = String(value).trim();
-      if (!s) return;
-      rows.push({ label, value: s });
-    };
-    const c = questionnaire.contact_info || {};
-    push("Bride Name", c.bride_full_name);
-    push("Groom/Partner Name", c.groom_full_name);
-    push("Bride Phone", c.phone_bride);
-    push("Groom/Partner Phone", c.phone_groom);
-    push("Preferred Contact", c.preferred_contact_method);
-    push("Best Contact Time", c.best_contact_time);
-    push(
-      "Emergency Contact",
-      (questionnaire.family_details || {}).emergency_contact,
-    );
+  const questionnaireRows = flattenQuestionnaire(questionnaire);
 
-    const sv = questionnaire.style_vibe || {};
-    push("Wedding Theme", sv.wedding_theme);
-    push("Dress Code", sv.dress_code);
-    push("Florist", sv.florist_name);
-    push("Decor Style", sv.decor_style);
-    push("Pinterest Link", sv.pinterest_link);
-
-    const pv = questionnaire.photo_video || {};
-    push("First Look", pv.first_look);
-    push("Must-Have Photos", pv.must_have_photos);
-    push("Must-Have Video Moments", pv.must_have_video_moments);
-    push("Audio Vows/Toasts", pv.audio_vows_toasts);
-    push("Photography Restrictions", pv.photography_restrictions);
-    push("Special Photo Locations", pv.special_photo_locations);
-    push("Don't Want Captured", pv.dont_want_captured);
-
-    const fd = questionnaire.family_details || {};
-    push("Bride's Parents", fd.bride_parents_names);
-    push("Groom's Parents", fd.groom_parents_names);
-    push("Family to Prioritize", fd.family_members_to_prioritize);
-    push("Sensitive Family Situations", fd.sensitive_family_situations);
-
-    const wp = questionnaire.wedding_party || {};
-    push("Wedding Party Size", wp.wedding_party_size);
-    push("Special Traditions / Events", wp.special_traditions_events);
-
-    return rows;
-  })();
-
-  /** Builds the shared HTML body used for both the on-screen preview and emails. */
-  const buildCallSheetHtml = (): string => {
-    const dateStr = wedding?.date
-      ? formatDisplayDate(wedding.date)
-      : "Date TBD";
-    const location = (wedding as any)?.location || "Location TBD";
-
-    const teamRows = teamMembers.length
-      ? teamMembers
-          .map(
-            (m) => `
-            <tr>
-              <td style="padding:8px;border-bottom:1px solid #eee;font-weight:600;">${escapeHtml(m.role)}</td>
-              <td style="padding:8px;border-bottom:1px solid #eee;">${escapeHtml(`${m.firstName} ${m.lastName}`.trim() || "Unnamed")}</td>
-              <td style="padding:8px;border-bottom:1px solid #eee;color:#555;">${escapeHtml(m.phone || "")}</td>
-              <td style="padding:8px;border-bottom:1px solid #eee;color:#555;">${escapeHtml(m.email || "")}</td>
-            </tr>`,
-          )
-          .join("")
-      : `<tr><td colspan="4" style="padding:8px;color:#999;font-style:italic;">No team members assigned yet.</td></tr>`;
-
-    const timelineRows = parsedTimeline.length
-      ? parsedTimeline
-          .map(
-            (ev) => `
-            <tr>
-              <td style="padding:6px 8px;border-bottom:1px solid #eee;font-weight:600;white-space:nowrap;width:90px;">${escapeHtml(ev.time || "")}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #eee;">${escapeHtml(ev.event || "")}</td>
-            </tr>`,
-          )
-          .join("")
-      : `<tr><td colspan="2" style="padding:8px;color:#999;font-style:italic;">No timeline events added yet.</td></tr>`;
-
-    const detailsBlock = `
-      <h2 style="margin-top:24px;margin-bottom:10px;font-size:18px;border-bottom:1px solid #eee;padding-bottom:5px;">Important Details</h2>
-      ${
-        (wedding as any)?.vip_names
-          ? `<p style="margin:0 0 12px;"><strong>VIPs / Family:</strong><br/>${escapeHtml((wedding as any).vip_names).replace(/\n/g, "<br/>")}</p>`
-          : ""
-      }
-      ${
-        (wedding as any)?.vendors
-          ? `<p style="margin:0 0 12px;"><strong>Other Vendors:</strong><br/>${escapeHtml((wedding as any).vendors).replace(/\n/g, "<br/>")}</p>`
-          : ""
-      }
-      ${
-        (wedding as any)?.special_requests
-          ? `<p style="margin:0 0 12px;"><strong>Special Requests / Notes:</strong><br/>${escapeHtml((wedding as any).special_requests).replace(/\n/g, "<br/>")}</p>`
-          : ""
-      }
-      ${
-        !(wedding as any)?.vip_names &&
-        !(wedding as any)?.vendors &&
-        !(wedding as any)?.special_requests
-          ? `<p style="color:#999;font-style:italic;">No additional details provided.</p>`
-          : ""
-      }
-    `;
-
-    const questionnaireRowsHtml = questionnaireRows.length
-      ? questionnaireRows
-          .map(
-            (r) => `
-            <tr>
-              <td style="padding:6px 8px;border-bottom:1px solid #eee;font-weight:600;width:40%;vertical-align:top;">${escapeHtml(r.label)}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #eee;white-space:pre-wrap;">${escapeHtml(r.value).replace(/\n/g, "<br/>")}</td>
-            </tr>`,
-          )
-          .join("")
-      : "";
-
-    const questionnaireBlock = questionnaireRows.length
-      ? `
-        <h2 style="margin-top:24px;margin-bottom:10px;font-size:18px;border-bottom:1px solid #eee;padding-bottom:5px;">Bride Questionnaire</h2>
-        <table style="width:100%;border-collapse:collapse;margin-bottom:8px;">
-          <tbody>${questionnaireRowsHtml}</tbody>
-        </table>
-      `
-      : "";
-
-    const songsRowsHtml = highlightSongs.length
-      ? highlightSongs
-          .map(
-            (s) => `
-            <tr>
-              <td style="padding:6px 8px;border-bottom:1px solid #eee;font-weight:600;">${escapeHtml(s.moment || "")}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #eee;">${escapeHtml(s.title || "")}${s.artist ? ` — ${escapeHtml(s.artist)}` : ""}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #eee;color:#555;">${escapeHtml(s.link || "")}</td>
-            </tr>`,
-          )
-          .join("")
-      : "";
-
-    const songsBlock = highlightSongs.length
-      ? `
-        <h2 style="margin-top:24px;margin-bottom:10px;font-size:18px;border-bottom:1px solid #eee;padding-bottom:5px;">Highlight Songs</h2>
-        <table style="width:100%;border-collapse:collapse;margin-bottom:8px;">
-          <thead>
-            <tr>
-              <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #eee;color:#555;">Moment</th>
-              <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #eee;color:#555;">Song</th>
-              <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #eee;color:#555;">Link</th>
-            </tr>
-          </thead>
-          <tbody>${songsRowsHtml}</tbody>
-        </table>
-      `
-      : "";
-
-    const bookingSummaryBlock = `
-      <h2 style="margin-top:24px;margin-bottom:10px;font-size:18px;border-bottom:1px solid #eee;padding-bottom:5px;">Booking Summary</h2>
-      <table style="width:100%;border-collapse:collapse;margin-bottom:8px;">
-        <tbody>
-          ${
-            packageName
-              ? `<tr><td style="padding:6px 8px;border-bottom:1px solid #eee;font-weight:600;width:40%;">Package Booked</td><td style="padding:6px 8px;border-bottom:1px solid #eee;">${escapeHtml(packageName)}</td></tr>`
-              : ""
-          }
-          ${
-            totalHoursBooked > 0
-              ? `<tr><td style="padding:6px 8px;border-bottom:1px solid #eee;font-weight:600;">Total Hours Booked</td><td style="padding:6px 8px;border-bottom:1px solid #eee;">${totalHoursBooked} hrs</td></tr>`
-              : ""
-          }
-          ${
-            !packageName && totalHoursBooked === 0
-              ? `<tr><td colspan="2" style="padding:8px;color:#999;font-style:italic;">No package or hours recorded.</td></tr>`
-              : ""
-          }
-        </tbody>
-      </table>
-    `;
-
-    return `
-      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:640px;margin:0 auto;color:#333;line-height:1.5;">
-        <div style="text-align:center;border-bottom:2px solid ${primaryColor()};padding-bottom:16px;margin-bottom:20px;">
-          <h1 style="margin:0 0 4px;font-size:26px;">${escapeHtml(wedding?.client_name || weddingName)} Wedding</h1>
-          <p style="margin:0;color:#666;">${escapeHtml(dateStr)} • ${escapeHtml(location)}</p>
-          <p style="margin:6px 0 0;font-size:12px;color:#999;letter-spacing:1px;text-transform:uppercase;">Call Sheet — ${escapeHtml(companyName)}</p>
-        </div>
-
-        <h2 style="margin:0 0 10px;font-size:18px;border-bottom:1px solid #eee;padding-bottom:5px;">Assigned Team</h2>
-        <table style="width:100%;border-collapse:collapse;margin-bottom:8px;">
-          <thead>
-            <tr>
-              <th style="text-align:left;padding:8px;border-bottom:1px solid #eee;color:#555;">Role</th>
-              <th style="text-align:left;padding:8px;border-bottom:1px solid #eee;color:#555;">Name</th>
-              <th style="text-align:left;padding:8px;border-bottom:1px solid #eee;color:#555;">Phone</th>
-              <th style="text-align:left;padding:8px;border-bottom:1px solid #eee;color:#555;">Email</th>
-            </tr>
-          </thead>
-          <tbody>${teamRows}</tbody>
-        </table>
-
-        ${bookingSummaryBlock}
-
-        <h2 style="margin-top:24px;margin-bottom:10px;font-size:18px;border-bottom:1px solid #eee;padding-bottom:5px;">Schedule / Timeline</h2>
-        <table style="width:100%;border-collapse:collapse;">
-          <tbody>${timelineRows}</tbody>
-        </table>
-
-        ${detailsBlock}
-
-        ${questionnaireBlock}
-
-        ${songsBlock}
-
-        <hr style="border:0;border-top:1px solid #eee;margin:24px 0;" />
-        <p style="font-size:12px;color:#999;text-align:center;">Generated by ${escapeHtml(companyName)} • ${new Date().toLocaleDateString()}</p>
-      </div>
-    `;
-  };
+  const html = wedding
+    ? buildCallSheetHtml({
+        wedding,
+        weddingName,
+        companyName,
+        teamMembers,
+        parsedTimeline,
+        questionnaireRows,
+        highlightSongs,
+        packageName,
+        totalHoursBooked,
+      })
+    : "";
 
   const handlePrint = () => {
     const printContent = document.getElementById("call-sheet-content");
     if (!printContent) return;
-
     const printWindow = window.open("", "", "width=800,height=900");
     if (!printWindow) return;
-
     printWindow.document.write(`
       <html>
         <head>
@@ -411,22 +182,15 @@ export function CallSheetGenerator({
             body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 40px; color: #333; line-height: 1.5; }
             h1 { margin-bottom: 5px; font-size: 24px; }
             h2 { margin-top: 30px; margin-bottom: 10px; font-size: 18px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
-            .meta { color: #666; margin-bottom: 30px; }
             table { border-collapse: collapse; margin-top: 10px; width: 100%; }
             th, td { text-align: left; padding: 8px; border-bottom: 1px solid #eee; }
             th { font-weight: bold; color: #555; }
-            .team-member { margin-bottom: 10px; }
-            .team-role { font-weight: bold; }
-            .team-name { color: #555; }
             .section { margin-bottom: 20px; }
           </style>
         </head>
-        <body>
-          ${printContent.innerHTML}
-        </body>
+        <body>${printContent.innerHTML}</body>
       </html>
     `);
-
     printWindow.document.close();
     printWindow.focus();
     setTimeout(() => {
@@ -435,20 +199,18 @@ export function CallSheetGenerator({
     }, 250);
   };
 
-  /** Open the preview modal for a given recipient set, deferring the actual send. */
   const openSendPreview = (
     to: string,
     subject: string,
-    html: string,
+    bodyHtml: string,
     recipientName: string,
     performSend: () => Promise<void>,
   ) => {
-    setEmailPreview({ to, subject, html, recipientName });
+    setEmailPreview({ to, subject, html: bodyHtml, recipientName });
     setEmailPreviewSend(() => performSend);
     setEmailPreviewOpen(true);
   };
 
-  /** Distribute call sheet to the assigned contractor team (email + optional SMS). */
   const handleSendToTeam = () => {
     if (teamMembers.length === 0) {
       toast({
@@ -459,12 +221,9 @@ export function CallSheetGenerator({
       });
       return;
     }
-
-    const html = buildCallSheetHtml();
     const subject = `Call Sheet: ${wedding?.client_name || weddingName} Wedding`;
     const firstRecipient =
       teamMembers.find((m) => m.email)?.email || "(team — multiple recipients)";
-
     openSendPreview(
       firstRecipient,
       subject,
@@ -489,7 +248,6 @@ export function CallSheetGenerator({
               `${member.firstName} ${member.lastName}`.trim(),
               true,
             );
-            // Optional SMS nudge
             if (member.phone && settings?.sms_reminder_template) {
               const smsMsg = `Hi ${member.firstName}, the Call Sheet for the ${wedding?.client_name || weddingName} wedding has been sent to your email. Please review the timeline and details!`;
               await api
@@ -521,7 +279,6 @@ export function CallSheetGenerator({
     );
   };
 
-  /** Email the call sheet to the bride. */
   const handleSendToBride = () => {
     const brideEmail = (wedding as any)?.client_email;
     if (!brideEmail) {
@@ -532,11 +289,8 @@ export function CallSheetGenerator({
       });
       return;
     }
-
-    const html = buildCallSheetHtml();
     const subject = `Your Wedding Call Sheet — ${wedding?.client_name || weddingName}`;
     const brideName = wedding?.client_name || weddingName;
-
     openSendPreview(
       brideEmail,
       subject,
@@ -689,7 +443,7 @@ export function CallSheetGenerator({
                         {totalHoursBooked > 0 && (
                           <div className="flex flex-col sm:flex-row gap-1 sm:gap-3 text-sm py-1.5 border-b border-muted last:border-0">
                             <div className="sm:w-44 shrink-0 font-medium text-muted-foreground">
-                              Total Hours Booked
+                              Booked hours
                             </div>
                             <div>{totalHoursBooked} hrs</div>
                           </div>
@@ -729,7 +483,6 @@ export function CallSheetGenerator({
                     <h2 className="text-lg font-semibold border-b pb-2 mb-3">
                       Important Details
                     </h2>
-
                     {wedding.vip_names && (
                       <div>
                         <h3 className="text-sm font-medium mb-1">
@@ -740,7 +493,6 @@ export function CallSheetGenerator({
                         </p>
                       </div>
                     )}
-
                     {wedding.vendors && (
                       <div>
                         <h3 className="text-sm font-medium mb-1">
@@ -751,7 +503,6 @@ export function CallSheetGenerator({
                         </p>
                       </div>
                     )}
-
                     {wedding.special_requests && (
                       <div>
                         <h3 className="text-sm font-medium mb-1">
@@ -762,7 +513,6 @@ export function CallSheetGenerator({
                         </p>
                       </div>
                     )}
-
                     {!wedding.vip_names &&
                       !wedding.vendors &&
                       !wedding.special_requests && (
@@ -883,29 +633,4 @@ export function CallSheetGenerator({
       />
     </>
   );
-}
-
-/* ---------- helpers ---------- */
-
-function escapeHtml(str: string): string {
-  return String(str ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
-/** Pulls the brand primary color from the design tokens for email styling. */
-function primaryColor(): string {
-  if (typeof window === "undefined") return "#6366f1";
-  const raw = getComputedStyle(document.documentElement)
-    .getPropertyValue("--primary")
-    .trim();
-  if (!raw) return "#6366f1";
-  // tokens are stored as raw HSL channels (e.g. "222.2 47.4% 11.2%")
-  if (raw.includes("%") && !raw.startsWith("#")) {
-    return `hsl(${raw})`;
-  }
-  return raw.startsWith("#") ? raw : `hsl(${raw})`;
 }

@@ -10,6 +10,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { computeBookedHours } from "@/lib/booked-hours";
 import { useToast } from "@/hooks/use-toast";
 import {
   getMissingItems,
@@ -143,9 +144,9 @@ export function OnDeckTab({
       }));
 
       const weddingJobs = jobs.filter((j) => j.wedding_id === w.id);
-      const totalHours = weddingJobs.reduce(
-        (s, j) => s + (Number(j.hours) || 0),
-        0,
+      const totalHours = computeBookedHours(
+        weddingJobs,
+        (w as any)?.coverage_hours,
       );
       const pkgName =
         w.package ||
