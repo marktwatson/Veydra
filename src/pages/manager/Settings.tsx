@@ -2182,7 +2182,7 @@ export default function ManagerSettings() {
     setIsTestingApi(true);
     try {
       const response = await fetch(
-        `https://services.leadconnectorhq.com/locations/${hlLocationId}`,
+        `https://services.leadconnectorhq.com/contacts?locationId=${encodeURIComponent(hlLocationId)}&limit=1`,
         {
           method: "GET",
           headers: {
@@ -2203,7 +2203,7 @@ export default function ManagerSettings() {
 
       toast({
         title: "Connection Successful! 🎉",
-        description: `Successfully connected to location: ${data.location?.name || hlLocationId}`,
+        description: `Successfully connected to location: ${data?.location?.name || hlLocationId}`,
       });
     } catch (error: any) {
       console.error("API Test Failed:", error);

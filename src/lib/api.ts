@@ -2510,12 +2510,9 @@ export const api = {
   async getPortalSettings() {
     let settings: DbPortalSettings | null = null;
     try {
-      const { data, error } = await supabase
-        .from("portal_settings")
-        .select("*")
-        .limit(1);
-      if (error && error.code !== "42P01") throw error; // Ignore table not found error
-      settings = data && data.length > 0 ? (data[0] as DbPortalSettings) : null;
+      const { loadScopedPortalSettings } =
+        await import("./portal-settings-load");
+      settings = await loadScopedPortalSettings();
     } catch (e) {
       console.warn(
         "Could not fetch portal settings. Table might not exist yet.",

@@ -2,12 +2,15 @@ import { createRoot } from "react-dom/client";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PaymentDueAlert } from "@/components/PaymentDueAlert";
 import { PackagesTerritoryMounter } from "@/components/PackagesTerritoryPicker";
-import { SuperAdminAreaSwitcherMounter } from "@/components/SuperAdminAreaSwitcher";
 import App from "@/App";
 import "@/index.css";
 // Territory-scoped overrides for getPortalSettings / savePackage / saveAddon /
 // updatePortalSettings. Must run before any component reads settings/packages.
 import "@/lib/api-territory-patch";
+// Fix the Ovanta "Test Connection" button: rewrite the agency-level
+// /locations/{id} probe to the sub-account-accessible contacts endpoint.
+import { installCrmConnectionFetchPatch } from "@/lib/crm-connection-fetch-patch";
+installCrmConnectionFetchPatch();
 
 // Auto-reload on stale chunk failures so after an app update, cached
 // browser sessions seamlessly refresh the newer JavaScript modules.
@@ -61,6 +64,5 @@ createRoot(document.getElementById("root")!).render(
     <App />
     <PaymentDueAlert />
     <PackagesTerritoryMounter />
-    <SuperAdminAreaSwitcherMounter />
   </ErrorBoundary>,
 );
