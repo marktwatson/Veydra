@@ -12,6 +12,13 @@ import "@/lib/api-territory-patch";
 import { installCrmConnectionFetchPatch } from "@/lib/crm-connection-fetch-patch";
 installCrmConnectionFetchPatch();
 
+// Register the territory-scoped team loader on globalThis so Team.tsx can
+// call loadTeamForTerritory() without a static import (the file is at its
+// edit cap). Resolves to the real function from team-territory-scoped.ts.
+import("@/lib/team-territory-scoped").then((mod) => {
+  (globalThis as any).loadTeamForTerritory = mod.loadTeamForTerritory;
+});
+
 // Auto-reload on stale chunk failures so after an app update, cached
 // browser sessions seamlessly refresh the newer JavaScript modules.
 window.addEventListener("vite:preloadError", () => {

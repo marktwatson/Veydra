@@ -126,83 +126,8 @@ export default function ManagerTeam() {
   };
 
   const { data: managers = [], isLoading } = useQuery({
-    queryKey: ["managers"],
-    queryFn: async () => {
-      const [m, e] = await Promise.all([api.getManagers(), api.getEditors()]);
-
-      const editors = e.map((ed) => ({ ...ed, role: "editor" }));
-      const all = [...m, ...editors];
-
-      // Clean up duplicates by email, giving priority to active accounts
-      const uniqueMap = new Map();
-      all.forEach((u) => {
-        const email = u.email?.trim().toLowerCase();
-        if (!email) {
-          uniqueMap.set(u.id, u);
-          return;
-        }
-        if (uniqueMap.has(email)) {
-          const existing = uniqueMap.get(email);
-          if (existing.status === "invited" && u.status === "active")
-            uniqueMap.set(email, u);
-          else if (existing.status !== "active" && u.status === "active")
-            uniqueMap.set(email, u);
-          else if (u.role === "editor" && existing.role !== "editor")
-            uniqueMap.set(email, u);
-        } else {
-          uniqueMap.set(email, u);
-        }
-      });
-
-      const list = Array.from(uniqueMap.values());
-
-      // Auto-reconcile remaining invited status if the user has an active record
-      for (const item of list) {
-        if (item.status === "invited" && item.email) {
-          const emailLower = item.email.trim().toLowerCase();
-          const [mRes, eRes, cRes] = await Promise.all([
-            supabase
-              .from("managers")
-              .select("id, status")
-              .ilike("email", emailLower)
-              .neq("status", "invited")
-              .maybeSingle(),
-            supabase
-              .from("editors")
-              .select("id, status")
-              .ilike("email", emailLower)
-              .neq("status", "invited")
-              .maybeSingle(),
-            supabase
-              .from("contractors")
-              .select("id, status")
-              .ilike("email", emailLower)
-              .eq("status", "active")
-              .maybeSingle(),
-          ]);
-
-          if (mRes.data || eRes.data || cRes.data) {
-            item.status = "active";
-            await supabase
-              .from("managers")
-              .update({ status: "active" })
-              .ilike("email", emailLower);
-            await supabase
-              .from("managers")
-              .delete()
-              .ilike("email", emailLower)
-              .eq("status", "invited")
-              .neq("id", item.id);
-          }
-        }
-      }
-
-      return list.sort(
-        (a, b) =>
-          new Date(a.created_at || "").getTime() -
-          new Date(b.created_at || "").getTime(),
-      );
-    },
+    queryKey: ["managers", "team-territory"],
+    queryFn: () => loadTeamForTerritory(),
   });
 
   const deleteMutation = useMutation({
