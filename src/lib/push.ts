@@ -3,6 +3,7 @@
 // saves the PushSubscription to the push_subscriptions table.
 
 import { supabase } from "@/lib/supabase";
+import { currentTerritoryId } from "@/lib/current-territory";
 
 const SW_PATH = "/sw-push.js";
 
@@ -115,6 +116,16 @@ export async function subscribeToPush(userId: string, userEmail?: string) {
   });
 
   const json = subscription.toJSON();
+  // Resolve the subscriber's territory so area-scoped alerts only reach
+  // devices in that area. Super admin "All Areas" → null (receives every
+  // area). Managers → their managers.territory_id. Never left blank on a
+  // new subscription.
+  let territoryId: string | null = null;
+  try {
+    territoryId = await currentTerritoryId();
+  } catch {
+    /* ignore — leave null (super admin all-areas) */
+  }
   // Save to DB (upsert by endpoint so re-subscribing doesn't duplicate).
   const { error } = await supabase.from("push_subscriptions").upsert(
     {
@@ -123,6 +134,7 @@ export async function subscribeToPush(userId: string, userEmail?: string) {
       endpoint: json.endpoint,
       p256dh_key: json.keys?.p256dh,
       auth_key: json.keys?.auth,
+      territory_id: territoryId,
     },
     { onConflict: "endpoint" },
   );

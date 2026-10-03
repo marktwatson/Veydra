@@ -266,11 +266,25 @@ async function notifyStaffClaim(
     );
     // In-app notification for every manager + owner + super_admin so the
     // Notifications page + Dashboard pick it up. We insert one row per
-    // staff user resolved by role.
+    // staff user resolved by role, scoped to the wedding's territory so
+    // a Captured Memories alert never reaches Honeysuckle staff.
+    let territoryId: string | null = null;
     try {
-      const { data: managers } = await supabase
-        .from("managers")
-        .select("id, role");
+      const { data: w } = await supabase
+        .from("weddings")
+        .select("territory_id")
+        .eq("id", weddingId)
+        .maybeSingle();
+      territoryId = w?.territory_id || null;
+    } catch {}
+    try {
+      let mgrQuery = supabase.from("managers").select("id, role, territory_id");
+      if (territoryId) {
+        mgrQuery = mgrQuery.or(
+          `territory_id.eq.${territoryId},role.eq.super_admin`,
+        );
+      }
+      const { data: managers } = await mgrQuery;
       const staff = (managers || []).filter(
         (m: any) =>
           m.role === "owner" ||
@@ -294,6 +308,7 @@ async function notifyStaffClaim(
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             roles: ["owner", "super_admin", "manager"],
+            territory_id: territoryId || undefined,
             category: "bookings_payments",
             title,
             body,

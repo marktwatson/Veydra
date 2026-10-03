@@ -318,6 +318,10 @@ ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS territory_id UUID;
 ALTER TABLE public.contractors ADD COLUMN IF NOT EXISTS territory_id UUID;
 ALTER TABLE public.managers ADD COLUMN IF NOT EXISTS territory_id UUID;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS territory_id UUID;
+-- Scope push subscriptions by area so area alerts only reach that area's
+-- devices. Nullable (legacy rows stay null); new subscriptions always stamp it.
+ALTER TABLE public.push_subscriptions ADD COLUMN IF NOT EXISTS territory_id UUID;
+CREATE INDEX IF NOT EXISTS idx_push_subs_territory ON public.push_subscriptions(territory_id);
 
 -- Public apply slug on territories — /apply/:slug routes a contractor
 -- application to the correct area. Idempotent so Sync re-applies safely.

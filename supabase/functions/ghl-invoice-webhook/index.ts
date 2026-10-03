@@ -484,7 +484,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const weddingId = wedding.id; try { const { data: wT } = await db.from("weddings").select("territory_id").eq("id", weddingId).maybeSingle(); const tId = wT?.territory_id || null; if (tId) { const { data: tS } = await db.from("portal_settings").select("hl_api_key, hl_location_id").eq("territory_id", tId).limit(1).maybeSingle(); if (tS) portalSettings = { ...(portalSettings || {}), ...tS }; } } catch (e: any) { console.warn("[ghl-invoice-webhook] territory settings failed:", e?.message); }
+    const weddingId = wedding.id; let weddingTerritoryId: string | null = null; try { const { data: wT } = await db.from("weddings").select("territory_id").eq("id", weddingId).maybeSingle(); weddingTerritoryId = wT?.territory_id || null; if (weddingTerritoryId) { const { data: tS } = await db.from("portal_settings").select("hl_api_key, hl_location_id").eq("territory_id", weddingTerritoryId).limit(1).maybeSingle(); if (tS) portalSettings = { ...(portalSettings || {}), ...tS }; } } catch (e: any) { console.warn("[ghl-invoice-webhook] territory settings failed:", e?.message); }
     if ((Number(wedding.total_amount)||0) > 0 && (Number(wedding.paid_amount)||0) >= (Number(wedding.total_amount)||0) - 0.01) {
       return jsonResp({ ignored: "already paid in full", weddingId, invoiceId: invoiceId || invoiceNumber || `email:${contactEmail}`, paid_amount: Number(wedding.paid_amount)||0, total_amount: Number(wedding.total_amount)||0 });
     }
@@ -670,7 +670,7 @@ Deno.serve(async (req) => {
         console.warn("[ghl-invoice-webhook] proposal accept failed:", e?.message);
       }
     }
-    if (delta > 0) { try { const wf = (Number(wedding.paid_amount) || 0) <= 0; const cn = wedding.client_name || "client"; const tot = Number(wedding.total_amount) || 0; await fetch(`${su}/functions/v1/send-push`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${sk}`, apikey: sk }, body: JSON.stringify({ action: "send", roles: ["owner", "super_admin"], category: "bookings_payments", title: wf ? `New booking — ${cn}` : `Payment received — ${cn}`, body: `$${delta.toFixed(2)} posted · paid $${newPaid.toFixed(2)} of $${tot.toFixed(2)}`, url: "/manager/payments", tag: `ghl-pay-${weddingId}` }) }); } catch (e: any) { console.warn("[ghl-invoice-webhook] send-push failed:", e?.message); } }
+    if (delta > 0) { try { const wf = (Number(wedding.paid_amount) || 0) <= 0; const cn = wedding.client_name || "client"; const tot = Number(wedding.total_amount) || 0; await fetch(`${su}/functions/v1/send-push`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${sk}`, apikey: sk }, body: JSON.stringify({ action: "send", roles: ["owner", "super_admin"], territory_id: weddingTerritoryId || undefined, category: "bookings_payments", title: wf ? `New booking — ${cn}` : `Payment received — ${cn}`, body: `$${delta.toFixed(2)} posted · paid $${newPaid.toFixed(2)} of $${tot.toFixed(2)}`, url: "/manager/payments", tag: `ghl-pay-${weddingId}` }) }); } catch (e: any) { console.warn("[ghl-invoice-webhook] send-push failed:", e?.message); } }
 
     // GHL contact tagging (fire-and-forget; never fails the webhook).
     try {

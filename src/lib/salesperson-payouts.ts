@@ -31,6 +31,9 @@ BEGIN
   EXECUTE 'DROP POLICY IF EXISTS spb_auth_select ON public.salesperson_payout_batches';
   EXECUTE 'CREATE POLICY spb_auth_insert ON public.salesperson_payout_batches FOR INSERT TO authenticated WITH CHECK (true)';
   EXECUTE 'CREATE POLICY spb_auth_select ON public.salesperson_payout_batches FOR SELECT TO authenticated USING (true)';
+  -- Scope push subscriptions by area so area alerts only reach that area's devices.
+  EXECUTE 'ALTER TABLE public.push_subscriptions ADD COLUMN IF NOT EXISTS territory_id uuid';
+  EXECUTE 'CREATE INDEX IF NOT EXISTS idx_push_subs_territory ON public.push_subscriptions(territory_id)';
 END $$;
 NOTIFY pgrst, 'reload schema';`;
 

@@ -7,12 +7,15 @@ const stripe = new Stripe(stripeKey, { apiVersion: "2023-10-16", httpClient: Str
 const endpointSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET");
 
 // Fire-and-forget push to owners + super_admins. Best-effort, never throws.
-async function notifyOwnersPush(su: string, sk: string, category: string, title: string, body: string, url = "/manager", tag?: string) {
+// territoryId scopes the role fan-out to one area (managers in that territory
+// + super_admins). When omitted, send-push refuses to fan out roles to all
+// areas, so pass the wedding's territory_id whenever known.
+async function notifyOwnersPush(su: string, sk: string, category: string, title: string, body: string, url = "/manager", tag?: string, territoryId?: string | null) {
   try {
     await fetch(`${su}/functions/v1/send-push`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${sk}`, apikey: sk },
-      body: JSON.stringify({ action: "send", roles: ["owner", "super_admin"], category, title, body, url, tag }),
+      body: JSON.stringify({ action: "send", roles: ["owner", "super_admin"], territory_id: territoryId || undefined, category, title, body, url, tag }),
     });
   } catch (e) { console.error("[PUSH] failed:", (e as any)?.message); }
 }
@@ -160,7 +163,7 @@ serve(async (req) => {
         const { data: uw } = await supabase.from("weddings").select("*").eq("id", weddingId).single();
         if (uw) await syncToCRM(uw, 0, 'payment');
         if (amountPaid > 0) await recordRoyaltySale(weddingId, amountPaid, `Proposal payment — ${proposal.client_name || "client"}`, false, chargeId);
-        await notifyOwnersPush(su, sk, "bookings_payments", "New Booking — " + (proposal.client_name || "Client"), `$${amountPaid.toFixed(0)} received · ${packageString}`, "/manager/weddings", `booking-${weddingId}`);
+        await notifyOwnersPush(su, sk, "bookings_payments", "New Booking — " + (proposal.client_name || "Client"), `$${amountPaid.toFixed(0)} received · ${packageString}`, "/manager/weddings", `booking-${weddingId}`, uw?.territory_id);
       }
     };
 
@@ -191,8 +194,8 @@ serve(async (req) => {
                 await syncToCRM(wedding, amountPaid, 'subscription');
                 await recordRoyaltySale(wId, amountPaid, `Invoice payment — ${wedding.client_name || "client"}`, false, typeof invoice.payment_intent === 'string' ? invoice.payment_intent : invoice.payment_intent?.id || undefined);
                 await autoVerifyFinalPayment(wId, newPaid, wedding.total_amount);
-                if (isFirst) { await sendBrideWelcome(wedding.client_email, wedding.client_name, wedding.id); await sendAdminBookingNotification(wedding.client_name, wedding.client_email, wedding.date, wedding.location, wedding.package, amountPaid, wedding.id); await notifyOwnersPush(su, sk, "bookings_payments", "New Booking — " + (wedding.client_name || "Client"), `$${amountPaid.toFixed(0)} received · ${wedding.package || "Package"}`, "/manager/weddings", `booking-${wedding.id}`); }
-                else { await notifyOwnersPush(su, sk, "bookings_payments", "Payment Received — " + (wedding.client_name || "Client"), `$${amountPaid.toFixed(0)} · Balance $${Math.max(0, (Number(wedding.total_amount) || 0) - newPaid).toFixed(0)}`, "/manager/weddings", `payment-${wedding.id}`); }
+                if (isFirst) { await sendBrideWelcome(wedding.client_email, wedding.client_name, wedding.id); await sendAdminBookingNotification(wedding.client_name, wedding.client_email, wedding.date, wedding.location, wedding.package, amountPaid, wedding.id); await notifyOwnersPush(su, sk, "bookings_payments", "New Booking — " + (wedding.client_name || "Client"), `$${amountPaid.toFixed(0)} received · ${wedding.package || "Package"}`, "/manager/weddings", `booking-${wedding.id}`, wedding.territory_id); }
+                else { await notifyOwnersPush(su, sk, "bookings_payments", "Payment Received — " + (wedding.client_name || "Client"), `$${amountPaid.toFixed(0)} · Balance $${Math.max(0, (Number(wedding.total_amount) || 0) - newPaid).toFixed(0)}`, "/manager/weddings", `payment-${wedding.id}`, wedding.territory_id); }
               }
             }
             if (!proposalId && !wId) {
@@ -219,7 +222,7 @@ serve(async (req) => {
             const { data: wedding } = await supabase.from('weddings').select('client_name, total_amount, paid_amount').eq('id', wId).maybeSingle();
             await recordRoyaltySale(wId, amountPaid, `Manual charge — ${wedding?.client_name || "client"}`, false, typeof invoice.payment_intent === 'string' ? invoice.payment_intent : invoice.payment_intent?.id || undefined);
             await autoVerifyFinalPayment(wId, Number(wedding?.paid_amount || 0), Number(wedding?.total_amount || 0));
-            await notifyOwnersPush(su, sk, "bookings_payments", "Payment Received — " + (wedding?.client_name || "Client"), `$${amountPaid.toFixed(0)} · manual charge`, "/manager/weddings", `payment-${wId}`);
+            await notifyOwnersPush(su, sk, "bookings_payments", "Payment Received — " + (wedding?.client_name || "Client"), `$${amountPaid.toFixed(0)} · manual charge`, "/manager/weddings", `payment-${wId}`, wedding?.territory_id);
           }
         }
         break;
@@ -234,7 +237,7 @@ serve(async (req) => {
             const newPaid = (wedding.paid_amount || 0) + amountPaid;
             await supabase.from('weddings').update({ paid_amount: newPaid }).eq('id', wId);
             await syncToCRM(wedding, amountPaid, type);
-            if (type === 'payment') { const sessPi = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || undefined; await recordRoyaltySale(wId, amountPaid, `Checkout payment — ${wedding.client_name || "client"}`, false, sessPi); await autoVerifyFinalPayment(wId, newPaid, wedding.total_amount); await notifyOwnersPush(su, sk, "bookings_payments", "Payment Received — " + (wedding.client_name || "Client"), `$${amountPaid.toFixed(0)} · Balance $${Math.max(0, (Number(wedding.total_amount) || 0) - newPaid).toFixed(0)}`, "/manager/weddings", `payment-${wedding.id}`); }
+            if (type === 'payment') { const sessPi = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || undefined; await recordRoyaltySale(wId, amountPaid, `Checkout payment — ${wedding.client_name || "client"}`, false, sessPi); await autoVerifyFinalPayment(wId, newPaid, wedding.total_amount); await notifyOwnersPush(su, sk, "bookings_payments", "Payment Received — " + (wedding.client_name || "Client"), `$${amountPaid.toFixed(0)} · Balance $${Math.max(0, (Number(wedding.total_amount) || 0) - newPaid).toFixed(0)}`, "/manager/weddings", `payment-${wedding.id}`, wedding.territory_id); }
             else if (type === 'upsell') {
               await recordRoyaltySale(wId, amountPaid, `Bartending add-on — ${wedding.client_name || "client"}`, false, typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || undefined);
               // Record the upsell purchase row
@@ -250,9 +253,9 @@ serve(async (req) => {
                   stripe_customer_id: typeof session.customer === 'string' ? session.customer : session.customer?.id || wedding.stripe_customer_id || null,
                 });
               } catch (e) { console.error('[WEBHOOK] upsell purchase insert failed:', (e as any)?.message); }
-              await notifyOwnersPush(su, sk, "bookings_payments", "Bartending Add-On Purchased — " + (wedding.client_name || "Client"), `$${amountPaid.toFixed(0)} · ${upsellPkgName}`, "/manager/weddings", `upsell-${wedding.id}`);
+              await notifyOwnersPush(su, sk, "bookings_payments", "Bartending Add-On Purchased — " + (wedding.client_name || "Client"), `$${amountPaid.toFixed(0)} · ${upsellPkgName}`, "/manager/weddings", `upsell-${wedding.id}`, wedding.territory_id);
             }
-            else { await notifyOwnersPush(su, sk, "bookings_payments", "Gift Received — " + (wedding.client_name || "Client"), `$${amountPaid.toFixed(0)} gift applied`, "/manager/weddings", `gift-${wedding.id}`); }
+            else { await notifyOwnersPush(su, sk, "bookings_payments", "Gift Received — " + (wedding.client_name || "Client"), `$${amountPaid.toFixed(0)} gift applied`, "/manager/weddings", `gift-${wedding.id}`, wedding.territory_id); }
             if (type === 'gift' && hlKey && hlLoc && wedding.client_email) {
               const appUrl = settings.app_url || "https://veydra.app"; const portalLink = `${appUrl}/bride-portal/${wedding.id}`; const cn = settings.company_name || "Company"; const logoUrl = settings.logo_url || "";
               if (settings.email_bride_gift_enabled && settings.email_bride_gift_template) { let s = (settings.email_bride_gift_subject || "You received a gift!").replace(/{{company_name}}/g, cn); let m = settings.email_bride_gift_template.replace(/{{company_name}}/g, cn).replace(/{{logo_url}}/g, logoUrl).replace(/{{bride_name}}/g, wedding.client_name || "Bride").replace(/{{amount}}/g, amountPaid.toFixed(2)).replace(/{{portal_link}}/g, portalLink); await sendOvantaEmail(wedding.client_email, s, m, hlKey, hlLoc); }
@@ -284,8 +287,8 @@ serve(async (req) => {
             await syncToCRM(wedding, amountPaid, 'payment');
             await recordRoyaltySale(wId, amountPaid, `Payment intent — ${wedding.client_name || "client"}`, false, piChargeId);
             await autoVerifyFinalPayment(wId, newPaid, wedding.total_amount);
-            if (isFirst) { await sendBrideWelcome(wedding.client_email, wedding.client_name, wedding.id); await sendAdminBookingNotification(wedding.client_name, wedding.client_email, wedding.date, wedding.location, wedding.package, amountPaid, wedding.id); await notifyOwnersPush(su, sk, "bookings_payments", "New Booking — " + (wedding.client_name || "Client"), `$${amountPaid.toFixed(0)} received · ${wedding.package || "Package"}`, "/manager/weddings", `booking-${wedding.id}`); }
-            else { await notifyOwnersPush(su, sk, "bookings_payments", "Payment Received — " + (wedding.client_name || "Client"), `$${amountPaid.toFixed(0)} · Balance $${Math.max(0, (Number(wedding.total_amount) || 0) - newPaid).toFixed(0)}`, "/manager/weddings", `payment-${wedding.id}`); }
+            if (isFirst) { await sendBrideWelcome(wedding.client_email, wedding.client_name, wedding.id); await sendAdminBookingNotification(wedding.client_name, wedding.client_email, wedding.date, wedding.location, wedding.package, amountPaid, wedding.id); await notifyOwnersPush(su, sk, "bookings_payments", "New Booking — " + (wedding.client_name || "Client"), `$${amountPaid.toFixed(0)} received · ${wedding.package || "Package"}`, "/manager/weddings", `booking-${wedding.id}`, wedding.territory_id); }
+            else { await notifyOwnersPush(su, sk, "bookings_payments", "Payment Received — " + (wedding.client_name || "Client"), `$${amountPaid.toFixed(0)} · Balance $${Math.max(0, (Number(wedding.total_amount) || 0) - newPaid).toFixed(0)}`, "/manager/weddings", `payment-${wedding.id}`, wedding.territory_id); }
           }
         }
         if (couponId) { try { const { data: c } = await supabase.from('coupons').select('current_uses').eq('id', couponId).single(); if (c) await supabase.from('coupons').update({ current_uses: (c.current_uses || 0) + 1 }).eq('id', couponId); } catch (e) { console.error("Failed to increment coupon:", e); } }
@@ -298,7 +301,7 @@ serve(async (req) => {
           await supabase.from('weddings').update({ stripe_subscription_status: 'past_due' }).eq('stripe_subscription_id', subId);
           const { data: wedding } = await supabase.from('weddings').select('*').eq('stripe_subscription_id', subId).single();
           if (wedding?.client_email && hlKey) { const cid = await findLcContact(wedding.client_email, hlKey, hlLoc); if (cid) await fetch(`https://services.leadconnectorhq.com/contacts/${cid}`, { method: "PUT", headers: lcHeaders(hlKey), body: JSON.stringify({ tags: ["payment-failed"] }) }); }
-          if (wedding) await notifyOwnersPush(su, sk, "bookings_payments", "Payment Failed — " + (wedding.client_name || "Client"), `Auto-charge failed · $${(invoice.amount_due / 100).toFixed(0)} — needs attention`, "/manager/payments", `failed-${wedding.id}`);
+          if (wedding) await notifyOwnersPush(su, sk, "bookings_payments", "Payment Failed — " + (wedding.client_name || "Client"), `Auto-charge failed · $${(invoice.amount_due / 100).toFixed(0)} — needs attention`, "/manager/payments", `failed-${wedding.id}`, wedding.territory_id);
         }
         break;
       }
@@ -326,14 +329,14 @@ serve(async (req) => {
             let weddingId = wId || null;
             let wedding: any = null;
             if (weddingId) {
-              const { data: w } = await supabase.from('weddings').select('id, paid_amount, client_name').eq('id', weddingId).maybeSingle();
+              const { data: w } = await supabase.from('weddings').select('id, paid_amount, client_name, territory_id').eq('id', weddingId).maybeSingle();
               wedding = w;
             }
             if (!wedding) {
               // Try to match by Stripe customer on the charge.
               const custId = typeof charge.customer === 'string' ? charge.customer : charge.customer?.id;
               if (custId) {
-                const { data: w } = await supabase.from('weddings').select('id, paid_amount, client_name').eq('stripe_customer_id', custId).limit(1).maybeSingle();
+                const { data: w } = await supabase.from('weddings').select('id, paid_amount, client_name, territory_id').eq('stripe_customer_id', custId).limit(1).maybeSingle();
                 if (w) { wedding = w; weddingId = w.id; }
               }
             }
@@ -380,7 +383,7 @@ serve(async (req) => {
           // sales are counted. So we do NOT insert a royalty_sales row for
           // refunds. The paid_amount adjustment + payment_refunds log above
           // handle the booking side; royalty is left untouched.
-          await notifyOwnersPush(su, sk, "bookings_payments", "Refund Issued", `$${refundAmount.toFixed(0)} refunded${!alreadyProcessed ? " · paid balance adjusted" : ""}`, "/manager/weddings", `refund-${wId || charge.id}`);
+          await notifyOwnersPush(su, sk, "bookings_payments", "Refund Issued", `$${refundAmount.toFixed(0)} refunded${!alreadyProcessed ? " · paid balance adjusted" : ""}`, "/manager/weddings", `refund-${wId || charge.id}`, wedding?.territory_id);
         }
         break;
       }

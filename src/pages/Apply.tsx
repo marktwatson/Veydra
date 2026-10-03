@@ -236,6 +236,7 @@ export default function Apply() {
       if (!isRejected) {
         sendPushNotification({
           roles: ["owner", "super_admin"],
+          territoryId,
           category: "team_operations",
           title: "New Application — " + `${firstName} ${lastName}`.trim(),
           body: `${specialty || "Contractor"} · ${selectedRegions.join(", ") || "No region"}`,

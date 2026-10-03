@@ -286,6 +286,7 @@ Deno.serve(async (req) => {
       action = "send",
       user_ids = [],
       roles,
+      territory_id: reqTerritoryId,
       category,
       title = "Veydra",
       body: msgBody = "",
@@ -320,13 +321,39 @@ Deno.serve(async (req) => {
     // Resolve recipients. Supports explicit user_ids OR a roles array
     // (e.g. ["owner","super_admin"]) expanded from the managers table, so other
     // edge functions can trigger pushes without each re-querying managers.
+    //
+    // Territory scoping: when territory_id is provided, role expansion only
+    // includes owner/manager rows whose managers.territory_id matches, and
+    // super_admin rows (who receive every area). If territory_id is missing
+    // AND only roles were passed (no user_ids), we do NOT fan out to every
+    // role across all areas — we return skipped instead, so a Captured
+    // Memories alert never reaches Honeysuckle users.
     let recipientIds: string[] = [...user_ids];
     if (roles && Array.isArray(roles) && roles.length) {
-      const { data: roleManagers } = await db
+      if (!reqTerritoryId && user_ids.length === 0) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            sent: 0,
+            skipped: "no territory_id — refusing to fan out roles to all areas",
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      let roleQuery = db
         .from("managers")
-        .select("id, role")
+        .select("id, role, territory_id")
         .in("role", roles);
-      const roleIds = (roleManagers || []).map((m: any) => m.id).filter(Boolean);
+      if (reqTerritoryId) {
+        // Include managers in this territory OR super_admins (all areas).
+        roleQuery = roleQuery.or(
+          `territory_id.eq.${reqTerritoryId},role.eq.super_admin`,
+        );
+      }
+      const { data: roleManagers } = await roleQuery;
+      const roleIds = (roleManagers || [])
+        .map((m: any) => m.id)
+        .filter(Boolean);
       recipientIds = [...new Set([...recipientIds, ...roleIds])];
     }
     if (action === "test") {
@@ -378,11 +405,20 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Load subscriptions for the recipients.
-    const { data: subscriptions } = await db
+    // Load subscriptions for the recipients. When a territory_id was
+    // provided, only deliver to subscriptions stamped with that territory —
+    // a subscription with a null territory_id must NOT receive area alerts
+    // (it predates per-area scoping or belongs to a super-admin all-areas
+    // device). The "test" action (single user) ignores the territory filter
+    // so the Profile "Send Test" button still works for super admins.
+    let subQuery = db
       .from("push_subscriptions")
       .select("endpoint, p256dh_key, auth_key, user_id")
       .in("user_id", finalRecipients);
+    if (action !== "test" && reqTerritoryId) {
+      subQuery = subQuery.eq("territory_id", reqTerritoryId);
+    }
+    const { data: subscriptions } = await subQuery;
 
     if (!subscriptions || subscriptions.length === 0) {
       return new Response(

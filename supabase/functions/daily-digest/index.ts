@@ -282,6 +282,7 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         action: "send",
         roles: ["owner", "super_admin"],
+        territory_id: HONEY,
         category: "daily_digest",
         title: force ? "Veydra — Digest (Test)" : "Veydra — Daily Owner Report",
         body: digestBody,

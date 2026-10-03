@@ -72,9 +72,15 @@ export async function sendTestPush() {
 // Fire-and-forget push. Supports explicit userIds OR a roles array
 // (["owner","super_admin"]) which the send-push edge fn expands from the
 // managers table. Best-effort — never throws.
+//
+// territoryId scopes role-based fan-out to one area (managers in that
+// territory + super_admins). If omitted with roles and no userIds, send-push
+// refuses to fan out to all areas (returns skipped) so an area alert never
+// leaks to another area's users.
 export async function sendPushNotification(opts: {
   userIds?: string[];
   roles?: string[];
+  territoryId?: string | null;
   category: PushCategory;
   title: string;
   body: string;
@@ -94,6 +100,7 @@ export async function sendPushNotification(opts: {
         action: "send",
         user_ids: opts.userIds || [],
         roles: opts.roles,
+        territory_id: opts.territoryId ?? undefined,
         category: opts.category,
         title: opts.title,
         body: opts.body,
