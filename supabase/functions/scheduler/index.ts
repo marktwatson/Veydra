@@ -87,6 +87,7 @@ async function selfHealTables(sb: any): Promise<boolean> {
     `ALTER TABLE public.scheduled_jobs ENABLE ROW LEVEL SECURITY;`,
     `DROP POLICY IF EXISTS "Public full access scheduled_jobs" ON public.scheduled_jobs;`,
     `CREATE POLICY "Public full access scheduled_jobs" ON public.scheduled_jobs FOR ALL USING (true) WITH CHECK (true);`,
+    `ALTER TABLE public.scheduled_jobs ADD COLUMN IF NOT EXISTS territory_id uuid;`,
   ];
   let ok = true;
   for (const sql of stmts) {
@@ -272,6 +273,7 @@ async function enqueueJob(sb: any, job: any): Promise<number> {
       related_wedding_id: job.related_wedding_id || null,
       related_assignment_id: job.related_assignment_id || null,
       related_contractor_id: job.related_contractor_id || null,
+      territory_id: job.territory_id || null,
       payload: job.payload,
       status: "pending",
     });
@@ -320,7 +322,7 @@ serve(async (req) => {
       portal_tz: tz,
     }, 500);
   }
-  const { claimed, sent, failed } = await processJobs(sb, settings);
+  const { claimed, sent, failed } = await processJobs(sb);
   const backfilled = await backfillJobs(sb, settings, tz);
   // Auto-trigger the royalty processor on its configured day/time (portal TZ).
   // The processor self-gates: it only actually runs when the portal day/time
@@ -387,7 +389,7 @@ serve(async (req) => {
 });
 
 // ─── Job processing ──────────────────────────────────────────────────────
-async function processJobs(sb: any, settings: any) {
+async function processJobs(sb: any) {
   let claimed = 0, sent = 0, failed = 0;
   const { data: dueJobs } = await sb
     .from("scheduled_jobs")
@@ -409,7 +411,28 @@ async function processJobs(sb: any, settings: any) {
     if (error || !claimedRow) continue;
     claimed++;
     try {
-      const ok = await sendJob(sb, settings, claimedRow);
+      // Resolve THIS job's territory: scheduled_jobs.territory_id, else the
+      // related wedding's territory_id. Never fall back to Honeysuckle — an
+      // area's SMS/email must use that area's Ovanta keys/location only.
+      let territoryId: string | null = claimedRow.territory_id || null;
+      if (!territoryId && claimedRow.related_wedding_id) {
+        try {
+          const { data: w } = await sb.from("weddings").select("territory_id").eq("id", claimedRow.related_wedding_id).maybeSingle();
+          territoryId = w?.territory_id || null;
+        } catch {}
+      }
+      if (!territoryId) {
+        await sb.from("scheduled_jobs").update({ status: "failed", last_error: "no territory_id — skipped (not sent through another area's keys)", updated_at: new Date().toISOString() }).eq("id", claimedRow.id);
+        failed++;
+        continue;
+      }
+      const { data: jobSettings } = await sb.from("portal_settings").select("*").eq("territory_id", territoryId).limit(1).maybeSingle();
+      if (!jobSettings || !jobSettings.hl_api_key || !jobSettings.hl_location_id) {
+        await sb.from("scheduled_jobs").update({ status: "failed", last_error: `area ${territoryId} has no Ovanta connection`, updated_at: new Date().toISOString() }).eq("id", claimedRow.id);
+        failed++;
+        continue;
+      }
+      const ok = await sendJob(sb, jobSettings, claimedRow);
       if (ok) {
         await sb.from("scheduled_jobs").update({ status: "sent", sent_at: new Date().toISOString(), updated_at: new Date().toISOString(), last_error: null }).eq("id", job.id);
         sent++;
@@ -463,7 +486,7 @@ async function backfillJobs(sb: any, settings: any, tz: string): Promise<number>
   let count = 0;
   const active = ["Upcoming","upcoming","Accepted","accepted","Confirmed","confirmed","Assigned","assigned","Action Required","action required"];
   const { data: assignments } = await sb.from("assignments")
-    .select(`id, contractor_id, status, jobs (id, role, contractor_todos, weddings(id, client_name, date, location, timeline)), contractors (id, first_name, last_name, email, sms_notifications, email_notifications)`)
+    .select(`id, contractor_id, status, jobs (id, role, territory_id, contractor_todos, weddings(id, client_name, date, location, timeline, territory_id)), contractors (id, first_name, last_name, email, sms_notifications, email_notifications)`)
     .in("status", active);
 
   if (assignments) {
@@ -472,21 +495,24 @@ async function backfillJobs(sb: any, settings: any, tz: string): Promise<number>
       const c = a.contractors as any;
       if (!job?.weddings?.date || !c?.email) continue;
       const wDate = job.weddings.date.split("T")[0];
+      // Stamp the wedding's territory onto every scheduled_jobs row so
+      // processJobs sends through that area's Ovanta keys only.
+      const territoryId = job.territory_id || job.weddings?.territory_id || null;
       const tokens = { contractor_name: c.first_name, wedding_name: job.weddings.client_name, client_name: job.weddings.client_name, location: job.weddings.location || "TBD", date: job.weddings.date, role: job.role || "" };
 
       if (settings.sms_contractor_prep_enabled && settings.sms_contractor_prep_template && settings.sms_contractor_prep_days) {
         const runAt = computeRunAt({ weddingDate: wDate, offsetDays: settings.sms_contractor_prep_days, sendHour: 9, tz });
-        if (runAt && runAt.getTime() > Date.now()) count += await enqueueJob(sb, { type: "sms_contractor_prep", run_at: runAt.toISOString(), timezone: tz, dedupe_key: `sms_contractor_prep:${a.id}`, related_assignment_id: a.id, related_contractor_id: c.id, related_wedding_id: job.weddings.id, payload: { recipient_email: c.email, recipient_name: c.first_name, template: settings.sms_contractor_prep_template, tokens } });
+        if (runAt && runAt.getTime() > Date.now()) count += await enqueueJob(sb, { type: "sms_contractor_prep", run_at: runAt.toISOString(), timezone: tz, dedupe_key: `sms_contractor_prep:${a.id}`, related_assignment_id: a.id, related_contractor_id: c.id, related_wedding_id: job.weddings.id, territory_id: territoryId, payload: { recipient_email: c.email, recipient_name: c.first_name, template: settings.sms_contractor_prep_template, tokens } });
       }
       if (settings.sms_reminder_enabled && settings.sms_reminder_template && settings.sms_reminder_hours) {
         const st = extractStartTime(job.weddings.timeline);
         const runAt = computeRunAt({ weddingDate: wDate, weddingStart: st, offsetHours: settings.sms_reminder_hours, tz });
-        if (runAt && runAt.getTime() > Date.now()) count += await enqueueJob(sb, { type: "sms_reminder", run_at: runAt.toISOString(), timezone: tz, dedupe_key: `sms_reminder:${a.id}`, related_assignment_id: a.id, related_contractor_id: c.id, related_wedding_id: job.weddings.id, payload: { recipient_email: c.email, recipient_name: c.first_name, template: settings.sms_reminder_template, tokens } });
+        if (runAt && runAt.getTime() > Date.now()) count += await enqueueJob(sb, { type: "sms_reminder", run_at: runAt.toISOString(), timezone: tz, dedupe_key: `sms_reminder:${a.id}`, related_assignment_id: a.id, related_contractor_id: c.id, related_wedding_id: job.weddings.id, territory_id: territoryId, payload: { recipient_email: c.email, recipient_name: c.first_name, template: settings.sms_reminder_template, tokens } });
       }
       if (settings.email_reminder_enabled && settings.email_reminder_template && settings.sms_reminder_hours) {
         const st = extractStartTime(job.weddings.timeline);
         const runAt = computeRunAt({ weddingDate: wDate, weddingStart: st, offsetHours: settings.sms_reminder_hours, tz });
-        if (runAt && runAt.getTime() > Date.now()) count += await enqueueJob(sb, { type: "email_reminder", run_at: runAt.toISOString(), timezone: tz, dedupe_key: `email_reminder:${a.id}`, related_assignment_id: a.id, related_contractor_id: c.id, related_wedding_id: job.weddings.id, payload: { recipient_email: c.email, recipient_name: c.first_name, subject: settings.email_reminder_subject || "Upcoming Job Reminder", template: settings.email_reminder_template, tokens } });
+        if (runAt && runAt.getTime() > Date.now()) count += await enqueueJob(sb, { type: "email_reminder", run_at: runAt.toISOString(), timezone: tz, dedupe_key: `email_reminder:${a.id}`, related_assignment_id: a.id, related_contractor_id: c.id, related_wedding_id: job.weddings.id, territory_id: territoryId, payload: { recipient_email: c.email, recipient_name: c.first_name, subject: settings.email_reminder_subject || "Upcoming Job Reminder", template: settings.email_reminder_template, tokens } });
       }
     }
   }
@@ -506,19 +532,19 @@ async function backfillJobs(sb: any, settings: any, tz: string): Promise<number>
       if (settings.sms_bride_pre_wedding_enabled && settings.sms_bride_pre_wedding_template && settings.sms_bride_pre_wedding_hours) {
         const st = extractStartTime(w.timeline);
         const runAt = computeRunAt({ weddingDate: wDate, weddingStart: st, offsetHours: settings.sms_bride_pre_wedding_hours, tz });
-        if (runAt && runAt.getTime() > Date.now()) count += await enqueueJob(sb, { type: "sms_bride_pre_wedding", run_at: runAt.toISOString(), timezone: tz, dedupe_key: `sms_bride_pre_wedding:${w.id}`, related_wedding_id: w.id, payload: { recipient_email: brideEmail, recipient_name: name, template: settings.sms_bride_pre_wedding_template, tokens: { bride_name: name } } });
+        if (runAt && runAt.getTime() > Date.now()) count += await enqueueJob(sb, { type: "sms_bride_pre_wedding", run_at: runAt.toISOString(), timezone: tz, dedupe_key: `sms_bride_pre_wedding:${w.id}`, related_wedding_id: w.id, territory_id: w.territory_id || null, payload: { recipient_email: brideEmail, recipient_name: name, template: settings.sms_bride_pre_wedding_template, tokens: { bride_name: name } } });
       }
       if (settings.sms_bride_day_after_enabled && settings.sms_bride_day_after_template) {
         const runAt = computeRunAt({ weddingDate: wDate, offsetDays: 1, sendHour: 9, isAfter: true, tz });
-        if (runAt && runAt.getTime() > Date.now()) count += await enqueueJob(sb, { type: "sms_bride_day_after", run_at: runAt.toISOString(), timezone: tz, dedupe_key: `sms_bride_day_after:${w.id}`, related_wedding_id: w.id, payload: { recipient_email: brideEmail, recipient_name: name, template: settings.sms_bride_day_after_template, tokens: { bride_name: name, portal_link: portalLink } } });
+        if (runAt && runAt.getTime() > Date.now()) count += await enqueueJob(sb, { type: "sms_bride_day_after", run_at: runAt.toISOString(), timezone: tz, dedupe_key: `sms_bride_day_after:${w.id}`, related_wedding_id: w.id, territory_id: w.territory_id || null, payload: { recipient_email: brideEmail, recipient_name: name, template: settings.sms_bride_day_after_template, tokens: { bride_name: name, portal_link: portalLink } } });
       }
       if (settings.email_bride_day_after_enabled && settings.email_bride_day_after_template) {
         const runAt = computeRunAt({ weddingDate: wDate, offsetDays: 1, sendHour: 9, isAfter: true, tz });
-        if (runAt && runAt.getTime() > Date.now()) count += await enqueueJob(sb, { type: "email_bride_day_after", run_at: runAt.toISOString(), timezone: tz, dedupe_key: `email_bride_day_after:${w.id}`, related_wedding_id: w.id, payload: { recipient_email: brideEmail, recipient_name: name, subject: settings.email_bride_day_after_subject || "Thank you!", template: settings.email_bride_day_after_template, tokens: { bride_name: name, portal_link: portalLink } } });
+        if (runAt && runAt.getTime() > Date.now()) count += await enqueueJob(sb, { type: "email_bride_day_after", run_at: runAt.toISOString(), timezone: tz, dedupe_key: `email_bride_day_after:${w.id}`, related_wedding_id: w.id, territory_id: w.territory_id || null, payload: { recipient_email: brideEmail, recipient_name: name, subject: settings.email_bride_day_after_subject || "Thank you!", template: settings.email_bride_day_after_template, tokens: { bride_name: name, portal_link: portalLink } } });
       }
       if (settings.sms_bride_rating_enabled && settings.sms_bride_rating_template) {
         const runAt = computeRunAt({ weddingDate: wDate, offsetDays: 2, sendHour: 9, isAfter: true, tz });
-        if (runAt && runAt.getTime() > Date.now()) count += await enqueueJob(sb, { type: "sms_bride_rating", run_at: runAt.toISOString(), timezone: tz, dedupe_key: `sms_bride_rating:${w.id}`, related_wedding_id: w.id, payload: { recipient_email: brideEmail, recipient_name: name, template: settings.sms_bride_rating_template, tokens: { bride_name: name, feedback_link: feedbackLink } } });
+        if (runAt && runAt.getTime() > Date.now()) count += await enqueueJob(sb, { type: "sms_bride_rating", run_at: runAt.toISOString(), timezone: tz, dedupe_key: `sms_bride_rating:${w.id}`, related_wedding_id: w.id, territory_id: w.territory_id || null, payload: { recipient_email: brideEmail, recipient_name: name, template: settings.sms_bride_rating_template, tokens: { bride_name: name, feedback_link: feedbackLink } } });
       }
     }
   }
