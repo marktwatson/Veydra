@@ -358,5 +358,15 @@ DROP POLICY IF EXISTS "spb_auth_select" ON public.salesperson_payout_batches;
 CREATE POLICY "spb_auth_insert" ON public.salesperson_payout_batches FOR INSERT TO authenticated WITH CHECK (true);
 CREATE POLICY "spb_auth_select" ON public.salesperson_payout_batches FOR SELECT TO authenticated USING (true);
 
+-- Allow anon + authenticated to insert/update/select weddings so the public
+-- Sign & Pay flow (ensureWeddingForProposal, runs as anon) can create the
+-- draft wedding row before payment. FOR ALL with true/true keeps it simple
+-- and matches the existing open policies on this table.
+DROP POLICY IF EXISTS "weddings_all_anon" ON public.weddings;
+DROP POLICY IF EXISTS "weddings_all_auth" ON public.weddings;
+CREATE POLICY "weddings_all_anon" ON public.weddings FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "weddings_all_auth" ON public.weddings FOR ALL TO authenticated USING (true) WITH CHECK (true);
+GRANT SELECT, INSERT, UPDATE ON public.weddings TO anon, authenticated;
+
 -- Reload PostgREST schema cache so the API sees the new columns immediately.
 NOTIFY pgrst, 'reload schema';
