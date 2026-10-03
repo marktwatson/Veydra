@@ -2767,9 +2767,15 @@ export const api = {
   },
 
   async addContractor(contractor: Omit<DbContractor, "created_at">) {
+    const c: any = { ...contractor };
+    if (!c.territory_id) {
+      const t = await resolveTerritoryId().catch(() => null);
+      if (!t) throw new Error("Pick an area before adding this.");
+      c.territory_id = t;
+    }
     const { data, error } = await supabase
       .from("contractors")
-      .insert(contractor)
+      .insert(c)
       .select()
       .single();
     if (error) throw error;
@@ -2781,9 +2787,19 @@ export const api = {
   },
 
   async addContractors(contractors: Omit<DbContractor, "created_at">[]) {
+    const rows: any[] = [];
+    for (const x of contractors) {
+      const r: any = { ...x };
+      if (!r.territory_id) {
+        const t = await resolveTerritoryId().catch(() => null);
+        if (!t) throw new Error("Pick an area before adding this.");
+        r.territory_id = t;
+      }
+      rows.push(r);
+    }
     const { data, error } = await supabase
       .from("contractors")
-      .insert(contractors)
+      .insert(rows)
       .select();
     if (error) throw error;
     await this.logAdminActivity(
@@ -4725,6 +4741,12 @@ export const api = {
     if (error) {
       console.warn("Update failed, attempting delete/insert fallback", error);
       await supabase.from("applications").delete().eq("id", id);
+      let fbTid = (app as any).territory_id;
+      if (!fbTid) {
+        const { resolveJobTerritoryId } = await import("./child-row-territory");
+        fbTid = await resolveJobTerritoryId(app.job_id).catch(() => null);
+        if (!fbTid) throw new Error("Pick an area before adding this.");
+      }
       const { data: newData, error: insertError } = await supabase
         .from("applications")
         .insert({
@@ -4732,6 +4754,7 @@ export const api = {
           contractor_id: app.contractor_id,
           status: app.status,
           message: newMessage,
+          territory_id: fbTid,
         })
         .select()
         .single();

@@ -1469,7 +1469,7 @@ export default function ManagerContractors() {
     setGeneratingMock(true);
     try {
       const mockContractorId = crypto.randomUUID();
-      await supabase.from("contractors").insert({
+      await addContractorWithTerritory({
         id: mockContractorId,
         first_name: "John",
         last_name: "Mockson",
@@ -1480,7 +1480,7 @@ export default function ManagerContractors() {
         region: ["Charlotte", "Raleigh"],
         drone_approved: true,
         rating: 4.8,
-      });
+      } as any);
       queryClient.invalidateQueries({ queryKey: ["contractors"] });
       toast({
         title: "Mock Data Generated",

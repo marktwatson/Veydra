@@ -399,14 +399,15 @@ export async function acceptCoverageJob(
   }
 
   // Insert a pending application — manager reviews from the applicants list.
-  // Stamp territory_id from the parent job (child rows inherit the job).
-  const appTerritoryId = await resolveJobTerritoryId(jobId).catch(() => null);
+  // Stamp territory_id from the parent job (child rows inherit the job). If
+  // no territory can be resolved, stop — never insert a blank-area row.
+  const appTerritoryId = await resolveJobTerritoryId(jobId);
   const { error: appErr } = await supabase.from("applications").insert({
     job_id: jobId,
     contractor_id: contractorId,
     status: "pending",
     message: "Coverage request — I'm available for this date.",
-    ...(appTerritoryId ? { territory_id: appTerritoryId } : {}),
+    territory_id: appTerritoryId,
   });
 
   if (appErr) {
