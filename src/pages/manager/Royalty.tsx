@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -52,7 +52,6 @@ import {
   Receipt,
   Lock,
   CreditCard,
-  Landmark,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { loadStripe } from "@stripe/stripe-js";
@@ -60,7 +59,13 @@ import { loadStripe } from "@stripe/stripe-js";
 import { RoyaltyNextPullCard } from "@/components/RoyaltyNextPullCard";
 import { RoyaltyBankDialog } from "@/components/manager/RoyaltyBankDialog";
 import { RoyaltyBackupCard } from "@/components/RoyaltyBackupCard";
-// Royalty uses a separate Stripe account. One primary territory per instance.
+import { RoyaltyTerritorySelect } from "@/components/RoyaltyTerritorySelect";
+import { PeriodDetailsDialog } from "@/components/royalty/PeriodDetailsDialog";
+import { TerritoryEditForm } from "@/components/royalty/TerritoryEditForm";
+import { RoyaltySetupForm } from "@/components/royalty/RoyaltySetupForm";
+import { RoyaltyStripeAccountCard } from "@/components/royalty/RoyaltyStripeAccountCard";
+import { isSuperAdminEmail } from "@/lib/super-admin";
+import { currentTerritoryId } from "@/lib/current-territory";
 
 export default function RoyaltyManagement() {
   const { user } = useAuth();
@@ -82,16 +87,44 @@ export default function RoyaltyManagement() {
   const [balanceReason, setBalanceReason] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
 
-  // Fetch THIS instance's own territory (is_primary = true)
-  const { data: territory, isLoading: loadingTerr } = useQuery({
-    queryKey: ["royalty-territory"],
+  const isSuperAdmin =
+    user?.role === "super_admin" || isSuperAdminEmail(user?.email);
+
+  // Primary territory = this instance's own row (Honeysuckle). Used as the
+  // super-admin default and to detect first-run setup.
+  const { data: primaryTerritory, isLoading: loadingPrimary } = useQuery({
+    queryKey: ["royalty-territory-primary"],
     queryFn: api.getOwnRoyaltyTerritory,
   });
 
+  // Super admin can switch areas; owner/manager is locked to their own
+  // managers.territory_id (currentTerritoryId falls back to Honeysuckle, never
+  // a list of all territories). Owners with no territory_id keep the primary.
+  const [selectedTerritoryId, setSelectedTerritoryId] = useState<string | null>(
+    null,
+  );
+  const { data: lockedTerritoryId } = useQuery({
+    queryKey: ["royalty-locked-territory-id"],
+    queryFn: () => currentTerritoryId(),
+    enabled: !isSuperAdmin,
+  });
+
+  const effectiveTerritoryId = isSuperAdmin
+    ? selectedTerritoryId || primaryTerritory?.id || null
+    : lockedTerritoryId || primaryTerritory?.id || null;
+
+  // Load the FULL row for the selected/locked territory (royalty %, payback,
+  // balance, stripe ids, …) — not just the primary row.
+  const { data: territory, isLoading: loadingTerr } = useQuery({
+    queryKey: ["royalty-territory", effectiveTerritoryId],
+    queryFn: () => api.getRoyaltyTerritory(effectiveTerritoryId!),
+    enabled: !!effectiveTerritoryId,
+  });
+
   const { data: periods = [], isLoading: loadingPeriods } = useQuery({
-    queryKey: ["royalty-periods", territory?.id],
-    queryFn: () => api.getRoyaltyPeriods(territory!.id),
-    enabled: !!territory?.id,
+    queryKey: ["royalty-periods", effectiveTerritoryId],
+    queryFn: () => api.getRoyaltyPeriods(effectiveTerritoryId!),
+    enabled: !!effectiveTerritoryId,
   });
 
   const { data: settings } = useQuery({
@@ -100,23 +133,23 @@ export default function RoyaltyManagement() {
   });
 
   const { data: auditLog = [] } = useQuery({
-    queryKey: ["royalty-audit", territory?.id],
-    queryFn: () => api.getRoyaltyAuditLog(territory!.id),
-    enabled: !!territory?.id,
+    queryKey: ["royalty-audit", effectiveTerritoryId],
+    queryFn: () => api.getRoyaltyAuditLog(effectiveTerritoryId!),
+    enabled: !!effectiveTerritoryId,
   });
 
   // All raw sales rows (for the upcoming/projection breakdown)
   const { data: allSales = [] } = useQuery({
-    queryKey: ["royalty-sales", territory?.id],
-    queryFn: () => api.getRoyaltySales(territory!.id),
-    enabled: !!territory?.id,
+    queryKey: ["royalty-sales", effectiveTerritoryId],
+    queryFn: () => api.getRoyaltySales(effectiveTerritoryId!),
+    enabled: !!effectiveTerritoryId,
   });
 
   const updateTerritoryMutation = useMutation({
     mutationFn: async (updates: any) => {
-      await api.updateRoyaltyTerritory(territory!.id, updates);
+      await api.updateRoyaltyTerritory(effectiveTerritoryId!, updates);
       await api.createRoyaltyAuditLog({
-        territory_id: territory!.id,
+        territory_id: effectiveTerritoryId,
         action: "update_settings",
         field_changed: Object.keys(updates).join(", "),
         old_value: "",
@@ -179,7 +212,7 @@ export default function RoyaltyManagement() {
     mutationFn: async () => {
       if (!territory) return;
       await api.adjustTerritoryBalance(
-        territory.id,
+        effectiveTerritoryId!,
         parseFloat(newBalance),
         balanceReason,
         user?.email || "unknown",
@@ -205,7 +238,7 @@ export default function RoyaltyManagement() {
 
   const triggerProcessorMutation = useMutation({
     mutationFn: async (force: boolean) => {
-      return await api.triggerRoyaltyProcessor(territory?.id, force);
+      return await api.triggerRoyaltyProcessor(effectiveTerritoryId, force);
     },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["royalty-periods"] });
@@ -401,7 +434,7 @@ export default function RoyaltyManagement() {
     }
   };
 
-  if (loadingTerr) {
+  if (loadingTerr || loadingPrimary) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -409,13 +442,22 @@ export default function RoyaltyManagement() {
     );
   }
 
-  if (!territory) {
+  // No primary territory exists at all → first-run setup.
+  if (!primaryTerritory && !territory) {
     return (
       <RoyaltySetupForm
         onCreated={() =>
           queryClient.invalidateQueries({ queryKey: ["royalty-territory"] })
         }
       />
+    );
+  }
+
+  if (!territory) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
     );
   }
 
@@ -432,9 +474,6 @@ export default function RoyaltyManagement() {
   const failedCount = periods.filter((p: any) => p.status === "failed").length;
 
   // ─── Upcoming / projected royalty breakdown ───
-  // KEPT sales only in the current (not-yet-processed) 7-day window. Refunds
-  // (is_refund), test sales (is_test), and backfill/seed/manual rows without a
-  // real stripe_charge_id are excluded so the projection reflects real collected money.
   const royaltyPct = Number(territory.royalty_percentage || 0);
   const paybackPct = Number(territory.payback_percentage || 0);
   const today = new Date();
@@ -443,8 +482,6 @@ export default function RoyaltyManagement() {
   windowStart.setDate(windowStart.getDate() - 7);
   const windowStartStr = windowStart.toISOString().split("T")[0];
   const todayStr = today.toISOString().split("T")[0];
-  // sale_date may be "YYYY-MM-DD" or a full timestamptz. Compare date-only
-  // so today's charges (e.g. 2026-09-02T00:07:15Z) are not dropped.
   const saleDay = (s: any) => String(s.sale_date || "").slice(0, 10);
   const upcomingSales = (allSales as any[]).filter((s) => {
     const day = saleDay(s);
@@ -454,7 +491,7 @@ export default function RoyaltyManagement() {
     const desc = s.description || "";
     const isJunk = /backfill|seed test|manual charge/i.test(desc);
     if (isJunk && !s.stripe_charge_id) return false;
-    return true; // keep legacy webhook rows with null stripe_charge_id
+    return true;
   });
   const upcomingGross = upcomingSales.reduce(
     (sum, s) => sum + Number(s.sale_amount),
@@ -476,6 +513,25 @@ export default function RoyaltyManagement() {
             Manage this territory's royalty percentages, payback balance, and
             weekly processing.
           </p>
+          {isSuperAdmin && effectiveTerritoryId && (
+            <div className="mt-3">
+              <RoyaltyTerritorySelect
+                selectedId={effectiveTerritoryId}
+                onChange={(id) => {
+                  setSelectedTerritoryId(id);
+                  queryClient.invalidateQueries({
+                    queryKey: ["royalty-periods"],
+                  });
+                  queryClient.invalidateQueries({
+                    queryKey: ["royalty-sales"],
+                  });
+                  queryClient.invalidateQueries({
+                    queryKey: ["royalty-audit"],
+                  });
+                }}
+              />
+            </div>
+          )}
         </div>
         <div className="flex gap-2">
           <Button
@@ -1213,7 +1269,7 @@ export default function RoyaltyManagement() {
       {/* Period Details Dialog — breakdown of charges + contributing sales */}
       <PeriodDetailsDialog
         period={detailsPeriod}
-        territoryId={territory?.id}
+        territoryId={effectiveTerritoryId}
         onClose={() => setDetailsPeriod(null)}
       />
 
@@ -1319,696 +1375,5 @@ export default function RoyaltyManagement() {
         </DialogContent>
       </Dialog>
     </div>
-  );
-}
-
-// ─── Period Details Dialog — full breakdown of a single royalty period ───
-function PeriodDetailsDialog({
-  period,
-  territoryId,
-  onClose,
-}: {
-  period: any;
-  territoryId?: string;
-  onClose: () => void;
-}) {
-  const { data: allSales = [] } = useQuery({
-    queryKey: ["royalty-sales", territoryId],
-    queryFn: () => api.getRoyaltySales(territoryId!),
-    enabled: !!territoryId,
-  });
-
-  if (!period) return null;
-
-  const grossSales = Number(period.gross_sales || 0);
-  const royaltyAmount = Number(period.royalty_amount || 0);
-  const paybackAmount = Number(period.payback_amount || 0);
-  const totalDue = Number(period.total_due || 0);
-  const royaltyPct = grossSales > 0 ? (royaltyAmount / grossSales) * 100 : 0;
-  const paybackPct = grossSales > 0 ? (paybackAmount / grossSales) * 100 : 0;
-
-  // Sales locked to THIS period (processed_period_id match)
-  const periodSales = (allSales as any[]).filter(
-    (s) => s.processed_period_id === period.id,
-  );
-
-  const breakdownRows = [
-    {
-      label: "Gross Sales",
-      sub:
-        periodSales.length > 0
-          ? `${periodSales.length} sale${periodSales.length === 1 ? "" : "s"} in period`
-          : "No individual sales locked",
-      value: grossSales,
-      color: "text-foreground",
-    },
-    {
-      label: "Royalty",
-      sub: `${royaltyPct.toFixed(2)}% of gross`,
-      value: royaltyAmount,
-      color: "text-blue-600",
-    },
-    {
-      label: "Payback",
-      sub: `${paybackPct.toFixed(2)}% of gross`,
-      value: paybackAmount,
-      color: "text-amber-600",
-    },
-    {
-      label: "Total Charged",
-      sub: "Collected via Stripe",
-      value: totalDue,
-      color: "text-emerald-600",
-      bold: true,
-    },
-  ];
-
-  return (
-    <Dialog open={!!period} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-[520px] max-h-[90vh] rounded-3xl flex flex-col gap-0 p-0 overflow-hidden">
-        <DialogHeader className="px-6 pt-6 pb-4 border-b border-border/40 shrink-0">
-          <DialogTitle className="flex items-center gap-2">
-            <Receipt className="h-5 w-5" /> Royalty Period Breakdown
-          </DialogTitle>
-          <DialogDescription>
-            {period.period_start} → {period.period_end}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="overflow-y-auto px-6 py-4 space-y-4">
-          {/* Status + metadata */}
-          <div className="flex items-center justify-between gap-3 bg-muted/30 rounded-xl p-3">
-            <div className="text-sm">
-              <p className="text-muted-foreground text-xs">Status</p>
-              <p className="font-semibold capitalize">{period.status}</p>
-            </div>
-            {period.paid_at && (
-              <div className="text-sm text-right">
-                <p className="text-muted-foreground text-xs">Paid</p>
-                <p className="font-semibold text-sm">
-                  {new Date(period.paid_at).toLocaleDateString()}
-                </p>
-              </div>
-            )}
-            {period.stripe_payment_intent_id && (
-              <div className="text-sm text-right max-w-[140px]">
-                <p className="text-muted-foreground text-xs">Stripe PI</p>
-                <p className="font-mono text-xs truncate">
-                  {period.stripe_payment_intent_id}
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Charge breakdown */}
-          <div className="space-y-1.5">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Charge Breakdown
-            </p>
-            {breakdownRows.map((row) => (
-              <div
-                key={row.label}
-                className="flex items-center justify-between border-b border-border/40 pb-1.5 last:border-0"
-              >
-                <div>
-                  <p
-                    className={`text-sm ${row.bold ? "font-bold" : "font-medium"}`}
-                  >
-                    {row.label}
-                  </p>
-                  <p className="text-xs text-muted-foreground">{row.sub}</p>
-                </div>
-                <p
-                  className={`text-base ${row.bold ? "font-bold" : "font-semibold"} ${row.color}`}
-                >
-                  $
-                  {row.value.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </p>
-              </div>
-            ))}
-          </div>
-
-          {/* Contributing sales */}
-          <div className="space-y-1.5">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Sales in This Period ({periodSales.length})
-            </p>
-            {periodSales.length > 0 ? (
-              <div className="border border-border/40 rounded-xl divide-y divide-border/30 max-h-52 overflow-y-auto">
-                {periodSales.map((s) => (
-                  <div
-                    key={s.id}
-                    className="flex justify-between items-center px-3 py-2 text-sm"
-                  >
-                    <div className="flex flex-col min-w-0">
-                      <span className="font-medium truncate">
-                        {s.is_refund ? "Refund" : "Sale"} —{" "}
-                        {s.description || "No description"}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {s.sale_date}
-                      </span>
-                    </div>
-                    <span
-                      className={`font-semibold shrink-0 ml-2 ${s.is_refund ? "text-red-600" : "text-emerald-600"}`}
-                    >
-                      {s.is_refund ? "-" : "+"}$
-                      {Number(s.sale_amount).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-sm text-muted-foreground bg-muted/20 rounded-xl p-4 text-center">
-                No individual sales were locked to this period. It may have been
-                created manually or before sales tracking was enabled.
-              </div>
-            )}
-          </div>
-
-          {period.notes && (
-            <div className="bg-muted/30 rounded-xl p-3 text-sm">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-                Notes
-              </p>
-              <p>{period.notes}</p>
-            </div>
-          )}
-        </div>
-
-        <DialogFooter className="px-6 py-4 border-t border-border/40 shrink-0">
-          <Button variant="outline" className="rounded-full" onClick={onClose}>
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function TerritoryEditForm({
-  territory,
-  onSave,
-  saving,
-  onAdjustBalance,
-}: {
-  territory: any;
-  onSave: (updates: any) => void;
-  saving: boolean;
-  onAdjustBalance: () => void;
-}) {
-  const [royaltyPct, setRoyaltyPct] = useState(
-    String(territory.royalty_percentage || 0),
-  );
-  const [paybackPct, setPaybackPct] = useState(
-    String(territory.payback_percentage || 0),
-  );
-  const [purchasePrice, setPurchasePrice] = useState(
-    String(territory.purchase_price || 0),
-  );
-  const [downPayment, setDownPayment] = useState(
-    String(territory.down_payment || 0),
-  );
-  const [status, setStatus] = useState(territory.status || "active");
-  const [stripeCustomerId, setStripeCustomerId] = useState(
-    territory.stripe_customer_id || "",
-  );
-
-  return (
-    <div className="space-y-4 py-2">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label>Royalty Percentage (%)</Label>
-          <Input
-            type="number"
-            step="0.01"
-            value={royaltyPct}
-            onChange={(e) => setRoyaltyPct(e.target.value)}
-            placeholder="8.00"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label>Payback Percentage (%)</Label>
-          <Input
-            type="number"
-            step="0.01"
-            value={paybackPct}
-            onChange={(e) => setPaybackPct(e.target.value)}
-            placeholder="5.00"
-          />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label>Purchase Price ($)</Label>
-          <Input
-            type="number"
-            value={purchasePrice}
-            onChange={(e) => setPurchasePrice(e.target.value)}
-            placeholder="50000"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label>Down Payment ($)</Label>
-          <Input
-            type="number"
-            value={downPayment}
-            onChange={(e) => setDownPayment(e.target.value)}
-            placeholder="10000"
-          />
-        </div>
-      </div>
-      <div className="flex items-center justify-between bg-muted/30 rounded-xl p-3">
-        <div>
-          <Label className="text-sm">Remaining Balance</Label>
-          <p className="text-lg font-bold">
-            ${Number(territory.remaining_balance || 0).toLocaleString()}
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="rounded-full"
-          onClick={onAdjustBalance}
-        >
-          <DollarSign className="h-3.5 w-3.5 mr-1" />
-          Adjust
-        </Button>
-      </div>
-      <div className="space-y-2">
-        <Label>Status</Label>
-        <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className="rounded-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="paused">Paused</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="space-y-2">
-        <Label>Stripe Customer ID</Label>
-        <Input
-          value={stripeCustomerId}
-          onChange={(e) => setStripeCustomerId(e.target.value)}
-          placeholder="cus_..."
-        />
-        {territory.stripe_customer_id && (
-          <div className="flex items-center gap-2 text-xs">
-            {territory.primary_payment_method_id ||
-            territory.stripe_payment_method_id ? (
-              <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 rounded-full">
-                <CheckCircle className="h-3 w-3 mr-1" />
-                Bank Account Connected
-              </Badge>
-            ) : (
-              <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/20 rounded-full">
-                <AlertCircle className="h-3 w-3 mr-1" />
-                No Payment Method — Use "Connect Bank Account" button
-              </Badge>
-            )}
-          </div>
-        )}
-      </div>
-      <DialogFooter>
-        <Button
-          className="rounded-full w-full"
-          onClick={() =>
-            onSave({
-              royalty_percentage: parseFloat(royaltyPct) || 0,
-              payback_percentage: parseFloat(paybackPct) || 0,
-              purchase_price: parseFloat(purchasePrice) || 0,
-              down_payment: parseFloat(downPayment) || 0,
-              status,
-              stripe_customer_id: stripeCustomerId || null,
-            })
-          }
-          disabled={saving}
-        >
-          {saving ? (
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-          ) : (
-            <Settings className="h-4 w-4 mr-2" />
-          )}
-          Save Changes
-        </Button>
-      </DialogFooter>
-    </div>
-  );
-}
-
-// ─── Setup form shown when no primary territory exists yet ───
-function RoyaltySetupForm({ onCreated }: { onCreated: () => void }) {
-  const { user } = useAuth();
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-
-  const [name, setName] = useState("");
-  const [royaltyPct, setRoyaltyPct] = useState("8.00");
-  const [paybackPct, setPaybackPct] = useState("5.00");
-  const [purchasePrice, setPurchasePrice] = useState("");
-  const [downPayment, setDownPayment] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  const handleSetup = async () => {
-    if (!name.trim() || !purchasePrice || !downPayment) {
-      toast({
-        variant: "destructive",
-        title: "Missing Fields",
-        description:
-          "Please fill in territory name, purchase price, and down payment.",
-      });
-      return;
-    }
-    setSaving(true);
-    try {
-      await api.setupPrimaryTerritory({
-        name: name.trim(),
-        royalty_percentage: parseFloat(royaltyPct) || 0,
-        payback_percentage: parseFloat(paybackPct) || 0,
-        purchase_price: parseFloat(purchasePrice) || 0,
-        down_payment: parseFloat(downPayment) || 0,
-      });
-      // Link the current user as the owner of this territory so the Owner
-      // dashboard sees it immediately (single-territory model).
-      if (user?.id) {
-        try {
-          await api.assignTerritoryOwner(user.id);
-        } catch (_) {}
-      }
-      await api.createRoyaltyAuditLog({
-        action: "setup_territory",
-        field_changed: "all",
-        old_value: "none",
-        new_value: JSON.stringify({
-          name,
-          royaltyPct,
-          paybackPct,
-          purchasePrice,
-          downPayment,
-        }),
-        reason: "Initial territory setup",
-        performed_by: user?.email || "unknown",
-      });
-      toast({
-        title: "Territory Created",
-        description: "Royalty settings have been configured for this instance.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["royalty-territory"] });
-      onCreated();
-    } catch (err: any) {
-      toast({
-        variant: "destructive",
-        title: "Setup Failed",
-        description: err.message,
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex items-center gap-2">
-          <Crown className="h-7 w-7 text-amber-500" /> Royalty & Payback Setup
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Configure this territory's royalty and payback settings. This only
-          needs to be done once.
-        </p>
-      </div>
-
-      <Card className="shadow-sm border-border/40 rounded-2xl bg-card max-w-2xl">
-        <CardHeader className="p-5 pb-3 border-b border-border/40">
-          <CardTitle className="text-lg font-bold">
-            Territory Configuration
-          </CardTitle>
-          <CardDescription className="text-xs">
-            Set the royalty percentage, payback percentage, purchase price, and
-            down payment for this territory.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="p-5 space-y-4">
-          <div className="space-y-2">
-            <Label>Territory Name</Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Nashville Territory"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Royalty Percentage (%)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={royaltyPct}
-                onChange={(e) => setRoyaltyPct(e.target.value)}
-                placeholder="8.00"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Payback Percentage (%)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={paybackPct}
-                onChange={(e) => setPaybackPct(e.target.value)}
-                placeholder="5.00"
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Purchase Price ($)</Label>
-              <Input
-                type="number"
-                value={purchasePrice}
-                onChange={(e) => setPurchasePrice(e.target.value)}
-                placeholder="50000"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Down Payment ($)</Label>
-              <Input
-                type="number"
-                value={downPayment}
-                onChange={(e) => setDownPayment(e.target.value)}
-                placeholder="10000"
-              />
-            </div>
-          </div>
-          <div className="bg-muted/30 rounded-xl p-3 text-sm text-muted-foreground">
-            <strong>Remaining Balance</strong> will be automatically calculated
-            as: Purchase Price − Down Payment ={" "}
-            <span className="font-bold text-foreground">
-              $
-              {(
-                (parseFloat(purchasePrice) || 0) -
-                (parseFloat(downPayment) || 0)
-              ).toLocaleString()}
-            </span>
-          </div>
-          <Button
-            className="rounded-full w-full"
-            onClick={handleSetup}
-            disabled={saving}
-          >
-            {saving ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Crown className="h-4 w-4 mr-2" />
-            )}
-            Create Territory & Save Settings
-          </Button>
-        </CardContent>
-      </Card>
-
-      <RoyaltyStripeAccountCard
-        onSaved={() =>
-          queryClient.invalidateQueries({ queryKey: ["royalty-settings"] })
-        }
-      />
-    </div>
-  );
-}
-
-// ─── Royalty Stripe Account settings (Super Admin only) ───
-// This is a SEPARATE Stripe account used to collect royalty + payback from
-// territory owners. It is distinct from the Stripe account that processes
-// bride booking payments. Keys are stored server-side in royalty_settings and
-// only the publishable key is ever exposed to the browser.
-function RoyaltyStripeAccountCard({ onSaved }: { onSaved: () => void }) {
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const { data: settings } = useQuery({
-    queryKey: ["royalty-settings"],
-    queryFn: api.getRoyaltySettings,
-  });
-
-  const [secretKey, setSecretKey] = useState("");
-  const [publishableKey, setPublishableKey] = useState("");
-  const [webhookSecret, setWebhookSecret] = useState("");
-  const [showSecret, setShowSecret] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  // The secret key lives in royalty_secrets (RLS-locked) and is never returned
-  // to the browser. We only know if it's configured via the stripe_royalty_configured flag.
-  const hasKeysConfigured = !!(
-    settings?.stripe_royalty_configured ||
-    settings?.stripe_royalty_publishable_key
-  );
-
-  const handleSave = async () => {
-    if (!secretKey && !publishableKey && !webhookSecret) {
-      toast({
-        variant: "destructive",
-        title: "Nothing to Save",
-        description: "Enter at least one key to update.",
-      });
-      return;
-    }
-    setSaving(true);
-    try {
-      const result: any = await api.setRoyaltyStripeKeys({
-        secret_key: secretKey || undefined,
-        publishable_key: publishableKey || undefined,
-        webhook_secret: webhookSecret || undefined,
-      });
-      toast({
-        title: "Royalty Stripe Keys Saved",
-        description: result?.account
-          ? `Connected to ${result.account.businessName || result.account.id} (${result.account.isTest ? "test" : "live"} mode).`
-          : "Keys updated successfully.",
-      });
-      setSecretKey("");
-      setPublishableKey("");
-      setWebhookSecret("");
-      // Invalidate so the card re-fetches and shows "Configured" state
-      queryClient.invalidateQueries({ queryKey: ["royalty-settings"] });
-      onSaved();
-    } catch (err: any) {
-      toast({
-        variant: "destructive",
-        title: "Save Failed",
-        description: err.message,
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Card className="shadow-sm border-border/40 rounded-2xl bg-card max-w-2xl mt-6">
-      <CardHeader className="p-5 pb-3 border-b border-border/40">
-        <CardTitle className="text-lg font-bold flex items-center gap-2">
-          <CreditCard className="h-5 w-5" />
-          Royalty Stripe Account
-        </CardTitle>
-        <CardDescription className="text-xs">
-          This is a separate Stripe account for collecting royalty + payback
-          payments from territory owners. It is NOT the account used for bride
-          booking payments. Keys are stored securely server-side.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="p-5 space-y-4">
-        <div className="flex items-center gap-2">
-          {hasKeysConfigured ? (
-            <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 rounded-full">
-              <CheckCircle className="h-3 w-3 mr-1" />
-              Royalty Stripe Account Configured
-            </Badge>
-          ) : (
-            <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/20 rounded-full">
-              <AlertCircle className="h-3 w-3 mr-1" />
-              Not Configured — owners cannot connect bank accounts until set
-            </Badge>
-          )}
-        </div>
-
-        <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 text-xs text-amber-700 dark:text-amber-400 flex gap-2">
-          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-          <span>
-            Enter the keys from your dedicated HQ royalty Stripe account. Leave
-            a field blank to keep the existing value. The secret key is never
-            shown again after saving.
-          </span>
-        </div>
-
-        <div className="space-y-2">
-          <Label>Secret Key (sk_live_... or sk_test_...)</Label>
-          <div className="flex gap-2">
-            <Input
-              type={showSecret ? "text" : "password"}
-              value={secretKey}
-              onChange={(e) => setSecretKey(e.target.value)}
-              placeholder={
-                settings?.stripe_royalty_configured
-                  ? "•••••••• (stored securely — enter new key to replace)"
-                  : "sk_live_..."
-              }
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="rounded-full shrink-0"
-              onClick={() => setShowSecret((s) => !s)}
-            >
-              {showSecret ? "Hide" : "Show"}
-            </Button>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label>Publishable Key (pk_live_... or pk_test_...)</Label>
-          <Input
-            value={publishableKey}
-            onChange={(e) => setPublishableKey(e.target.value)}
-            placeholder={
-              settings?.stripe_royalty_publishable_key
-                ? `${settings.stripe_royalty_publishable_key.substring(0, 14)}... (stored)`
-                : "pk_live_..."
-            }
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label>Webhook Signing Secret (whsec_...) — optional</Label>
-          <Input
-            type="password"
-            value={webhookSecret}
-            onChange={(e) => setWebhookSecret(e.target.value)}
-            placeholder={
-              settings?.stripe_royalty_configured
-                ? "•••••••• (stored securely — enter new to replace)"
-                : "whsec_..."
-            }
-          />
-        </div>
-
-        <Button
-          className="rounded-full w-full"
-          onClick={handleSave}
-          disabled={saving}
-        >
-          {saving ? (
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-          ) : (
-            <CreditCard className="h-4 w-4 mr-2" />
-          )}
-          Save Royalty Stripe Keys
-        </Button>
-      </CardContent>
-    </Card>
   );
 }
