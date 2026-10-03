@@ -31,8 +31,10 @@ export function ProposalPackageFeatures({
   if (!packageId) return null;
 
   // Saved snapshot wins; fall back to the resolved row, then the area list.
+  // Skip null entries in PACKAGES so a malformed catalog never throws.
+  const safePackages = Array.isArray(PACKAGES) ? PACKAGES.filter(Boolean) : [];
   const pkg: ProposalPackage | undefined =
-    resolvedPackage ?? PACKAGES.find((p) => p.id === packageId);
+    resolvedPackage ?? safePackages.find((p) => p.id === packageId);
   const photoFeatures =
     savedPhotoFeatures && savedPhotoFeatures.length > 0
       ? savedPhotoFeatures

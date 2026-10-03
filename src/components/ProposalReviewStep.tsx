@@ -58,7 +58,7 @@ export function ProposalReviewStep({
       </div>
 
       <div className="space-y-8">
-        {proposal.package_id && (
+        {proposal?.package_id && (
           <div className="space-y-6 border-b border-border pb-8">
             <div>
               <h3 className="text-xl font-medium">{packageString} Package</h3>
@@ -68,39 +68,43 @@ export function ProposalReviewStep({
             </div>
 
             <div className="grid sm:grid-cols-2 gap-6">
-              {(proposal.coverage_type === "photo" ||
-                proposal.coverage_type === "both") && (
+              {(proposal?.coverage_type === "photo" ||
+                proposal?.coverage_type === "both") && (
                 <div className="space-y-3">
                   <h4 className="text-sm font-sans uppercase tracking-widest text-muted-foreground">
                     Photography
                   </h4>
                   <ul className="space-y-2">
-                    {PACKAGES.find(
-                      (p) => p.id === proposal.package_id,
-                    )?.photoFeatures?.map((feature: string, idx: number) => (
-                      <li key={idx} className="flex items-start text-sm">
-                        <CheckCircle2 className="w-4 h-4 text-primary mr-2 mt-0.5 shrink-0" />
-                        <span className="text-muted-foreground">{feature}</span>
-                      </li>
-                    ))}
+                    {(Array.isArray(PACKAGES) ? PACKAGES.filter(Boolean) : [])
+                      .find((p) => p.id === proposal.package_id)
+                      ?.photoFeatures?.map((feature: string, idx: number) => (
+                        <li key={idx} className="flex items-start text-sm">
+                          <CheckCircle2 className="w-4 h-4 text-primary mr-2 mt-0.5 shrink-0" />
+                          <span className="text-muted-foreground">
+                            {feature}
+                          </span>
+                        </li>
+                      ))}
                   </ul>
                 </div>
               )}
-              {(proposal.coverage_type === "video" ||
-                proposal.coverage_type === "both") && (
+              {(proposal?.coverage_type === "video" ||
+                proposal?.coverage_type === "both") && (
                 <div className="space-y-3">
                   <h4 className="text-sm font-sans uppercase tracking-widest text-muted-foreground">
                     Videography
                   </h4>
                   <ul className="space-y-2">
-                    {PACKAGES.find(
-                      (p) => p.id === proposal.package_id,
-                    )?.videoFeatures?.map((feature: string, idx: number) => (
-                      <li key={idx} className="flex items-start text-sm">
-                        <CheckCircle2 className="w-4 h-4 text-primary mr-2 mt-0.5 shrink-0" />
-                        <span className="text-muted-foreground">{feature}</span>
-                      </li>
-                    ))}
+                    {(Array.isArray(PACKAGES) ? PACKAGES.filter(Boolean) : [])
+                      .find((p) => p.id === proposal.package_id)
+                      ?.videoFeatures?.map((feature: string, idx: number) => (
+                        <li key={idx} className="flex items-start text-sm">
+                          <CheckCircle2 className="w-4 h-4 text-primary mr-2 mt-0.5 shrink-0" />
+                          <span className="text-muted-foreground">
+                            {feature}
+                          </span>
+                        </li>
+                      ))}
                   </ul>
                 </div>
               )}

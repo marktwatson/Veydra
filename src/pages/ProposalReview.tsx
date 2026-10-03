@@ -328,8 +328,8 @@ export default function ProposalReview() {
                 <ProposalPackageFeatures
                   resolvedPackage={resolvedPackage}
                   PACKAGES={PACKAGES}
-                  packageId={proposal.package_id}
-                  coverageType={proposal.coverage_type}
+                  packageId={proposal?.package_id}
+                  coverageType={proposal?.coverage_type}
                   packageString={packageString}
                   savedPhotoFeatures={pkgPhoto}
                   savedVideoFeatures={pkgVideo}
@@ -341,8 +341,10 @@ export default function ProposalReview() {
                       Included Enhancements
                     </h3>
                     <ul className="grid gap-4 sm:grid-cols-2">
-                      {proposal.addons.map((addon: string) => {
-                        const addonDetails = ADDONS.find((a) => a.id === addon);
+                      {(proposal.addons || []).map((addon: string) => {
+                        const addonDetails = (
+                          Array.isArray(ADDONS) ? ADDONS.filter(Boolean) : []
+                        ).find((a) => a.id === addon);
                         const addonName =
                           addonDetails?.name || addon.replace(/_/g, " ");
                         return (

@@ -18,27 +18,37 @@ export function resolveProposalPackageDisplay(
   resolvedPackage: ProposalPackage | null,
   PACKAGES: any[],
 ) {
-  const savedPackageName = (proposal?.package_name || "").trim();
-  const savedPhotoFeatures: string[] = Array.isArray(proposal?.photo_features)
-    ? proposal.photo_features
+  // Never throw on a null/undefined proposal — the public proposal path calls
+  // this before the null-proposal guard in ProposalReview renders.
+  const safeProposal = proposal ?? {};
+  const safePackages = Array.isArray(PACKAGES) ? PACKAGES.filter(Boolean) : [];
+
+  const savedPackageName = (safeProposal.package_name || "").trim();
+  const savedPhotoFeatures: string[] = Array.isArray(
+    safeProposal.photo_features,
+  )
+    ? safeProposal.photo_features
     : [];
-  const savedVideoFeatures: string[] = Array.isArray(proposal?.video_features)
-    ? proposal.video_features
+  const savedVideoFeatures: string[] = Array.isArray(
+    safeProposal.video_features,
+  )
+    ? safeProposal.video_features
     : [];
 
-  const hasPackageId = !!proposal?.package_id;
+  const hasPackageId = !!safeProposal.package_id;
 
   // Name: saved snapshot → resolved row → area list → "Custom" (only if no id).
   const packageName = hasPackageId
     ? savedPackageName ||
       resolvedPackage?.name ||
-      PACKAGES.find((p) => p.id === proposal.package_id)?.name ||
+      safePackages.find((p) => p.id === safeProposal.package_id)?.name ||
       "Custom"
     : "Custom";
 
   // Features: saved snapshot wins; else resolved row; else area list.
   const areaPkg =
-    resolvedPackage ?? PACKAGES.find((p) => p.id === proposal.package_id);
+    resolvedPackage ??
+    safePackages.find((p) => p.id === safeProposal.package_id);
   const photoFeatures =
     savedPhotoFeatures.length > 0
       ? savedPhotoFeatures
