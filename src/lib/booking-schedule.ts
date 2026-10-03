@@ -39,6 +39,55 @@ export interface BuildScheduleInput {
   customPlan?: WeddingCustomPlan | null;
 }
 
+/**
+ * Parse a raw custom_payment_plan value (often a JSON string straight from the
+ * DB) into a normalized { enabled, deposit, installments } object. Returns
+ * null when there is no plan. Booleans like "true"/1 are coerced so a string
+ * payload never leaves `enabled` as a truthy non-boolean.
+ */
+export function parseCustomPlan(raw: any): WeddingCustomPlan | null {
+  if (!raw) return null;
+  let plan = raw;
+  if (typeof raw === "string") {
+    try {
+      plan = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!plan || typeof plan !== "object") return null;
+  const installments = Array.isArray(plan.installments)
+    ? plan.installments
+    : [];
+  return {
+    enabled:
+      plan.enabled === true || plan.enabled === "true" || plan.enabled === 1,
+    deposit: Number(plan.deposit) || 0,
+    installments: installments.map((i: any) => ({
+      date: String(i?.date || "").slice(0, 10),
+      amount: Number(i?.amount) || 0,
+    })),
+  };
+}
+
+/**
+ * A custom plan is "active" — and must win over the $99 standard deposit —
+ * when ANY of:
+ *  - enabled is true, OR
+ *  - the saved payment_plan is "custom", OR
+ *  - installments exist (a missing enabled flag must NOT revert to $99).
+ */
+export function isCustomPlanActive(
+  customPlanRaw: any,
+  paymentPlan?: string,
+): boolean {
+  const p = parseCustomPlan(customPlanRaw);
+  if (p?.enabled) return true;
+  if (paymentPlan === "custom") return true;
+  if (p && p.installments.length > 0) return true;
+  return false;
+}
+
 function ymd(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
@@ -88,13 +137,15 @@ export function buildInstallments(
   const start = startAnchor(input.createdAt);
   const startStr = ymd(start);
 
-  // 1. Custom plan — use its rows directly (clamped/merged).
-  const cpp = input.customPlan;
-  if (
-    (input.paymentOption === "custom" || cpp?.enabled) &&
-    cpp?.enabled &&
-    Array.isArray(cpp.installments)
-  ) {
+  // 1. Custom plan — use its rows directly (clamped/merged). A custom plan is
+  //    active when enabled is true, paymentOption is "custom", OR installments
+  //    exist. A missing enabled flag must not revert to the $99 standard rows.
+  const cpp = parseCustomPlan(input.customPlan);
+  const customActive =
+    input.paymentOption === "custom" ||
+    (cpp?.enabled ?? false) ||
+    (cpp?.installments?.length ?? 0) > 0;
+  if (cpp && customActive && Array.isArray(cpp.installments)) {
     const deposit = Math.min(money(cpp.deposit || 0), remaining);
     const rows: PlanInstallment[] = [];
     if (deposit > 0) rows.push({ date: startStr, amount: deposit });
@@ -216,12 +267,19 @@ export function buildWeddingCustomPlan(
   const paid = Math.max(0, Number(input.paidSoFar) || 0);
   const remaining = Math.max(0, total - paid);
 
-  // Existing custom plan — keep as-is (already balanced at save time).
-  if (input.customPlan?.enabled && input.paymentOption === "custom") {
+  // Existing custom plan — keep as-is when active (enabled, paymentOption
+  // "custom", or installments present). A missing enabled flag with rows
+  // still keeps those exact rows.
+  const cpp = parseCustomPlan(input.customPlan);
+  const customActive =
+    input.paymentOption === "custom" ||
+    (cpp?.enabled ?? false) ||
+    (cpp?.installments?.length ?? 0) > 0;
+  if (cpp && customActive) {
     return {
       enabled: true,
-      deposit: money(Number(input.customPlan.deposit) || 0),
-      installments: (input.customPlan.installments || []).map((i) => ({
+      deposit: money(Number(cpp.deposit) || 0),
+      installments: (cpp.installments || []).map((i) => ({
         date: (i.date || "").slice(0, 10),
         amount: money(Number(i.amount) || 0),
       })),

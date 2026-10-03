@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { PayStepChoice } from "@/components/PayStepChoice";
 import type { DeferredInvoice } from "@/lib/use-deferred-invoice";
 import { createGhlInvoice } from "@/lib/ghl-invoice-api";
-import { buildInstallments } from "@/lib/booking-schedule";
+import { buildInstallments, isCustomPlanActive } from "@/lib/booking-schedule";
 import { useProposalResume } from "@/lib/use-proposal-resume";
 import { ProposalResumeView } from "@/components/ProposalResumeView";
 import { supabase } from "@/lib/supabase";
@@ -106,9 +106,14 @@ export function ProposalPayStep({
       onCreateInvoice={async () => {
         if (deferred.firstDue <= 0) return { invoiceUrl: "", firstDue: 0 };
         // Resolve the plan key from the custom_payment_plan flag — a proposal
-        // with an enabled custom plan must invoice its deposit + installments,
-        // never the standard $99/$250 rows. payment_plan alone can be stale.
-        const planKey = proposal?.custom_payment_plan?.enabled
+        // with an enabled custom plan (or installments) must invoice its
+        // deposit + installments, never the standard $99/$250 rows.
+        // payment_plan alone can be stale, and a missing enabled flag must
+        // not revert to $99 when installments exist.
+        const planKey = isCustomPlanActive(
+          proposal?.custom_payment_plan,
+          proposal?.payment_plan,
+        )
           ? "custom"
           : proposal?.payment_plan || "deposit";
         // Build the SAME schedule the bride saw on screen (custom AND standard

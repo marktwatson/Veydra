@@ -1,136 +1,140 @@
 import { supabase } from "./supabase";
-import { resolveTerritoryId } from "./territory";
 
 /**
  * Ensure a weddings row exists for a proposal and return its id.
  *
  * Reuses an existing wedding (proposal.wedding_id or, for upgrades,
- * proposal.original_wedding_id); otherwise inserts a fresh pending wedding
- * and links it back onto the proposal. This mirrors the create/update logic in
- * api.fulfillProposalPayment but does NOT mark the proposal accepted/paid or
- * tag the CRM contact — it is used by the Sign & Pay flow so we have a real
- * weddings.id to attach a GHL invoice to BEFORE any payment posts.
+ * proposal.original_wedding_id); otherwise inserts a fresh draft wedding
+ * and links it back onto the proposal. This mirrors the create/update logic
+ * in api.fulfillProposalPayment but does NOT mark the proposal accepted/paid
+ * or tag the CRM contact — it is used by the Sign & Pay flow so we have a
+ * real weddings.id to attach a GHL invoice to BEFORE any payment posts.
+ *
+ * Territory is stamped from the PROPOSAL row only — never resolved from the
+ * logged-in user and never falling back to Honeysuckle. If the proposal has
+ * no territory_id, this throws "This proposal has no area" and no row is
+ * inserted. Insert failures throw the real Supabase error so Sign & Pay can
+ * surface the database message instead of a generic one.
  */
 export async function ensureWeddingForProposal(
   proposalId: string,
-): Promise<string | null> {
-  try {
-    const { data: proposal } = await supabase
-      .from("proposals")
-      .select("*")
-      .eq("id", proposalId)
-      .single();
-    if (!proposal) return null;
-
-    let weddingId = proposal.is_upgrade
-      ? proposal.original_wedding_id || proposal.wedding_id
-      : proposal.wedding_id;
-
-    const customPlan =
-      typeof proposal.custom_payment_plan === "string"
-        ? JSON.parse(proposal.custom_payment_plan)
-        : proposal.custom_payment_plan;
-    const resolvedPaymentPlan =
-      proposal.payment_plan || (customPlan?.enabled ? "custom" : null);
-
-    const packageName = proposal.package_id
-      ? proposal.package_id.charAt(0).toUpperCase() +
-        proposal.package_id.slice(1)
-      : "Custom";
-    const coverageLabel =
-      proposal.coverage_type === "photo"
-        ? "Photo Only"
-        : proposal.coverage_type === "video"
-          ? "Video Only"
-          : "Photo & Video";
-    const packageString = `${packageName} (${coverageLabel})`;
-
-    if (weddingId) {
-      // For upgrades, don't clobber an existing custom_payment_plan — let the
-      // addon invoice carry the unpaid delta instead. Only write the plan
-      // when the wedding doesn't already have one.
-      const { data: existingWedding } = await supabase
-        .from("weddings")
-        .select("custom_payment_plan")
-        .eq("id", weddingId)
-        .maybeSingle();
-      const hasExistingPlan =
-        existingWedding?.custom_payment_plan != null &&
-        existingWedding?.custom_payment_plan !== "";
-
-      const update: any = {
-        package: packageString,
-        addons: proposal.addons,
-        second_shooter_hours: proposal.second_shooter_hours,
-        second_shooter_type: proposal.second_shooter_type,
-        total_amount: proposal.total_amount,
-        payment_plan: resolvedPaymentPlan,
-        custom_payment_plan: customPlan ?? null,
-      };
-      await supabase.from("weddings").update(update).eq("id", weddingId);
-    } else {
-      // Resolve the territory_id to stamp on the new wedding. Inherit the
-      // proposal's territory_id when present (child rows inherit the parent);
-      // otherwise resolve from the super-admin switcher area, then the
-      // manager's territory. resolveTerritoryId returns null when no area is
-      // picked — do NOT fall back to Honeysuckle. The wedding keeps the
-      // proposal's id so a Nik TN proposal stays Nik TN.
-      const weddingTerritoryId: string | null = proposal.territory_id
-        ? (proposal.territory_id as string)
-        : await resolveTerritoryId().catch(() => null);
-      if (!weddingTerritoryId) {
-        throw new Error("Pick an area before adding this.");
-      }
-      const { data: wedding, error: weddingError } = await supabase
-        .from("weddings")
-        .insert([
-          {
-            client_name: proposal.client_name,
-            client_email: proposal.client_email,
-            partner_name: proposal.partner_name,
-            date: proposal.wedding_date,
-            location:
-              `${proposal.venue || ""} ${proposal.city || ""}, ${proposal.state || ""}`.trim(),
-            package: packageString,
-            addons: proposal.addons,
-            second_shooter_hours: proposal.second_shooter_hours,
-            second_shooter_type: proposal.second_shooter_type,
-            status: "draft",
-            payment_plan: resolvedPaymentPlan,
-            custom_payment_plan: customPlan,
-            total_amount: proposal.total_amount,
-            paid_amount: 0,
-            contract_date: new Date().toISOString(),
-            notes: `Booked via Portal.\nPhone: ${proposal.client_phone || "N/A"}\n${proposal.notes || ""}`,
-            ...(weddingTerritoryId ? { territory_id: weddingTerritoryId } : {}),
-          },
-        ])
-        .select()
-        .single();
-
-      if (weddingError) {
-        throw new Error(
-          `Failed to create wedding record: ${weddingError.message || JSON.stringify(weddingError)}`,
-        );
-      }
-      if (!wedding) {
-        throw new Error(
-          "Wedding insert returned no data — the row may be blocked by a database policy.",
-        );
-      }
-      weddingId = wedding.id;
-    }
-
-    if (weddingId && weddingId !== proposal.wedding_id) {
-      await supabase
-        .from("proposals")
-        .update({ wedding_id: weddingId })
-        .eq("id", proposal.id);
-    }
-
-    return weddingId || null;
-  } catch (error) {
-    console.error("Failed to ensure wedding for proposal:", error);
-    return null;
+): Promise<string> {
+  const { data: proposal, error: proposalError } = await supabase
+    .from("proposals")
+    .select("*")
+    .eq("id", proposalId)
+    .single();
+  if (proposalError || !proposal) {
+    throw new Error(
+      `Could not load this proposal: ${proposalError?.message || "not found"}`,
+    );
   }
+
+  let weddingId = proposal.is_upgrade
+    ? proposal.original_wedding_id || proposal.wedding_id
+    : proposal.wedding_id;
+
+  const customPlan =
+    typeof proposal.custom_payment_plan === "string"
+      ? (() => {
+          try {
+            return JSON.parse(proposal.custom_payment_plan);
+          } catch {
+            return null;
+          }
+        })()
+      : proposal.custom_payment_plan;
+  const resolvedPaymentPlan =
+    proposal.payment_plan || (customPlan?.enabled ? "custom" : null);
+
+  const packageName = proposal.package_id
+    ? proposal.package_id.charAt(0).toUpperCase() + proposal.package_id.slice(1)
+    : "Custom";
+  const coverageLabel =
+    proposal.coverage_type === "photo"
+      ? "Photo Only"
+      : proposal.coverage_type === "video"
+        ? "Video Only"
+        : "Photo & Video";
+  const packageString = `${packageName} (${coverageLabel})`;
+
+  if (weddingId) {
+    // For upgrades, don't clobber an existing custom_payment_plan — let the
+    // addon invoice carry the unpaid delta instead. Only write the plan
+    // when the wedding doesn't already have one.
+    const { data: existingWedding } = await supabase
+      .from("weddings")
+      .select("custom_payment_plan")
+      .eq("id", weddingId)
+      .maybeSingle();
+    const hasExistingPlan =
+      existingWedding?.custom_payment_plan != null &&
+      existingWedding?.custom_payment_plan !== "";
+
+    const update: any = {
+      package: packageString,
+      addons: proposal.addons,
+      second_shooter_hours: proposal.second_shooter_hours,
+      second_shooter_type: proposal.second_shooter_type,
+      total_amount: proposal.total_amount,
+      payment_plan: resolvedPaymentPlan,
+      custom_payment_plan: customPlan ?? null,
+    };
+    await supabase.from("weddings").update(update).eq("id", weddingId);
+  } else {
+    // Stamp territory_id from the proposal row only. Never resolve it from
+    // the logged-in user and never fall back to Honeysuckle. If the proposal
+    // has no area, stop here — do not insert a blank-territory wedding.
+    const weddingTerritoryId = proposal.territory_id as string | null;
+    if (!weddingTerritoryId) {
+      throw new Error("This proposal has no area");
+    }
+    const { data: wedding, error: weddingError } = await supabase
+      .from("weddings")
+      .insert([
+        {
+          client_name: proposal.client_name,
+          client_email: proposal.client_email,
+          partner_name: proposal.partner_name,
+          date: proposal.wedding_date,
+          location:
+            `${proposal.venue || ""} ${proposal.city || ""}, ${proposal.state || ""}`.trim(),
+          package: packageString,
+          addons: proposal.addons,
+          second_shooter_hours: proposal.second_shooter_hours,
+          second_shooter_type: proposal.second_shooter_type,
+          status: "draft",
+          payment_plan: resolvedPaymentPlan,
+          custom_payment_plan: customPlan,
+          total_amount: proposal.total_amount,
+          paid_amount: 0,
+          contract_date: new Date().toISOString(),
+          notes: `Booked via Portal.\nPhone: ${proposal.client_phone || "N/A"}\n${proposal.notes || ""}`,
+          territory_id: weddingTerritoryId,
+        },
+      ])
+      .select()
+      .single();
+
+    if (weddingError) {
+      throw new Error(
+        `Failed to create wedding record: ${weddingError.message || JSON.stringify(weddingError)}`,
+      );
+    }
+    if (!wedding) {
+      throw new Error(
+        "Wedding insert returned no data — the row may be blocked by a database policy.",
+      );
+    }
+    weddingId = wedding.id;
+  }
+
+  if (weddingId && weddingId !== proposal.wedding_id) {
+    await supabase
+      .from("proposals")
+      .update({ wedding_id: weddingId })
+      .eq("id", proposal.id);
+  }
+
+  return weddingId;
 }

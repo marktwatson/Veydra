@@ -43,6 +43,10 @@ import {
   getPackagesForTerritory,
   getAddonsForTerritory,
 } from "@/lib/proposal-package";
+import {
+  proposalHasCustomPlan,
+  proposalFirstDue,
+} from "@/lib/proposal-review-custom-plan";
 import { CustomPlanBalanceIndicator } from "@/components/CustomPlanBalanceIndicator";
 import { ProposalContractStep } from "@/components/ProposalContractStep";
 import { ProposalPayStep } from "@/components/ProposalPayStep";
@@ -125,9 +129,11 @@ export default function ProposalReview() {
     ? `${packageName} (${coverageLabel})`
     : "Custom";
 
-  // Auto-select custom plan when proposal has one enabled
+  // Auto-select custom plan when one is active: enabled, payment_plan
+  // "custom", or installments present. A missing enabled flag must not
+  // leave the bride on the $99 standard plan when installments exist.
   useEffect(() => {
-    if (proposal?.custom_payment_plan?.enabled) {
+    if (proposalHasCustomPlan(proposal)) {
       setPaymentPlan("custom");
     }
   }, [proposal]);
@@ -136,23 +142,7 @@ export default function ProposalReview() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [step]);
 
-  const calculatePaymentAmount = () => {
-    if (!proposal) return 0;
-    if (proposal.is_upgrade) {
-      if (paymentPlan === "custom" && proposal.custom_payment_plan?.enabled)
-        return proposal.custom_payment_plan.deposit || 0;
-      return Math.max(
-        0,
-        proposal.total_amount - (proposal.amount_paid_so_far || 0),
-      );
-    }
-    if (paymentPlan === "custom" && proposal.custom_payment_plan?.enabled)
-      return proposal.custom_payment_plan.deposit || 0;
-    if (paymentPlan === "full") return proposal.total_amount; // pay in full, no discount
-    if (paymentPlan === "fifty_fifty") return proposal.total_amount / 2;
-    if (paymentPlan === "quarterly") return proposal.total_amount / 4;
-    return 99; // deposit
-  };
+  const calculatePaymentAmount = () => proposalFirstDue(proposal, paymentPlan);
 
   const handleSignAndPay = async () => {
     setIsSubmitting(true);
@@ -219,8 +209,8 @@ export default function ProposalReview() {
   }, [proposal?.wedding_date]);
 
   useEffect(() => {
-    // Don't override if a custom plan is enabled — it takes full priority
-    if (proposal?.custom_payment_plan?.enabled) return;
+    // Don't override if a custom plan is active — it takes full priority
+    if (proposalHasCustomPlan(proposal)) return;
     if (proposal?.is_upgrade) {
       if (paymentPlan !== "full") setPaymentPlan("full");
       return;
@@ -228,12 +218,7 @@ export default function ProposalReview() {
     if (isWithin90Days && paymentPlan === "deposit") {
       setPaymentPlan("fifty_fifty");
     }
-  }, [
-    isWithin90Days,
-    paymentPlan,
-    proposal?.custom_payment_plan?.enabled,
-    proposal?.is_upgrade,
-  ]);
+  }, [isWithin90Days, paymentPlan, proposal, proposal?.is_upgrade]);
 
   useEffect(() => {
     if (isSuccess) {
@@ -638,7 +623,7 @@ export default function ProposalReview() {
                 onValueChange={(v: any) => setPaymentPlan(v)}
                 className="grid gap-6"
               >
-                {proposal?.custom_payment_plan?.enabled ? (
+                {proposalHasCustomPlan(proposal) ? (
                   <CustomPlanOption
                     proposal={proposal}
                     selected={paymentPlan === "custom"}

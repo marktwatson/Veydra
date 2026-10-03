@@ -4,7 +4,12 @@ import { saveContractSnapshotOnSign } from "./contract-snapshot";
 import { createGhlInvoice } from "./ghl-invoice-api";
 import { ensureWeddingForProposal } from "./proposal-wedding";
 import { checkCustomPlanBalance } from "./custom-plan-balance";
-import { buildInstallments, buildWeddingCustomPlan } from "./booking-schedule";
+import {
+  buildInstallments,
+  buildWeddingCustomPlan,
+  isCustomPlanActive,
+  parseCustomPlan,
+} from "./booking-schedule";
 
 export interface ProposalLike {
   id: string;
@@ -82,10 +87,12 @@ export async function signAndPayProposal(params: {
 
   // 3. Custom plans must schedule the full contract total. Block Sign & Pay
   //    if the deposit + installments don't sum to total_amount so we never
-  //    invoice against an under-scheduled plan.
-  if (paymentPlan === "custom" && proposal.custom_payment_plan?.enabled) {
+  //    invoice against an under-scheduled plan. A custom plan is active when
+  //    enabled is true, payment_plan is "custom", OR installments exist — a
+  //    missing enabled flag must not skip this check.
+  if (isCustomPlanActive(proposal.custom_payment_plan, paymentPlan)) {
     const bal = checkCustomPlanBalance(
-      proposal.custom_payment_plan,
+      parseCustomPlan(proposal.custom_payment_plan),
       Number(proposal.total_amount) || 0,
     );
     if (!bal.balanced) {
@@ -107,7 +114,8 @@ export async function signAndPayProposal(params: {
   );
 
   // Ensure a weddings row exists BEFORE invoicing. A proposal often has no
-  // wedding_id yet; ghl-invoice requires a real weddings.id.
+  // wedding_id yet; ghl-invoice requires a real weddings.id. Throws the real
+  // database error (or "This proposal has no area") so Sign & Pay surfaces it.
   const weddingId = await ensureWeddingForProposal(proposal.id);
   if (!weddingId) {
     throw new Error(
@@ -131,11 +139,11 @@ export async function signAndPayProposal(params: {
       // For a custom plan, only reuse the existing invoice when its stored
       // schedule matches the plan's deposit + installments. A stale standard-
       // plan invoice (wrong schedule) must be replaced with a fresh invoice.
-      const cpp = proposal.custom_payment_plan;
-      const customEnabled =
-        !!cpp?.enabled &&
-        Array.isArray(cpp.installments) &&
-        cpp.installments.length > 0;
+      const cpp = parseCustomPlan(proposal.custom_payment_plan);
+      const customEnabled = isCustomPlanActive(
+        proposal.custom_payment_plan,
+        paymentPlan,
+      );
       const scheduleMatchesCustom = (
         expected: { date: string; amount: number }[],
         stored: any,
