@@ -44,7 +44,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { geocodeAddress, calculateDistanceMiles } from "@/lib/geocoding";
-import { formatDisplayDate } from "@/lib/utils";
+import { formatDisplayDate, applyForJobWithTerritory } from "@/lib/utils";
 import confetti from "canvas-confetti";
 
 export default function OpportunityDetail() {
@@ -173,7 +173,7 @@ export default function OpportunityDetail() {
 
   const applyMutation = useMutation({
     mutationFn: () =>
-      api.applyForJob({
+      applyForJobWithTerritory({
         job_id: position!.id,
         contractor_id: currentUser!.id,
         message: "I am interested in this position.",

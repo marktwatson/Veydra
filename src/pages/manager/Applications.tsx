@@ -27,6 +27,10 @@ import {
 } from "@/components/ui/select";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import {
+  applyForJobWithTerritory,
+  createAssignmentWithTerritory,
+} from "@/lib/child-row-territory";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, UserMinus, UserPlus, Star } from "lucide-react";
@@ -96,7 +100,7 @@ export default function ManagerApplications() {
           jobUpdates.pay_rate = app.bid_amount;
         }
         await api.updateJob(app.job_id, jobUpdates);
-        await api.createAssignment({
+        await createAssignmentWithTerritory({
           job_id: app.job_id,
           contractor_id: app.contractor_id,
           status: "upcoming",
@@ -214,7 +218,7 @@ export default function ManagerApplications() {
       }
 
       // 4. Create new application for new contractor
-      const newApp = await api.applyForJob({
+      const newApp = await applyForJobWithTerritory({
         job_id: app.job_id,
         contractor_id: newContractorId,
         message: "Assigned directly by Manager",
@@ -222,7 +226,7 @@ export default function ManagerApplications() {
       await api.updateApplicationStatus(newApp.id, "awarded");
 
       // 5. Create new assignment
-      await api.createAssignment({
+      await createAssignmentWithTerritory({
         job_id: app.job_id,
         contractor_id: newContractorId,
         status: "upcoming",

@@ -11,6 +11,8 @@ ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS territory_id UUID;
 ALTER TABLE public.contractors ADD COLUMN IF NOT EXISTS territory_id UUID;
 ALTER TABLE public.managers ADD COLUMN IF NOT EXISTS territory_id UUID;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS territory_id UUID;
+ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS territory_id UUID;
+ALTER TABLE public.assignments ADD COLUMN IF NOT EXISTS territory_id UUID;
 
 -- Public apply slug on territories — /apply/:slug routes a contractor
 -- application to the correct area. Idempotent so it is safe to re-run.

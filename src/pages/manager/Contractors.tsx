@@ -1187,6 +1187,11 @@ export default function ManagerContractors() {
       const setupUrl = new URL(`${baseUrl}/setup-password`);
       setupUrl.searchParams.set("email", email);
       setupUrl.searchParams.set("token", token);
+      if ((pendingContractor as any).territory_id)
+        setupUrl.searchParams.set(
+          "territory_id",
+          (pendingContractor as any).territory_id,
+        );
 
       if (settings?.email_invite_enabled && settings?.email_invite_template) {
         const subject = (
@@ -1253,6 +1258,11 @@ export default function ManagerContractors() {
       const setupUrl = new URL(`${baseUrl}/setup-password`);
       setupUrl.searchParams.set("email", contractor.email);
       setupUrl.searchParams.set("token", token);
+      if ((contractor as any).territory_id)
+        setupUrl.searchParams.set(
+          "territory_id",
+          (contractor as any).territory_id,
+        );
 
       if (settings?.email_invite_enabled && settings?.email_invite_template) {
         const subject = (

@@ -41,6 +41,7 @@ export default function SetupPassword() {
   const lastNameParam = searchParams.get("last_name") || "";
   const phoneParam = searchParams.get("phone") || "";
   const specialtyParam = searchParams.get("specialty") || "";
+  const territoryIdParam = searchParams.get("territory_id") || "";
   const isBartenderSetup = /bartender/i.test(specialtyParam);
   const regionParam = searchParams.get("region");
   let parsedRegion: string[] = [];
@@ -300,6 +301,7 @@ export default function SetupPassword() {
                 tags: ["invited-contractor"],
                 training_completed: /bartender/i.test(specialtyParam || ""),
                 status: "active",
+                ...(territoryIdParam ? { territory_id: territoryIdParam } : {}),
               });
 
             if (insertError) {

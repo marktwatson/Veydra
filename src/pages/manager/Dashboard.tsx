@@ -58,6 +58,7 @@ import {
   formatDisplayDate,
   generatePaymentSchedule,
   getCompanyTimezone,
+  createAssignmentWithTerritory,
 } from "@/lib/utils";
 
 // Parse a date string as a local date (no UTC midnight shift)
@@ -227,7 +228,7 @@ export default function ManagerDashboard() {
           jobUpdates.pay_rate = app.bid_amount;
         }
         await api.updateJob(app.job_id, jobUpdates);
-        await api.createAssignment({
+        await createAssignmentWithTerritory({
           job_id: app.job_id,
           contractor_id: app.contractor_id,
           status: "upcoming",

@@ -126,6 +126,7 @@ import {
   generateHTMLReceipt,
   DEFAULT_LOGO_URL,
   getCompanyTimezone,
+  createAssignmentWithTerritory,
 } from "@/lib/utils";
 import PositionsTab from "./Positions";
 import WeddingBookedServices from "@/components/WeddingBookedServices";
@@ -820,7 +821,7 @@ export function ManageWeddingSheet({
                   "Cancelled",
                 );
               }
-              await api.createAssignment({
+              await createAssignmentWithTerritory({
                 job_id: currentJobId,
                 contractor_id: job.contractor_id,
                 status: "Upcoming",

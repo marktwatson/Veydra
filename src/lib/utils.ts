@@ -1,4 +1,12 @@
 import { clsx, type ClassValue } from "clsx";
+
+// Re-export territory-stamped child-row creators so files at the import cap
+// (Dashboard, Weddings, OpportunityDetail) can use them via their existing
+// @/lib/utils import without a new import line.
+export {
+  applyForJobWithTerritory,
+  createAssignmentWithTerritory,
+} from "@/lib/child-row-territory";
 import { twMerge } from "tailwind-merge";
 export {
   checkCustomPlanBalance,

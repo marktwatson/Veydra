@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, Users, ExternalLink, UserCheck, Info } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
+import { resolveJobTerritoryId } from "@/lib/child-row-territory";
 import { maybeConfirmCoverage } from "@/lib/coverage-request";
 
 /**
@@ -110,11 +111,15 @@ export function CoverageApplicants({
             })
             .eq("id", existingAsg.id);
         } else {
+          const asgTerritoryId = await resolveJobTerritoryId(jobId).catch(
+            () => null,
+          );
           await supabase.from("assignments").insert({
             job_id: jobId,
             contractor_id: contractorId,
             wedding_id: job.wedding_id,
             status: "Assigned",
+            ...(asgTerritoryId ? { territory_id: asgTerritoryId } : {}),
           });
         }
         // Mark the application accepted
