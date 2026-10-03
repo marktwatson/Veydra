@@ -33,6 +33,11 @@ import { api } from "@/lib/api";
 import { PayStepChoice } from "@/components/PayStepChoice";
 import { FALLBACK_PACKAGES, FALLBACK_ADDONS } from "@/lib/booking-fallbacks";
 import {
+  getPackagesForTerritory,
+  getAddonsForTerritory,
+} from "@/lib/proposal-package";
+import { HONEYSUCKLE_TERRITORY_ID } from "@/lib/territory";
+import {
   DEFAULT_LOGO_URL,
   formatDisplayDate,
   generatePaymentSchedule,
@@ -78,17 +83,25 @@ function TypewriterText({
 }
 
 export default function Book() {
+  // Direct booking is public — no logged-in user to scope from. The link
+  // carries ?territory=<id> so the bride sees the right area's packages,
+  // addons, and branding instead of the Honeysuckle fallback.
+  const bookTerritoryId = (() => {
+    const p = new URLSearchParams(window.location.search);
+    return p.get("territory") || p.get("territory_id") || null;
+  })();
   const [PACKAGES, setPackages] = useState<any[]>(FALLBACK_PACKAGES);
   const [ADDONS, setAddons] = useState<any[]>(FALLBACK_ADDONS);
 
   useEffect(() => {
-    Promise.all([api.getPackages(), api.getAddons()])
+    const tid = bookTerritoryId || HONEYSUCKLE_TERRITORY_ID;
+    Promise.all([getPackagesForTerritory(tid), getAddonsForTerritory(tid)])
       .then(([pkgs, adns]) => {
         if (pkgs.length) setPackages(pkgs);
         if (adns.length) setAddons(adns);
       })
       .catch(() => {});
-  }, []);
+  }, [bookTerritoryId]);
 
   const [formData, setFormData] = useState({
     firstName: "",
@@ -130,14 +143,17 @@ export default function Book() {
   }, [step]);
 
   useEffect(() => {
+    const tid = bookTerritoryId || HONEYSUCKLE_TERRITORY_ID;
     supabase
       .from("portal_settings")
       .select("*")
-      .single()
+      .eq("territory_id", tid)
+      .limit(1)
+      .maybeSingle()
       .then(({ data }) => {
         if (data) setSettings(data);
       });
-  }, []);
+  }, [bookTerritoryId]);
 
   useEffect(() => {
     if (isSuccess) {
@@ -423,6 +439,7 @@ export default function Book() {
           payment_plan: formData.paymentOption,
           contract_date: new Date().toISOString(),
           notes: `[UNPAID_DRAFT]\nPhone: ${formData.phone || "N/A"}\n${formData.notes || ""}`,
+          territory_id: bookTerritoryId || HONEYSUCKLE_TERRITORY_ID,
         };
 
         if (!weddingId) {

@@ -39,6 +39,10 @@ import {
   renderContractSnapshot,
   CustomPlanOption,
 } from "@/lib/booking-fallbacks";
+import {
+  getPackagesForTerritory,
+  getAddonsForTerritory,
+} from "@/lib/proposal-package";
 import { CustomPlanBalanceIndicator } from "@/components/CustomPlanBalanceIndicator";
 import { ProposalContractStep } from "@/components/ProposalContractStep";
 import { ProposalPayStep } from "@/components/ProposalPayStep";
@@ -51,15 +55,6 @@ export default function ProposalReview() {
   const [loading, setLoading] = useState(true);
   const [PACKAGES, setPackages] = useState<any[]>(FALLBACK_PACKAGES);
   const [ADDONS, setAddons] = useState<any[]>(FALLBACK_ADDONS);
-
-  useEffect(() => {
-    Promise.all([api.getPackages(true), api.getAddons(true)])
-      .then(([pkgs, adns]) => {
-        if (pkgs.length) setPackages(pkgs);
-        if (adns.length) setAddons(adns);
-      })
-      .catch(() => {});
-  }, []);
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   useProposalResumeStep(id, proposal, step, setStep);
   const [signature, setSignature] = useState("");
@@ -86,9 +81,10 @@ export default function ProposalReview() {
         const {
           proposal: proposalData,
           branding: brandingData,
+          packages: areaPackages,
+          addons: areaAddons,
           notFound,
         } = await loadProposalAndBranding(id);
-
         if (notFound) {
           toast({
             title: "Error",
@@ -98,10 +94,11 @@ export default function ProposalReview() {
         } else {
           setProposal(proposalData);
         }
-
-        if (brandingData) {
-          setBranding(brandingData);
-        }
+        if (brandingData) setBranding(brandingData);
+        // Packages/addons come from the proposal's territory, not the
+        // logged-in user's, so an anonymous bride sees the right package.
+        if (areaPackages.length) setPackages(areaPackages);
+        if (areaAddons.length) setAddons(areaAddons);
       } catch (err) {
         console.error("Error loading portal data:", err);
       } finally {

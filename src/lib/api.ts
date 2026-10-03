@@ -3969,7 +3969,7 @@ export const api = {
       .from("weddings")
       .select(
         `
-      id, client_name, client_email, client_phone, date, location, timeline, vip_names, vendors, special_requests, questionnaire_data, questionnaire_completed,
+      id, client_name, client_email, client_phone, date, location, timeline, vip_names, vendors, special_requests, questionnaire_data, questionnaire_completed, territory_id,
       gallery_link, vimeo_link, youtube_link, drive_link, upload_link, package, addons, stripe_customer_id, total_amount, paid_amount, payment_plan, custom_payment_plan, contract_date, created_at, highlight_songs, songs_submitted_at, final_payment_verified,
       jobs (
         role,

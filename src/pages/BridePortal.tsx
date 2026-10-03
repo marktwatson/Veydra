@@ -77,6 +77,7 @@ import {
   getCompanyTimezone,
 } from "@/lib/utils";
 import { applyPortalTheme, parsePortalTheme } from "@/lib/portal-theme";
+import { getPortalSettingsForTerritory } from "@/lib/portal-settings-by-territory";
 import BartendingUpsellBanner from "@/components/BartendingUpsellBanner";
 import BrideBartendingContractCard from "@/components/BrideBartendingContractCard";
 import { GhlScheduleSection } from "@/components/GhlScheduleSection";
@@ -298,8 +299,8 @@ export default function BridePortal() {
         const data = await api.getPublicWedding(id);
         setWedding(data);
 
-        api
-          .getPortalSettings()
+        // Branding scoped by the wedding's territory (not logged-in user's).
+        getPortalSettingsForTerritory(data?.territory_id)
           .then((settings: any) => {
             if (settings?.company_name) {
               setCompanyName(settings.company_name);

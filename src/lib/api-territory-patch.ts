@@ -16,9 +16,11 @@
  *  - getPackages / getAddons: stay unfiltered in JS (RLS scopes them).
  */
 import { api } from "./api";
+import { supabase } from "./supabase";
 import { logAdminActivity } from "./api-admin-activity";
 import { currentTerritoryId } from "./current-territory";
 import { buildUpcomingPayments } from "./dashboard-upcoming-payments";
+import { getWeddingsForEditor } from "./editor-weddings";
 import {
   fetchJobsForTerritory,
   fetchAssignmentsForTerritory,
@@ -67,8 +69,29 @@ export function patchApiForTerritory(): void {
   // directly) honors the super-admin area picker. null = All Areas (no
   // filter). The dedicated list pages already call the *ForTerritory variants
   // directly, so they are unaffected by these overrides.
-  (api as any).getWeddings = () =>
-    currentTerritoryId().then((tid) => api.getWeddingsForTerritory(tid));
+  //
+  // EDITORS are the exception: they are scoped by assignment (editor_id), not
+  // by territory. An editor assigned to a wedding in any area must see it, so
+  // for an editor we return cross-area weddings via getWeddingsForEditor and
+  // do NOT territory-filter their other reads either.
+  (api as any).getWeddings = async () => {
+    const role = (() => {
+      try {
+        return localStorage.getItem("veydra_effective_role") || "";
+      } catch {
+        return "";
+      }
+    })();
+    if (role === "editor") {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user?.id) return getWeddingsForEditor(user.id);
+      return [];
+    }
+    const tid = await currentTerritoryId();
+    return api.getWeddingsForTerritory(tid);
+  };
   (api as any).getContractors = () =>
     currentTerritoryId().then((tid) => api.getContractorsForTerritory(tid));
   (api as any).getJobs = () =>
@@ -81,6 +104,11 @@ export function patchApiForTerritory(): void {
   // Upcoming 14-day revenue helper — exposed on `api` so the Dashboard (at its
   // import cap) can call api.buildUpcomingPayments(...) without a new import.
   (api as any).buildUpcomingPayments = buildUpcomingPayments;
+
+  // Editor cross-area wedding loader. Editors are scoped by assignment
+  // (editor_id), not territory — they must see every wedding assigned to
+  // them in any area. Patched on here so callers can use api.getWeddingsForEditor.
+  (api as any).getWeddingsForEditor = getWeddingsForEditor;
 }
 
 // Auto-patch on import so any entry point that imports api gets the scoped

@@ -1,6 +1,12 @@
 import { supabase } from "./supabase";
 import { api } from "./api";
 import { HONEYSUCKLE_TERRITORY_ID } from "./territory";
+import {
+  getPackagesForTerritory,
+  getAddonsForTerritory,
+  type ProposalPackage,
+  type ProposalAddon,
+} from "./proposal-package";
 
 /**
  * Loads a proposal and its territory-scoped portal_settings branding for the
@@ -9,10 +15,16 @@ import { HONEYSUCKLE_TERRITORY_ID } from "./territory";
  * portal_settings now has one row per territory, so the branding load is
  * scoped by the proposal's territory_id (Honeysuckle fallback) instead of a
  * bare .single() — which throws when multiple rows exist.
+ *
+ * Packages + addons are loaded from the SAME territory (not the logged-in
+ * user's), so an anonymous bride sees the package that owns the proposal
+ * rather than the Honeysuckle fallback set.
  */
 export async function loadProposalAndBranding(id: string): Promise<{
   proposal: any | null;
   branding: any | null;
+  packages: ProposalPackage[];
+  addons: ProposalAddon[];
   notFound: boolean;
 }> {
   // 1) Load the proposal first.
@@ -23,7 +35,13 @@ export async function loadProposalAndBranding(id: string): Promise<{
     .single();
 
   if (proposalRes.error || !proposalRes.data) {
-    return { proposal: null, branding: null, notFound: true };
+    return {
+      proposal: null,
+      branding: null,
+      packages: [],
+      addons: [],
+      notFound: true,
+    };
   }
 
   let proposalData: any = proposalRes.data;
@@ -91,9 +109,26 @@ export async function loadProposalAndBranding(id: string): Promise<{
     .limit(1)
     .maybeSingle();
 
+  // 4) Load this area's packages + addons (not the logged-in user's). A bride
+  //    is anonymous, so api.getPackages() would fall back to Honeysuckle and
+  //    the proposal's package_id wouldn't match — leaving a raw id + blank
+  //    feature lists. Failures fall back to the caller's fallback sets.
+  let packages: ProposalPackage[] = [];
+  let addons: ProposalAddon[] = [];
+  try {
+    [packages, addons] = await Promise.all([
+      getPackagesForTerritory(territoryId, true),
+      getAddonsForTerritory(territoryId, true),
+    ]);
+  } catch {
+    /* keep empty — caller keeps its fallbacks */
+  }
+
   return {
     proposal: proposalData,
     branding: settingsRes.data ?? null,
+    packages,
+    addons,
     notFound: false,
   };
 }
