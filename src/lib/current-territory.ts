@@ -90,3 +90,42 @@ export async function currentTerritoryId(): Promise<string | null> {
     return HONEYSUCKLE_TERRITORY_ID;
   }
 }
+
+/**
+ * The logged-in manager's territory_id from their managers row, with NO
+ * fallback. Returns null if there is no managers row or it has no
+ * territory_id.
+ *
+ * Used by pages that must NOT fall back to Honeysuckle (e.g. Royalty for
+ * owners/managers): a null result means "No area assigned" — do not load
+ * Honeysuckle royalty. This never consults isSuperAdminEmail, so an owner
+ * can never unlock the full area list through it.
+ */
+export async function getManagerTerritoryIdRaw(): Promise<string | null> {
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const email = user?.email ?? null;
+    const id = user?.id ?? null;
+    if (email) {
+      const { data: mgrByEmail } = await supabase
+        .from("managers")
+        .select("territory_id")
+        .ilike("email", email)
+        .maybeSingle();
+      if (mgrByEmail) return (mgrByEmail.territory_id as string) || null;
+    }
+    if (id) {
+      const { data: mgrById } = await supabase
+        .from("managers")
+        .select("territory_id")
+        .eq("id", id)
+        .maybeSingle();
+      if (mgrById) return (mgrById.territory_id as string) || null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}

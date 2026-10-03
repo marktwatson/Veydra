@@ -20,7 +20,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -39,17 +38,14 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsTrigger, TabsList } from "@/components/ui/tabs";
 import {
-  DollarSign,
   Loader2,
   Crown,
   Settings,
   Play,
   CheckCircle,
   XCircle,
-  Clock,
   AlertCircle,
   RotateCcw,
-  Receipt,
   Lock,
   CreditCard,
 } from "lucide-react";
@@ -59,13 +55,23 @@ import { loadStripe } from "@stripe/stripe-js";
 import { RoyaltyNextPullCard } from "@/components/RoyaltyNextPullCard";
 import { RoyaltyBankDialog } from "@/components/manager/RoyaltyBankDialog";
 import { RoyaltyBackupCard } from "@/components/RoyaltyBackupCard";
-import { RoyaltyTerritorySelect } from "@/components/RoyaltyTerritorySelect";
 import { PeriodDetailsDialog } from "@/components/royalty/PeriodDetailsDialog";
 import { TerritoryEditForm } from "@/components/royalty/TerritoryEditForm";
 import { RoyaltySetupForm } from "@/components/royalty/RoyaltySetupForm";
 import { RoyaltyStripeAccountCard } from "@/components/royalty/RoyaltyStripeAccountCard";
-import { isSuperAdminEmail } from "@/lib/super-admin";
-import { currentTerritoryId } from "@/lib/current-territory";
+import {
+  RoyaltyLoadingState,
+  RoyaltyNoAreaState,
+} from "@/components/royalty/RoyaltyGuards";
+import { RoyaltySeedSaleDialog } from "@/components/royalty/RoyaltySeedSaleDialog";
+import {
+  RoyaltyAdjustPeriodDialog,
+  RoyaltyAdjustBalanceDialog,
+} from "@/components/royalty/RoyaltyAdjustDialogs";
+import { RoyaltyProjectionCard } from "@/components/royalty/RoyaltyProjectionCard";
+import { RoyaltyPeriodsTable } from "@/components/royalty/RoyaltyPeriodsTable";
+import { RoyaltyGlobalSettingsCard } from "@/components/royalty/RoyaltyGlobalSettingsCard";
+import { useRoyaltyTerritory } from "@/lib/use-royalty-territory";
 
 export default function RoyaltyManagement() {
   const { user } = useAuth();
@@ -87,31 +93,18 @@ export default function RoyaltyManagement() {
   const [balanceReason, setBalanceReason] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
 
-  const isSuperAdmin =
-    user?.role === "super_admin" || isSuperAdminEmail(user?.email);
-
-  // Primary territory = this instance's own row (Honeysuckle). Used as the
-  // super-admin default and to detect first-run setup.
-  const { data: primaryTerritory, isLoading: loadingPrimary } = useQuery({
-    queryKey: ["royalty-territory-primary"],
-    queryFn: api.getOwnRoyaltyTerritory,
-  });
-
-  // Super admin can switch areas; owner/manager is locked to their own
-  // managers.territory_id (currentTerritoryId falls back to Honeysuckle, never
-  // a list of all territories). Owners with no territory_id keep the primary.
-  const [selectedTerritoryId, setSelectedTerritoryId] = useState<string | null>(
-    null,
-  );
-  const { data: lockedTerritoryId } = useQuery({
-    queryKey: ["royalty-locked-territory-id"],
-    queryFn: () => currentTerritoryId(),
-    enabled: !isSuperAdmin,
-  });
-
-  const effectiveTerritoryId = isSuperAdmin
-    ? selectedTerritoryId || primaryTerritory?.id || null
-    : lockedTerritoryId || primaryTerritory?.id || null;
+  // Territory resolution lives in a focused hook (see use-royalty-territory.ts):
+  //  - Super admin (role only) → header SuperAdminAreaSwitcher id, else primary.
+  //  - Owner / manager → managers.territory_id, NO Honeysuckle fallback.
+  const {
+    isSuperAdmin,
+    primaryTerritory,
+    loadingPrimary,
+    managerTerritoryId,
+    loadingManagerTerritory,
+    managerTerritoryLoaded,
+    effectiveTerritoryId,
+  } = useRoyaltyTerritory();
 
   // Load the FULL row for the selected/locked territory (royalty %, payback,
   // balance, stripe ids, …) — not just the primary row.
@@ -388,58 +381,18 @@ export default function RoyaltyManagement() {
       }),
   });
 
-  const statusBadge = (status: string) => {
-    switch (status) {
-      case "paid":
-        return (
-          <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 rounded-full">
-            <CheckCircle className="h-3 w-3 mr-1" />
-            Paid
-          </Badge>
-        );
-      case "processing":
-        return (
-          <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20 rounded-full">
-            <Clock className="h-3 w-3 mr-1" />
-            Processing
-          </Badge>
-        );
-      case "pending":
-        return (
-          <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/20 rounded-full">
-            <Clock className="h-3 w-3 mr-1" />
-            Pending
-          </Badge>
-        );
-      case "failed":
-        return (
-          <Badge className="bg-red-500/10 text-red-600 border-red-500/20 rounded-full">
-            <XCircle className="h-3 w-3 mr-1" />
-            Failed
-          </Badge>
-        );
-      case "waived":
-        return (
-          <Badge className="bg-purple-500/10 text-purple-600 border-purple-500/20 rounded-full">
-            <AlertCircle className="h-3 w-3 mr-1" />
-            Waived
-          </Badge>
-        );
-      default:
-        return (
-          <Badge variant="outline" className="rounded-full">
-            {status}
-          </Badge>
-        );
-    }
-  };
+  if (
+    loadingPrimary ||
+    (!isSuperAdmin && loadingManagerTerritory) ||
+    loadingTerr
+  ) {
+    return <RoyaltyLoadingState />;
+  }
 
-  if (loadingTerr || loadingPrimary) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+  // Owner / manager with no territory assigned → do NOT load Honeysuckle
+  // royalty. Show a clear "No area assigned" state instead.
+  if (!isSuperAdmin && managerTerritoryLoaded && !managerTerritoryId) {
+    return <RoyaltyNoAreaState />;
   }
 
   // No primary territory exists at all → first-run setup.
@@ -454,11 +407,7 @@ export default function RoyaltyManagement() {
   }
 
   if (!territory) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <RoyaltyLoadingState />;
   }
 
   const remainingBalance = Number(territory.remaining_balance || 0);
@@ -513,25 +462,6 @@ export default function RoyaltyManagement() {
             Manage this territory's royalty percentages, payback balance, and
             weekly processing.
           </p>
-          {isSuperAdmin && effectiveTerritoryId && (
-            <div className="mt-3">
-              <RoyaltyTerritorySelect
-                selectedId={effectiveTerritoryId}
-                onChange={(id) => {
-                  setSelectedTerritoryId(id);
-                  queryClient.invalidateQueries({
-                    queryKey: ["royalty-periods"],
-                  });
-                  queryClient.invalidateQueries({
-                    queryKey: ["royalty-sales"],
-                  });
-                  queryClient.invalidateQueries({
-                    queryKey: ["royalty-audit"],
-                  });
-                }}
-              />
-            </div>
-          )}
         </div>
         <div className="flex gap-2">
           <Button
@@ -686,103 +616,17 @@ export default function RoyaltyManagement() {
       />
 
       {/* Upcoming / Projected Royalty Breakdown */}
-      <Card className="shadow-sm border-border/40 rounded-2xl bg-card">
-        <CardHeader className="p-5 pb-3">
-          <CardTitle className="text-base font-bold flex items-center gap-2">
-            <Clock className="h-5 w-5 text-blue-500" /> Upcoming Royalty
-            Projection
-          </CardTitle>
-          <CardDescription className="text-xs">
-            Kept sales in the last 7 days that the next processor run will
-            calculate and charge. Refunds and test sales are excluded.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="p-5 pt-0 space-y-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-muted/30 rounded-xl p-3">
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">
-                Gross Sales (7d)
-              </p>
-              <p className="text-xl font-bold">
-                ${upcomingGross.toLocaleString()}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {upcomingSales.length} sale
-                {upcomingSales.length === 1 ? "" : "s"}
-              </p>
-            </div>
-            <div className="bg-blue-500/5 rounded-xl p-3">
-              <p className="text-xs text-blue-600 uppercase tracking-wider">
-                Royalty ({royaltyPct.toFixed(2)}%)
-              </p>
-              <p className="text-xl font-bold text-blue-600">
-                ${projectedRoyalty.toLocaleString()}
-              </p>
-            </div>
-            <div className="bg-amber-500/5 rounded-xl p-3">
-              <p className="text-xs text-amber-600 uppercase tracking-wider">
-                Payback ({paybackPct.toFixed(2)}%)
-              </p>
-              <p className="text-xl font-bold text-amber-600">
-                ${projectedPayback.toLocaleString()}
-              </p>
-              {rawPayback > remainingBalance && remainingBalance > 0 && (
-                <p className="text-xs text-amber-600">
-                  Capped at remaining balance
-                </p>
-              )}
-            </div>
-            <div className="bg-emerald-500/5 rounded-xl p-3">
-              <p className="text-xs text-emerald-600 uppercase tracking-wider">
-                Projected Total
-              </p>
-              <p className="text-xl font-bold text-emerald-600">
-                ${projectedTotal.toLocaleString()}
-              </p>
-            </div>
-          </div>
-
-          {upcomingSales.length > 0 ? (
-            <div className="border-t border-border/40 pt-3">
-              <p className="text-xs font-semibold text-muted-foreground mb-2">
-                Sales in this window:
-              </p>
-              <div className="space-y-1 max-h-40 overflow-y-auto">
-                {upcomingSales.map((s) => (
-                  <div
-                    key={s.id}
-                    className="flex justify-between items-center text-sm py-1.5 px-2 rounded-lg hover:bg-muted/30"
-                  >
-                    <div className="flex flex-col">
-                      <span className="font-medium">
-                        {s.is_refund ? "Refund" : "Sale"} —{" "}
-                        {s.description || "No description"}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {s.sale_date}
-                      </span>
-                    </div>
-                    <span
-                      className={`font-semibold ${s.is_refund ? "text-red-600" : "text-emerald-600"}`}
-                    >
-                      {s.is_refund ? "-" : "+"}$
-                      {Number(s.sale_amount).toLocaleString()}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
-              <Receipt className="h-8 w-8 opacity-40 mb-2" />
-              <p className="text-sm">
-                No sales recorded in the last 7 days. Use "Seed Test Sale" to
-                add one.
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <RoyaltyProjectionCard
+        upcomingSales={upcomingSales}
+        upcomingGross={upcomingGross}
+        royaltyPct={royaltyPct}
+        paybackPct={paybackPct}
+        projectedRoyalty={projectedRoyalty}
+        projectedPayback={projectedPayback}
+        rawPayback={rawPayback}
+        remainingBalance={remainingBalance}
+        projectedTotal={projectedTotal}
+      />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="rounded-full">
@@ -799,237 +643,27 @@ export default function RoyaltyManagement() {
 
         {/* Payment History */}
         <TabsContent value="overview">
-          <Card className="shadow-sm border-border/40 rounded-2xl bg-card overflow-hidden">
-            <CardHeader className="p-5 pb-3 border-b border-border/40">
-              <CardTitle className="text-lg font-bold">
-                Royalty Periods
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Complete ledger of every weekly calculation for this territory.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              {loadingPeriods ? (
-                <div className="flex items-center justify-center p-12">
-                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                </div>
-              ) : periods.length === 0 ? (
-                <div className="flex flex-col items-center justify-center p-12 text-muted-foreground">
-                  <Receipt className="h-10 w-10 opacity-40 mb-2" />
-                  <p>No royalty periods calculated yet.</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader className="bg-muted/30">
-                      <TableRow>
-                        <TableHead className="font-semibold">Period</TableHead>
-                        <TableHead className="font-semibold text-right">
-                          Gross Sales
-                        </TableHead>
-                        <TableHead className="font-semibold text-right">
-                          Royalty
-                        </TableHead>
-                        <TableHead className="font-semibold text-right">
-                          Payback
-                        </TableHead>
-                        <TableHead className="font-semibold text-right">
-                          Total Due
-                        </TableHead>
-                        <TableHead className="font-semibold">Status</TableHead>
-                        <TableHead className="font-semibold text-right pr-6">
-                          Actions
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {periods.map((p: any) => (
-                        <TableRow key={p.id} className="hover:bg-muted/20">
-                          <TableCell className="text-xs">
-                            {p.period_start} → {p.period_end}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            ${Number(p.gross_sales || 0).toLocaleString()}
-                          </TableCell>
-                          <TableCell className="text-right text-blue-600">
-                            ${Number(p.royalty_amount || 0).toLocaleString()}
-                          </TableCell>
-                          <TableCell className="text-right text-amber-600">
-                            ${Number(p.payback_amount || 0).toLocaleString()}
-                          </TableCell>
-                          <TableCell className="text-right font-bold">
-                            ${Number(p.total_due || 0).toLocaleString()}
-                          </TableCell>
-                          <TableCell>{statusBadge(p.status)}</TableCell>
-                          <TableCell className="text-right pr-6">
-                            <div className="flex justify-end gap-1">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-8 rounded-full text-xs"
-                                onClick={() => setDetailsPeriod(p)}
-                              >
-                                <Receipt className="h-3.5 w-3.5 mr-1" />
-                                Details
-                              </Button>
-                              {p.status !== "paid" && p.status !== "waived" && (
-                                <>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-8 rounded-full text-xs text-emerald-600"
-                                    onClick={() => {
-                                      setAdjustingPeriod(p);
-                                      setAdjustAction("markPaid");
-                                    }}
-                                  >
-                                    <CheckCircle className="h-3.5 w-3.5 mr-1" />
-                                    Mark Paid
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-8 rounded-full text-xs text-purple-600"
-                                    onClick={() => {
-                                      setAdjustingPeriod(p);
-                                      setAdjustAction("waive");
-                                    }}
-                                  >
-                                    <XCircle className="h-3.5 w-3.5 mr-1" />
-                                    Waive
-                                  </Button>
-                                </>
-                              )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <RoyaltyPeriodsTable
+            periods={periods}
+            loadingPeriods={loadingPeriods}
+            onDetails={(p) => setDetailsPeriod(p)}
+            onMarkPaid={(p) => {
+              setAdjustingPeriod(p);
+              setAdjustAction("markPaid");
+            }}
+            onWaive={(p) => {
+              setAdjustingPeriod(p);
+              setAdjustAction("waive");
+            }}
+          />
         </TabsContent>
 
         {/* Global Settings */}
         <TabsContent value="settings">
-          <Card className="shadow-sm border-border/40 rounded-2xl bg-card max-w-2xl">
-            <CardHeader className="p-5 pb-3 border-b border-border/40">
-              <CardTitle className="text-lg font-bold flex items-center gap-2">
-                <Settings className="h-5 w-5" />
-                Global Royalty Settings
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Weekly processing schedule, retry rules, and Stripe status.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-5 space-y-4">
-              {settings && (
-                <>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Processing Day</Label>
-                      <Select
-                        value={String(settings.processing_day_of_week)}
-                        onValueChange={(v) =>
-                          updateSettingsMutation.mutate({
-                            processing_day_of_week: parseInt(v),
-                          })
-                        }
-                      >
-                        <SelectTrigger className="rounded-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="0">Sunday</SelectItem>
-                          <SelectItem value="1">Monday</SelectItem>
-                          <SelectItem value="2">Tuesday</SelectItem>
-                          <SelectItem value="3">Wednesday</SelectItem>
-                          <SelectItem value="4">Thursday</SelectItem>
-                          <SelectItem value="5">Friday</SelectItem>
-                          <SelectItem value="6">Saturday</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Processing Time (portal timezone)</Label>
-                      <Input
-                        className="rounded-full"
-                        defaultValue={settings.processing_time}
-                        onBlur={(e) =>
-                          updateSettingsMutation.mutate({
-                            processing_time: e.target.value,
-                          })
-                        }
-                        placeholder="09:00"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Interpreted in your portal timezone. Scheduler auto-runs
-                        on this day at/after this time. One run per week —
-                        safeguarded against double charges.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Retry Count</Label>
-                      <Input
-                        type="number"
-                        className="rounded-full"
-                        defaultValue={settings.retry_count}
-                        onBlur={(e) =>
-                          updateSettingsMutation.mutate({
-                            retry_count: parseInt(e.target.value) || 3,
-                          })
-                        }
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Retry Delay (hours)</Label>
-                      <Input
-                        type="number"
-                        className="rounded-full"
-                        defaultValue={settings.retry_delay_hours}
-                        onBlur={(e) =>
-                          updateSettingsMutation.mutate({
-                            retry_delay_hours: parseInt(e.target.value) || 24,
-                          })
-                        }
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Notification Email</Label>
-                    <Input
-                      className="rounded-full"
-                      defaultValue={settings.notify_email || ""}
-                      onBlur={(e) =>
-                        updateSettingsMutation.mutate({
-                          notify_email: e.target.value,
-                        })
-                      }
-                      placeholder="admin@veydra.com"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2 pt-2 border-t border-border/40">
-                    {settings.stripe_royalty_configured ||
-                    settings.stripe_connected ? (
-                      <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 rounded-full">
-                        <CheckCircle className="h-3 w-3 mr-1" />
-                        Stripe Connected
-                      </Badge>
-                    ) : (
-                      <Badge className="bg-red-500/10 text-red-600 border-red-500/20 rounded-full">
-                        <XCircle className="h-3 w-3 mr-1" />
-                        Stripe Not Connected
-                      </Badge>
-                    )}
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
+          <RoyaltyGlobalSettingsCard
+            settings={settings}
+            onUpdate={(updates) => updateSettingsMutation.mutate(updates)}
+          />
 
           {/* Royalty Stripe Account — separate from bride booking payments */}
           <RoyaltyStripeAccountCard
@@ -1134,137 +768,30 @@ export default function RoyaltyManagement() {
       </Dialog>
 
       {/* Adjust Period Dialog */}
-      <Dialog
+      <RoyaltyAdjustPeriodDialog
         open={!!adjustingPeriod}
-        onOpenChange={(open) => !open && setAdjustingPeriod(null)}
-      >
-        <DialogContent className="sm:max-w-[425px] rounded-3xl">
-          <DialogHeader>
-            <DialogTitle>
-              {adjustAction === "waive"
-                ? "Waive Royalty Period"
-                : "Mark Period as Paid"}
-            </DialogTitle>
-            <DialogDescription>
-              {adjustAction === "waive"
-                ? "This will zero out the amounts for this period. A reason is required for the audit log."
-                : "This will mark the period as paid. A reason is required for the audit log."}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="bg-muted/40 p-3 rounded-xl text-sm space-y-1">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Period:</span>
-                <span>
-                  {adjustingPeriod?.period_start} →{" "}
-                  {adjustingPeriod?.period_end}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Total Due:</span>
-                <span className="font-bold">
-                  ${Number(adjustingPeriod?.total_due || 0).toLocaleString()}
-                </span>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Reason (required for audit log)</Label>
-              <Textarea
-                value={adjustReason}
-                onChange={(e) => setAdjustReason(e.target.value)}
-                placeholder="e.g. Manual check received via wire transfer"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              className="rounded-full"
-              onClick={() => setAdjustingPeriod(null)}
-            >
-              Cancel
-            </Button>
-            <Button
-              className="rounded-full"
-              onClick={() => adjustPeriodMutation.mutate()}
-              disabled={adjustPeriodMutation.isPending || !adjustReason.trim()}
-            >
-              {adjustPeriodMutation.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : null}
-              Confirm
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onOpenChange={(o) => !o && setAdjustingPeriod(null)}
+        period={adjustingPeriod}
+        action={adjustAction}
+        reason={adjustReason}
+        setReason={setAdjustReason}
+        pending={adjustPeriodMutation.isPending}
+        onConfirm={() => adjustPeriodMutation.mutate()}
+      />
 
       {/* Adjust Balance Dialog */}
-      <Dialog
+      <RoyaltyAdjustBalanceDialog
         open={balanceOpen}
-        onOpenChange={(open) => !open && setBalanceOpen(false)}
-      >
-        <DialogContent className="sm:max-w-[425px] rounded-3xl">
-          <DialogHeader>
-            <DialogTitle>
-              Adjust Remaining Balance: {territory.name}
-            </DialogTitle>
-            <DialogDescription>
-              Manually adjust the payback remaining balance. A reason is
-              required for the audit log.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="bg-muted/40 p-3 rounded-xl text-sm space-y-1">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Current Balance:</span>
-                <span className="font-bold">
-                  ${Number(territory?.remaining_balance || 0).toLocaleString()}
-                </span>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>New Remaining Balance ($)</Label>
-              <Input
-                type="number"
-                value={newBalance}
-                onChange={(e) => setNewBalance(e.target.value)}
-                placeholder="0.00"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Reason (required)</Label>
-              <Textarea
-                value={balanceReason}
-                onChange={(e) => setBalanceReason(e.target.value)}
-                placeholder="e.g. Correcting initial balance after down payment adjustment"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              className="rounded-full"
-              onClick={() => setBalanceOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              className="rounded-full"
-              onClick={() => adjustBalanceMutation.mutate()}
-              disabled={
-                adjustBalanceMutation.isPending ||
-                !balanceReason.trim() ||
-                !newBalance
-              }
-            >
-              {adjustBalanceMutation.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : null}
-              Save Balance
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onOpenChange={(o) => !o && setBalanceOpen(false)}
+        territoryName={territory.name}
+        currentBalance={Number(territory?.remaining_balance || 0)}
+        newBalance={newBalance}
+        setNewBalance={setNewBalance}
+        reason={balanceReason}
+        setReason={setBalanceReason}
+        pending={adjustBalanceMutation.isPending}
+        onSave={() => adjustBalanceMutation.mutate()}
+      />
 
       {/* Period Details Dialog — breakdown of charges + contributing sales */}
       <PeriodDetailsDialog
@@ -1302,78 +829,18 @@ export default function RoyaltyManagement() {
       />
 
       {/* Seed Test Sale Dialog (testing tool — no real booking) */}
-      <Dialog
+      <RoyaltySeedSaleDialog
         open={seedOpen}
-        onOpenChange={(open) => !open && setSeedOpen(false)}
-      >
-        <DialogContent className="sm:max-w-[425px] rounded-3xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <DollarSign className="h-5 w-5 text-amber-500" /> Seed Test Sale
-            </DialogTitle>
-            <DialogDescription>
-              Inserts a fake gross-sale row dated today so the weekly processor
-              has something to calculate and charge. This does NOT create a real
-              booking or touch the bride booking Stripe account — it only feeds
-              the royalty math. Run "Run Weekly Processor" after seeding.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="seed-amount">Sale amount (USD)</Label>
-              <Input
-                id="seed-amount"
-                type="number"
-                min="1"
-                step="0.01"
-                placeholder="e.g. 1500"
-                value={seedAmount}
-                onChange={(e) => setSeedAmount(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="seed-note">Note (optional)</Label>
-              <Input
-                id="seed-note"
-                placeholder="e.g. Simulated wedding payment"
-                value={seedNote}
-                onChange={(e) => setSeedNote(e.target.value)}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              With your current rates, a ${seedAmount || "0"} sale would produce
-              ~$
-              {(
-                parseFloat(seedAmount || "0") *
-                (Number(territory.royalty_percentage || 0) / 100)
-              ).toFixed(2)}{" "}
-              royalty
-              {" + "}$
-              {(
-                parseFloat(seedAmount || "0") *
-                (Number(territory.payback_percentage || 0) / 100)
-              ).toFixed(2)}{" "}
-              payback.
-            </p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSeedOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => seedSaleMutation.mutate()}
-              disabled={seedSaleMutation.isPending}
-            >
-              {seedSaleMutation.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <DollarSign className="h-4 w-4 mr-2" />
-              )}
-              Seed Sale
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onOpenChange={(o) => !o && setSeedOpen(false)}
+        seedAmount={seedAmount}
+        setSeedAmount={setSeedAmount}
+        seedNote={seedNote}
+        setSeedNote={setSeedNote}
+        royaltyPct={Number(territory.royalty_percentage || 0)}
+        paybackPct={Number(territory.payback_percentage || 0)}
+        pending={seedSaleMutation.isPending}
+        onSeed={() => seedSaleMutation.mutate()}
+      />
     </div>
   );
 }
