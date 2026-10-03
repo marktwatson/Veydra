@@ -43,13 +43,15 @@ export function buildVisibleManagerNavGroups(role: string): NavGroup[] {
       }
       if (role === "owner" || role === "owner_readonly") {
         const filteredItems = group.items.filter(
-          (item) => item.path !== "/manager/territories",
+          (item) =>
+            item.path !== "/manager/territories" &&
+            item.path !== "/manager/areas",
         );
         if (filteredItems.length === 0) return null;
         if (group.label === "System Control") {
           return {
             ...group,
-            items: [...filteredItems, areasNavItem, ownerRoyaltyNavItem],
+            items: [...filteredItems, ownerRoyaltyNavItem],
           };
         }
         return { ...group, items: filteredItems };

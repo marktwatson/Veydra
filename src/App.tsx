@@ -365,17 +365,17 @@ const App = () => {
                 <Route
                   path="/manager/territories"
                   element={
-                    <MgrOwner>
+                    <ProtectedRoute requireRole="manager" superAdminOnly>
                       <Territories />
-                    </MgrOwner>
+                    </ProtectedRoute>
                   }
                 />
                 <Route
                   path="/manager/areas"
                   element={
-                    <MgrOwner>
+                    <ProtectedRoute requireRole="manager" superAdminOnly>
                       <Areas />
-                    </MgrOwner>
+                    </ProtectedRoute>
                   }
                 />
                 <Route
