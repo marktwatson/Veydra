@@ -368,5 +368,23 @@ CREATE POLICY "weddings_all_anon" ON public.weddings FOR ALL TO anon USING (true
 CREATE POLICY "weddings_all_auth" ON public.weddings FOR ALL TO authenticated USING (true) WITH CHECK (true);
 GRANT SELECT, INSERT, UPDATE ON public.weddings TO anon, authenticated;
 
+-- Snapshot the package name + feature lists onto each proposal so the public
+-- review page never depends on a client-side catalog lookup (which falls back
+-- to the wrong area on a phone / private tab). pricing_packages PK is
+-- (id, territory_id), so the join matches the proposal's own area row.
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS package_name text;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS photo_features text[] DEFAULT '{}';
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS video_features text[] DEFAULT '{}';
+
+-- Backfill existing proposals (including 14a8f989-…) from their pricing row.
+UPDATE public.proposals p
+SET package_name = pk.name,
+    photo_features = COALESCE(pk.photo_features, '{}'),
+    video_features = COALESCE(pk.video_features, '{}')
+FROM public.pricing_packages pk
+WHERE p.package_id = pk.id
+  AND p.territory_id = pk.territory_id
+  AND (p.package_name IS NULL OR p.package_name = '');
+
 -- Reload PostgREST schema cache so the API sees the new columns immediately.
 NOTIFY pgrst, 'reload schema';

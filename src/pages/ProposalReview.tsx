@@ -14,6 +14,7 @@ import {
   generatePaymentSchedule,
 } from "@/lib/utils";
 import { api } from "@/lib/api";
+import { resolveProposalPackageDisplay } from "@/lib/proposal-package-display";
 import { CustomPlanOption } from "@/lib/booking-fallbacks";
 import {
   proposalHasCustomPlan,
@@ -68,14 +69,15 @@ export default function ProposalReview() {
       : proposal?.coverage_type === "video"
         ? "Video Only"
         : "Photo & Video";
-  // Package title + features come from the proposal's OWN package row (loaded
-  // directly by package_id + territory_id), never the logged-in catalog or the
-  // Honeysuckle fallback. Falls back to the area list, then the saved name.
-  const packageName = proposal?.package_id
-    ? resolvedPackage?.name ||
-      PACKAGES.find((p) => p.id === proposal.package_id)?.name ||
-      "Custom"
-    : "Custom";
+  // Package title + features come from the proposal's OWN saved snapshot
+  // (package_name / photo_features / video_features stamped at create + send
+  // time), never the logged-in catalog. Falls back to the area row/list only
+  // when the saved fields are empty. If package_id is set, never "Custom"/id.
+  const {
+    packageName,
+    photoFeatures: pkgPhoto,
+    videoFeatures: pkgVideo,
+  } = resolveProposalPackageDisplay(proposal, resolvedPackage, PACKAGES);
   const packageString = proposal?.package_id
     ? `${packageName} (${coverageLabel})`
     : "Custom";
@@ -329,6 +331,8 @@ export default function ProposalReview() {
                   packageId={proposal.package_id}
                   coverageType={proposal.coverage_type}
                   packageString={packageString}
+                  savedPhotoFeatures={pkgPhoto}
+                  savedVideoFeatures={pkgVideo}
                 />
 
                 {proposal.addons && proposal.addons.length > 0 && (

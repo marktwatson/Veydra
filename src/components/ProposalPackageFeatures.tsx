@@ -4,10 +4,12 @@ import type { ProposalPackage } from "@/lib/proposal-package";
 /**
  * Renders the base-coverage feature lists for a proposal's package.
  *
- * Features come from the proposal's OWN package row (`resolvedPackage`,
- * loaded directly by package_id + territory_id), falling back to the area
- * package list. Never the Honeysuckle fallback catalog — so a bride always
- * sees the right photo/video features for her area's package.
+ * Features come from the proposal's OWN saved snapshot
+ * (photo_features / video_features stamped at create + send time) FIRST,
+ * falling back to the directly-loaded package row (`resolvedPackage`), then
+ * the area package list. Never the Honeysuckle fallback catalog — so a bride
+ * always sees the right photo/video features for her area's package, even on a
+ * phone or private tab where the client catalog lookup fails.
  */
 export function ProposalPackageFeatures({
   resolvedPackage,
@@ -15,20 +17,30 @@ export function ProposalPackageFeatures({
   packageId,
   coverageType,
   packageString,
+  savedPhotoFeatures,
+  savedVideoFeatures,
 }: {
   resolvedPackage: ProposalPackage | null;
   PACKAGES: any[];
   packageId: string;
   coverageType: string;
   packageString: string;
+  savedPhotoFeatures?: string[];
+  savedVideoFeatures?: string[];
 }) {
   if (!packageId) return null;
 
-  // Resolved row wins; fall back to the area list only if it's missing.
+  // Saved snapshot wins; fall back to the resolved row, then the area list.
   const pkg: ProposalPackage | undefined =
     resolvedPackage ?? PACKAGES.find((p) => p.id === packageId);
-  const photoFeatures = pkg?.photoFeatures ?? [];
-  const videoFeatures = pkg?.videoFeatures ?? [];
+  const photoFeatures =
+    savedPhotoFeatures && savedPhotoFeatures.length > 0
+      ? savedPhotoFeatures
+      : (pkg?.photoFeatures ?? []);
+  const videoFeatures =
+    savedVideoFeatures && savedVideoFeatures.length > 0
+      ? savedVideoFeatures
+      : (pkg?.videoFeatures ?? []);
 
   return (
     <div className="space-y-6 border-b border-border pb-8">

@@ -7,6 +7,7 @@ import { requestCoverage } from "./coverage-request";
 import { useAuth } from "@/contexts/AuthContext";
 import { resolveTerritoryId } from "./territory";
 import { buildProposalLink } from "./proposal-link";
+import { buildPackageSnapshotFields } from "./proposal-package-snapshot";
 
 export interface CreateProposalArgs {
   id?: string | undefined;
@@ -95,6 +96,13 @@ export function useCreateProposal() {
       throw new Error("Pick an area before adding this.");
     }
 
+    // Snapshot the package name + feature lists from the area's pricing row so
+    // the public review page renders them without a client catalog lookup.
+    const snapshotFields = await buildPackageSnapshotFields(
+      formData.packageId,
+      stampTerritoryId,
+    );
+
     const payload = {
       client_name: formData.clientName,
       client_email: formData.clientEmail,
@@ -129,6 +137,7 @@ export function useCreateProposal() {
       original_wedding_id: upgradeWeddingId || null,
       amount_paid_so_far: amountPaidSoFar,
       territory_id: stampTerritoryId,
+      ...snapshotFields,
       ...(snapshotTemplate
         ? { custom_contract_snapshot: snapshotTemplate }
         : {}),
@@ -237,6 +246,13 @@ export function useCreateProposal() {
         return;
       }
 
+      // Snapshot the package name + feature lists from the area's pricing row
+      // so the public review page renders them without a client catalog lookup.
+      const snapshotFields = await buildPackageSnapshotFields(
+        formData.packageId,
+        stampTerritoryId,
+      );
+
       const payload = {
         client_name: formData.clientName,
         client_email: formData.clientEmail,
@@ -271,6 +287,7 @@ export function useCreateProposal() {
         original_wedding_id: upgradeWeddingId || null,
         amount_paid_so_far: amountPaidSoFar,
         territory_id: stampTerritoryId,
+        ...snapshotFields,
         ...(snapshotTemplate
           ? { custom_contract_snapshot: snapshotTemplate }
           : {}),

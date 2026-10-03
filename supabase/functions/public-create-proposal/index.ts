@@ -76,6 +76,9 @@ const HEAL_STATEMENTS = [
   "ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS custom_contract_snapshot TEXT",
   "ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS salesperson_email text",
   "ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS salesperson_name text",
+  "ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS package_name text",
+  "ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS photo_features text[] DEFAULT '{}'",
+  "ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS video_features text[] DEFAULT '{}'",
   "ALTER TABLE public.territories ADD COLUMN IF NOT EXISTS slug text",
   "ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS territory_id UUID",
   "ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS sales_pin text",
@@ -354,6 +357,26 @@ Deno.serve(async (req) => {
     ]
       .filter(Boolean)
       .join("\n");
+  }
+
+  // Snapshot the package name + feature lists from the area's pricing row so
+  // the public review page renders them without a client catalog lookup.
+  if (p.package_id && territoryId) {
+    try {
+      const { data: pk } = await db
+        .from("pricing_packages")
+        .select("name, photo_features, video_features")
+        .eq("id", p.package_id)
+        .eq("territory_id", territoryId)
+        .maybeSingle();
+      if (pk) {
+        payload.package_name = pk.name || null;
+        payload.photo_features = Array.isArray(pk.photo_features) ? pk.photo_features : [];
+        payload.video_features = Array.isArray(pk.video_features) ? pk.video_features : [];
+      }
+    } catch (_e) {
+      /* non-fatal — review page falls back to a direct lookup if empty */
+    }
   }
 
   const { data: inserted, error: insErr } = await db

@@ -48,11 +48,12 @@ export async function ensureWeddingForProposal(
   const resolvedPaymentPlan =
     proposal.payment_plan || (customPlan?.enabled ? "custom" : null);
 
-  // Resolve the real package NAME from the proposal's own area package row
-  // (by package_id + territory_id), never the raw id. Falls back to "Custom"
-  // only if the row is genuinely missing.
-  let packageName = "Custom";
-  if (proposal.package_id) {
+  // Resolve the real package NAME from the proposal's saved snapshot first
+  // (package_name stamped at create/send time), only querying the area package
+  // row when the snapshot is empty. Never the raw id. Falls back to "Custom"
+  // only if both are genuinely missing.
+  let packageName = (proposal.package_name || "").trim() || "Custom";
+  if (proposal.package_id && packageName === "Custom") {
     try {
       const pkgRow = await getPackageForProposal(
         proposal.package_id,
