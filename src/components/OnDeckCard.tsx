@@ -287,22 +287,24 @@ export function OnDeckCard({
         </div>
       </CardContent>
 
-      {/* Card Actions Footer - consolidated so nothing falls off canvas */}
-      <div className="p-3 bg-muted/20 border-t border-border/40 flex items-center justify-between gap-2">
+      {/* Card Actions Footer - clean two-row stack so every label stays fully
+          visible. Row 1: Manage (full width). Row 2: Call Sheet, Contract,
+          Actions (equal width) + archive icon at the end. */}
+      <div className="p-3 bg-muted/20 border-t border-border/40 space-y-1.5">
         <ManageWeddingSheet
           wedding={wedding}
           trigger={
             <Button
               size="sm"
               variant="default"
-              className="h-8 text-xs rounded-lg px-3.5 font-medium shadow-xs"
+              className="h-8 w-full text-xs rounded-lg px-3.5 font-medium shadow-xs"
             >
               Manage
             </Button>
           }
         />
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-stretch gap-1.5">
           <CallSheetGenerator
             weddingId={wedding.id}
             weddingName={wedding.client_name}
@@ -310,10 +312,24 @@ export function OnDeckCard({
               <Button
                 size="sm"
                 variant="outline"
-                className="h-8 text-xs rounded-lg px-2.5"
+                className="h-8 flex-1 text-xs rounded-lg px-2.5"
                 title="View & send call sheet"
               >
                 Call Sheet
+              </Button>
+            }
+          />
+
+          <ContractModal
+            wedding={wedding}
+            showSaveSnapshot
+            trigger={
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 flex-1 text-xs rounded-lg px-2.5"
+              >
+                Contract
               </Button>
             }
           />
@@ -335,12 +351,10 @@ export function OnDeckCard({
             sendingAttendanceReminder={sendingAttendanceReminder}
           />
 
-          <ContractModal wedding={wedding} showSaveSnapshot />
-
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+            className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
             title="Cancel & Archive Wedding"
             onClick={() => onCancel(wedding)}
           >
