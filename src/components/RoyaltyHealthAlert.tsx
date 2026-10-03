@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
-import { supabase } from "@/lib/supabase";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
@@ -17,11 +16,15 @@ import {
  * Royalty health banner shown to owners immediately on login.
  * Surfaces issues that block royalty collection:
  *  - No payment method (bank account) connected
- *  - Stripe not configured for the royalty account
  *  - One or more failed payment periods
  *
  * Only renders for the "owner" role. Returns null for everyone else
  * and when there are no issues (so it stays out of the way).
+ *
+ * Note: Stripe key configuration is an HQ-only concern (royalty_settings
+ * table, not readable by owners), so we intentionally do NOT surface a
+ * "Stripe not configured" alert here — that would be a permanent false
+ * alarm for owners.
  */
 export function RoyaltyHealthAlert() {
   const { user } = useAuth();
@@ -34,37 +37,6 @@ export function RoyaltyHealthAlert() {
     queryKey: ["owner-territory", user?.id],
     queryFn: () => api.getOwnerTerritory(user!.id),
     enabled: !!isOwner && !!user?.id,
-    retry: false,
-  });
-
-  // Secondary source of truth: the royalty_settings table holds the
-  // stripe_royalty_configured flag set by the edge function when keys are
-  // saved. We check it as a fallback so the alert clears even if the
-  // territory row flags haven't been synced yet.
-  const { data: royaltySettings } = useQuery({
-    queryKey: ["royalty-settings-config"],
-    queryFn: async () => {
-      // Order by configured DESC so we read the real row, not an empty clone.
-      const { data, error } = await supabase
-        .from("royalty_settings")
-        .select("stripe_royalty_configured")
-        .order("stripe_royalty_configured", {
-          ascending: false,
-          nullsFirst: false,
-        })
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) {
-        console.warn(
-          "[RoyaltyHealthAlert] royalty_settings read error:",
-          error.message,
-        );
-        return null;
-      }
-      return data;
-    },
-    enabled: !!isOwner,
     retry: false,
   });
 
@@ -91,24 +63,11 @@ export function RoyaltyHealthAlert() {
   const hasPaymentMethod = !!(
     territory.primary_payment_method_id || territory.stripe_payment_method_id
   );
-  // Configured if either the territory row OR the royalty_settings row says so.
-  const stripeConfigured =
-    territory.stripe_royalty_configured ||
-    territory.stripe_connected ||
-    royaltySettings?.stripe_royalty_configured === true;
 
   const failedPeriods = (periods as any[]).filter((p) => p.status === "failed");
 
   // Build the list of issues, most severe first.
   const issues: { title: string; description: string }[] = [];
-
-  if (!stripeConfigured) {
-    issues.push({
-      title: "Royalty Stripe account not configured",
-      description:
-        "The royalty Stripe account keys haven't been set up yet. Contact your Super Admin to configure them so automatic collection can run.",
-    });
-  }
 
   if (!hasPaymentMethod) {
     issues.push({
