@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { buildAuditScheduleItems } from "@/lib/audit-schedule";
 import { getCompanyTimezone } from "@/lib/utils";
+import { currentTerritoryId } from "@/lib/current-territory";
 import {
   Dialog,
   DialogContent,
@@ -81,13 +82,19 @@ export function PaymentDueAlert() {
 
   const fetchWeddings = useCallback(async () => {
     try {
-      const { data, error } = await supabase
+      // Scope to the current user's area (manager's territory_id, or the
+      // super-admin switcher). All Areas (null) sees every area; a specific
+      // area only sees its own weddings — never another area's clients.
+      const territoryId = await currentTerritoryId();
+      let query = supabase
         .from("weddings")
         .select(
           "id,client_name,client_email,date,contract_date,created_at,total_amount,paid_amount,payment_plan,custom_payment_plan,notes,stripe_customer_id,stripe_subscription_id,stripe_subscription_status,questionnaire_data,status",
         )
         .neq("status", "draft")
         .order("date", { ascending: true });
+      if (territoryId) query = query.eq("territory_id", territoryId);
+      const { data, error } = await query;
       if (error) return;
       setWeddings((data || []) as any[]);
     } catch (e) {

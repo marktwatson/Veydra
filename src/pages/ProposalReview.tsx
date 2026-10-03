@@ -1,28 +1,12 @@
 import { useState, useEffect, useMemo } from "react";
+import { useProposalReviewData } from "@/lib/use-proposal-review-data";
 import { useProposalResumeStep } from "@/lib/use-proposal-resume-step";
 import { useParams, Navigate } from "react-router-dom";
-import { supabase } from "@/lib/supabase";
 import { signAndPayProposal } from "@/lib/proposal-sign-and-pay";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Loader2,
-  CheckCircle2,
-  ChevronRight,
-  ChevronLeft,
-  PenTool,
-  ExternalLink,
-} from "lucide-react";
+import { Loader2, CheckCircle2, ChevronRight, ChevronLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   DEFAULT_LOGO_URL,
@@ -30,35 +14,33 @@ import {
   generatePaymentSchedule,
 } from "@/lib/utils";
 import { api } from "@/lib/api";
-import { loadProposalAndBranding } from "@/lib/proposal-review-data";
-import confetti from "canvas-confetti";
-
-import {
-  FALLBACK_PACKAGES,
-  FALLBACK_ADDONS,
-  renderContractSnapshot,
-  CustomPlanOption,
-} from "@/lib/booking-fallbacks";
-import {
-  getPackagesForTerritory,
-  getAddonsForTerritory,
-} from "@/lib/proposal-package";
+import { CustomPlanOption } from "@/lib/booking-fallbacks";
 import {
   proposalHasCustomPlan,
   proposalFirstDue,
 } from "@/lib/proposal-review-custom-plan";
-import { CustomPlanBalanceIndicator } from "@/components/CustomPlanBalanceIndicator";
+import { useProposalConfetti } from "@/lib/use-proposal-confetti";
 import { ProposalContractStep } from "@/components/ProposalContractStep";
 import { ProposalPayStep } from "@/components/ProposalPayStep";
 import { ProposalExpiryBanner } from "@/components/ProposalExpiryBanner";
+import { ProposalPackageFeatures } from "@/components/ProposalPackageFeatures";
+import { ProposalSuccessScreen } from "@/components/ProposalSuccessScreen";
 
 export default function ProposalReview() {
   const { id } = useParams();
-  const [proposal, setProposal] = useState<any>(null);
-  const [branding, setBranding] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [PACKAGES, setPackages] = useState<any[]>(FALLBACK_PACKAGES);
-  const [ADDONS, setAddons] = useState<any[]>(FALLBACK_ADDONS);
+  const {
+    proposal,
+    setProposal,
+    branding,
+    setBranding,
+    PACKAGES,
+    setPackages,
+    ADDONS,
+    setAddons,
+    resolvedPackage,
+    loading,
+    setLoading,
+  } = useProposalReviewData(id);
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   useProposalResumeStep(id, proposal, step, setStep);
   const [signature, setSignature] = useState("");
@@ -77,54 +59,23 @@ export default function ProposalReview() {
   );
   const { toast } = useToast();
 
-  useEffect(() => {
-    const loadPortalData = async () => {
-      if (!id) return;
-
-      try {
-        const {
-          proposal: proposalData,
-          branding: brandingData,
-          packages: areaPackages,
-          addons: areaAddons,
-          notFound,
-        } = await loadProposalAndBranding(id);
-        if (notFound) {
-          toast({
-            title: "Error",
-            description: "Proposal not found or expired.",
-            variant: "destructive",
-          });
-        } else {
-          setProposal(proposalData);
-        }
-        if (brandingData) setBranding(brandingData);
-        // Packages/addons come from the proposal's territory, not the
-        // logged-in user's, so an anonymous bride sees the right package.
-        if (areaPackages.length) setPackages(areaPackages);
-        if (areaAddons.length) setAddons(areaAddons);
-      } catch (err) {
-        console.error("Error loading portal data:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadPortalData();
-  }, [id]);
-
   const companyName = branding?.company_name || "Veydra";
   const companyState = branding?.state || "Tennessee";
 
-  const packageName = proposal?.package_id
-    ? PACKAGES.find((p) => p.id === proposal.package_id)?.name ||
-      proposal.package_id.charAt(0).toUpperCase() + proposal.package_id.slice(1)
-    : "Custom";
   const coverageLabel =
     proposal?.coverage_type === "photo"
       ? "Photo Only"
       : proposal?.coverage_type === "video"
         ? "Video Only"
         : "Photo & Video";
+  // Package title + features come from the proposal's OWN package row (loaded
+  // directly by package_id + territory_id), never the logged-in catalog or the
+  // Honeysuckle fallback. Falls back to the area list, then the saved name.
+  const packageName = proposal?.package_id
+    ? resolvedPackage?.name ||
+      PACKAGES.find((p) => p.id === proposal.package_id)?.name ||
+      "Custom"
+    : "Custom";
   const packageString = proposal?.package_id
     ? `${packageName} (${coverageLabel})`
     : "Custom";
@@ -220,42 +171,7 @@ export default function ProposalReview() {
     }
   }, [isWithin90Days, paymentPlan, proposal, proposal?.is_upgrade]);
 
-  useEffect(() => {
-    if (isSuccess) {
-      if (proposal?.id) {
-        api.fulfillProposalPayment(proposal.id).catch(console.error);
-      }
-
-      const duration = 3 * 1000;
-      const animationEnd = Date.now() + duration;
-      const defaults = {
-        startVelocity: 30,
-        spread: 360,
-        ticks: 60,
-        zIndex: 100,
-      };
-      const randomInRange = (min: number, max: number) =>
-        Math.random() * (max - min) + min;
-      const interval: any = setInterval(function () {
-        const timeLeft = animationEnd - Date.now();
-        if (timeLeft <= 0) return clearInterval(interval);
-        const particleCount = 50 * (timeLeft / duration);
-        confetti(
-          Object.assign({}, defaults, {
-            particleCount,
-            origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 },
-          }),
-        );
-        confetti(
-          Object.assign({}, defaults, {
-            particleCount,
-            origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 },
-          }),
-        );
-      }, 250);
-      return () => clearInterval(interval);
-    }
-  }, [isSuccess, proposal?.id]);
+  useProposalConfetti(isSuccess, proposal?.id);
 
   if (loading) {
     return (
@@ -270,40 +186,7 @@ export default function ProposalReview() {
   }
 
   if (isSuccess) {
-    return (
-      <div className="min-h-screen bg-stone-50 dark:bg-stone-950 py-12 px-4 flex items-center justify-center relative overflow-hidden">
-        {/* Decorative background */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-primary/5 rounded-full blur-3xl" />
-
-        <Card className="max-w-lg w-full text-center p-10 bg-white/80 dark:bg-stone-900/80 backdrop-blur-xl shadow-2xl border-stone-200/50 dark:border-stone-800/50 relative z-10 animate-in zoom-in-95 duration-500">
-          <div className="w-24 h-24 bg-gradient-to-br from-green-100 to-green-50 dark:from-green-900/40 dark:to-green-800/20 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner border border-green-200/50 dark:border-green-800/50">
-            <CheckCircle2
-              className="w-12 h-12 text-green-600 dark:text-green-500"
-              strokeWidth={1.5}
-            />
-          </div>
-          <h2 className="text-4xl font-serif text-stone-900 dark:text-stone-50 mb-4">
-            Welcome to the Family!
-          </h2>
-          <div className="h-px w-16 bg-primary/20 mx-auto mb-6" />
-          <p className="text-stone-500 dark:text-stone-400 mb-8 leading-relaxed text-lg font-light">
-            Thank you,{" "}
-            <span className="font-medium text-stone-900 dark:text-stone-100">
-              {proposal.client_name}
-            </span>
-            ! Your booking is officially confirmed. We will be emailing and
-            calling you shortly. If you prefer text, you can reply back to us
-            saying that.
-          </p>
-          <Button
-            onClick={() => window.close()}
-            className="w-full h-12 text-lg font-medium shadow-lg shadow-primary/20 transition-all hover:shadow-primary/30 hover:-translate-y-0.5"
-          >
-            Close Window
-          </Button>
-        </Card>
-      </div>
-    );
+    return <ProposalSuccessScreen clientName={proposal.client_name} />;
   }
 
   return (
@@ -440,67 +323,13 @@ export default function ProposalReview() {
               </div>
 
               <div className="space-y-8">
-                {proposal.package_id && (
-                  <div className="space-y-6 border-b border-border pb-8">
-                    <div>
-                      <h3 className="text-xl font-medium">
-                        {packageString} Package
-                      </h3>
-                      <p className="text-muted-foreground font-sans mt-1">
-                        Base coverage includes:
-                      </p>
-                    </div>
-
-                    <div className="grid sm:grid-cols-2 gap-6">
-                      {(proposal.coverage_type === "photo" ||
-                        proposal.coverage_type === "both") && (
-                        <div className="space-y-3">
-                          <h4 className="text-sm font-sans uppercase tracking-widest text-muted-foreground">
-                            Photography
-                          </h4>
-                          <ul className="space-y-2">
-                            {PACKAGES.find(
-                              (p) => p.id === proposal.package_id,
-                            )?.photoFeatures?.map((feature, idx) => (
-                              <li
-                                key={idx}
-                                className="flex items-start text-sm"
-                              >
-                                <CheckCircle2 className="w-4 h-4 text-primary mr-2 mt-0.5 shrink-0" />
-                                <span className="text-muted-foreground">
-                                  {feature}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      {(proposal.coverage_type === "video" ||
-                        proposal.coverage_type === "both") && (
-                        <div className="space-y-3">
-                          <h4 className="text-sm font-sans uppercase tracking-widest text-muted-foreground">
-                            Videography
-                          </h4>
-                          <ul className="space-y-2">
-                            {PACKAGES.find(
-                              (p) => p.id === proposal.package_id,
-                            )?.videoFeatures?.map((feature, idx) => (
-                              <li
-                                key={idx}
-                                className="flex items-start text-sm"
-                              >
-                                <CheckCircle2 className="w-4 h-4 text-primary mr-2 mt-0.5 shrink-0" />
-                                <span className="text-muted-foreground">
-                                  {feature}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
+                <ProposalPackageFeatures
+                  resolvedPackage={resolvedPackage}
+                  PACKAGES={PACKAGES}
+                  packageId={proposal.package_id}
+                  coverageType={proposal.coverage_type}
+                  packageString={packageString}
+                />
 
                 {proposal.addons && proposal.addons.length > 0 && (
                   <div className="space-y-4">

@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { getPackageForProposal } from "./proposal-package";
 
 /**
  * Ensure a weddings row exists for a proposal and return its id.
@@ -47,9 +48,21 @@ export async function ensureWeddingForProposal(
   const resolvedPaymentPlan =
     proposal.payment_plan || (customPlan?.enabled ? "custom" : null);
 
-  const packageName = proposal.package_id
-    ? proposal.package_id.charAt(0).toUpperCase() + proposal.package_id.slice(1)
-    : "Custom";
+  // Resolve the real package NAME from the proposal's own area package row
+  // (by package_id + territory_id), never the raw id. Falls back to "Custom"
+  // only if the row is genuinely missing.
+  let packageName = "Custom";
+  if (proposal.package_id) {
+    try {
+      const pkgRow = await getPackageForProposal(
+        proposal.package_id,
+        proposal.territory_id,
+      );
+      packageName = pkgRow?.name || "Custom";
+    } catch {
+      packageName = "Custom";
+    }
+  }
   const coverageLabel =
     proposal.coverage_type === "photo"
       ? "Photo Only"

@@ -4,6 +4,7 @@ import { HONEYSUCKLE_TERRITORY_ID } from "./territory";
 import {
   getPackagesForTerritory,
   getAddonsForTerritory,
+  getPackageForProposal,
   type ProposalPackage,
   type ProposalAddon,
 } from "./proposal-package";
@@ -19,12 +20,19 @@ import {
  * Packages + addons are loaded from the SAME territory (not the logged-in
  * user's), so an anonymous bride sees the package that owns the proposal
  * rather than the Honeysuckle fallback set.
+ *
+ * `resolvedPackage` is the single pricing_packages row for this proposal's
+ * (package_id, territory_id), loaded directly so the title/features never
+ * depend on the area list succeeding or on the logged-in catalog. If the row
+ * is missing, it is null and the caller falls back to the saved name/total.
  */
 export async function loadProposalAndBranding(id: string): Promise<{
   proposal: any | null;
   branding: any | null;
   packages: ProposalPackage[];
   addons: ProposalAddon[];
+  /** The exact package row for this proposal (by id + territory_id), or null. */
+  resolvedPackage: ProposalPackage | null;
   notFound: boolean;
 }> {
   // 1) Load the proposal first.
@@ -40,6 +48,7 @@ export async function loadProposalAndBranding(id: string): Promise<{
       branding: null,
       packages: [],
       addons: [],
+      resolvedPackage: null,
       notFound: true,
     };
   }
@@ -124,11 +133,27 @@ export async function loadProposalAndBranding(id: string): Promise<{
     /* keep empty — caller keeps its fallbacks */
   }
 
+  // 5) Resolve the EXACT package row for this proposal directly by
+  //    (package_id, territory_id). This is authoritative for the title and
+  //    feature lists — it does not depend on the area list succeeding and
+  //    never falls back to the Honeysuckle catalog. If the row is missing,
+  //    resolvedPackage is null and the caller shows the saved name/total.
+  let resolvedPackage: ProposalPackage | null = null;
+  try {
+    resolvedPackage = await getPackageForProposal(
+      proposalData.package_id,
+      territoryId,
+    );
+  } catch {
+    /* keep null — caller falls back to saved name */
+  }
+
   return {
     proposal: proposalData,
     branding: settingsRes.data ?? null,
     packages,
     addons,
+    resolvedPackage,
     notFound: false,
   };
 }
