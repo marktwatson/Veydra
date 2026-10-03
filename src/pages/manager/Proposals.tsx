@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { buildProposalLink } from "@/lib/proposal-link";
 import { ProposalCountdownBadge } from "@/components/ProposalCountdownBadge";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -94,8 +95,12 @@ export default function ManagerProposals() {
     [proposals, activeTab],
   );
 
-  const copyLink = (id: string) => {
-    const link = `${window.location.origin}/proposal/${id}`;
+  const copyLink = async (id: string) => {
+    // Find the proposal's territory_id so the link uses that area's app_url.
+    const proposal = proposals.find((p) => p.id === id);
+    const link = await buildProposalLink(id, proposal?.territory_id, (t) =>
+      toast(t),
+    );
     const done = () => {
       setCopiedId(id);
       setTimeout(() => setCopiedId(null), 2000);
@@ -122,6 +127,16 @@ export default function ManagerProposals() {
     } catch {
       fb();
     }
+  };
+
+  // Open the proposal review page using that area's app_url (not the browser
+  // origin). Falls back to window.location.origin when app_url is empty.
+  const openProposalPreview = async (id: string, list: any[]) => {
+    const proposal = list.find((p) => p.id === id);
+    const link = await buildProposalLink(id, proposal?.territory_id, (t) =>
+      toast(t),
+    );
+    window.open(link, "_blank");
   };
 
   const deleteProposal = async (id: string) => {
@@ -434,9 +449,7 @@ export default function ManagerProposals() {
                           onCopy={copyLink}
                           onEdit={(id) => navigate(`/edit-proposal/${id}`)}
                           onMarkBooked={handleMarkAsBooked}
-                          onPreview={(id) =>
-                            window.open(`/proposal/${id}`, "_blank")
-                          }
+                          onPreview={(id) => openProposalPreview(id, proposals)}
                           onReview={setDetailProposal}
                           onDelete={deleteProposal}
                         />
@@ -602,7 +615,7 @@ export default function ManagerProposals() {
                   proposal={detailProposal}
                   onEdit={() => navigate(`/edit-proposal/${detailProposal.id}`)}
                   onPreview={() =>
-                    window.open(`/proposal/${detailProposal.id}`, "_blank")
+                    openProposalPreview(detailProposal.id, [detailProposal])
                   }
                   onRefresh={refresh}
                 />

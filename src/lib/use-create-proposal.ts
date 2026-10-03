@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { requestCoverage } from "./coverage-request";
 import { useAuth } from "@/contexts/AuthContext";
 import { resolveTerritoryId } from "./territory";
+import { buildProposalLink } from "./proposal-link";
 
 export interface CreateProposalArgs {
   id?: string | undefined;
@@ -298,7 +299,9 @@ export function useCreateProposal() {
 
         if (error) throw error;
 
-        const link = `${window.location.origin}/proposal/${data.id}`;
+        const link = await buildProposalLink(data.id, stampTerritoryId, (t) =>
+          toast(t),
+        );
         setProposalLink(link);
         setSavedProposal(data);
         api.logAdminActivity(

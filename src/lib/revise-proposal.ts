@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
 import { api } from "./api";
 import { resolveTerritoryId } from "./territory";
+import { getAppUrlForTerritory } from "./proposal-link";
 
 export interface ReviseOverrides {
   package_id?: string | null;
@@ -225,9 +226,18 @@ export async function reviseProposal(
     `Revised proposal ${oldProposalId} → ${created.id} for ${old.client_name}`,
   );
 
+  // Use the area's app_url for this proposal's territory_id (not the browser
+  // origin). Fall back to window.location.origin when app_url is empty.
+  const territoryIdForLink =
+    (payload.territory_id as string | null) ??
+    (old.territory_id as string | null) ??
+    null;
+  const appUrl = await getAppUrlForTerritory(territoryIdForLink);
+  const linkOrigin = appUrl || window.location.origin;
+
   return {
     newProposalId: created.id,
-    newLink: `${window.location.origin}/proposal/${created.id}`,
+    newLink: `${linkOrigin}/proposal/${created.id}`,
     oldProposalId,
     oldInvoiceId,
     oldInvoiceNumber,
