@@ -738,37 +738,13 @@ export default function ManagerDashboard() {
     return `In ${diffDays} days`;
   };
 
-  const upcomingPayments = weddings
-    .flatMap((w) => {
-      if (w.status !== "upcoming") return [];
-      if (!w.date || w.payment_plan === "full") return [];
-
-      // We only have estimated schedule here because we don't fetch Stripe invoices for all weddings on dashboard
-      // But it's enough to show what's expected in the next 14 days
-      const schedule = generatePaymentSchedule(
-        w.total_amount || 0,
-        w.payment_plan || "full",
-        w.date,
-        w.contract_date || w.created_at || "",
-        w.paid_amount || 0,
-        w.custom_payment_plan,
-      );
-
-      return schedule
-        .filter((p) => p.status === "pending")
-        .map((p) => {
-          const pDate = new Date(p.date);
-          return {
-            ...p,
-            wedding: w,
-            parsedDate: pDate,
-          };
-        })
-        .filter(
-          (p) => p.parsedDate >= today && p.parsedDate <= fourteenDaysFromNow,
-        );
-    })
-    .sort((a, b) => a.parsedDate.getTime() - b.parsedDate.getTime());
+  // Use the same audit-schedule helper as Payment Audit so the 14-day
+  // upcoming-revenue figure matches what staff see on the audit page.
+  const upcomingPayments = (api as any).buildUpcomingPayments(
+    weddings,
+    today,
+    fourteenDaysFromNow,
+  );
 
   const calculateWeddingReadiness = (wedding: any) => {
     let score = 0;

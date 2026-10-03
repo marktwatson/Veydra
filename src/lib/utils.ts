@@ -7,6 +7,7 @@ export {
   applyForJobWithTerritory,
   createAssignmentWithTerritory,
 } from "@/lib/child-row-territory";
+export { buildUpcomingPayments } from "@/lib/dashboard-upcoming-payments";
 import { twMerge } from "tailwind-merge";
 export {
   checkCustomPlanBalance,

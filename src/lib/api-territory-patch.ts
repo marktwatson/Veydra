@@ -18,6 +18,7 @@
 import { api } from "./api";
 import { logAdminActivity } from "./api-admin-activity";
 import { currentTerritoryId } from "./current-territory";
+import { buildUpcomingPayments } from "./dashboard-upcoming-payments";
 import {
   fetchJobsForTerritory,
   fetchAssignmentsForTerritory,
@@ -76,6 +77,10 @@ export function patchApiForTerritory(): void {
     currentTerritoryId().then((tid) => fetchAssignmentsForTerritory(tid));
   (api as any).getApplications = () =>
     currentTerritoryId().then((tid) => fetchApplicationsForTerritory(tid));
+
+  // Upcoming 14-day revenue helper — exposed on `api` so the Dashboard (at its
+  // import cap) can call api.buildUpcomingPayments(...) without a new import.
+  (api as any).buildUpcomingPayments = buildUpcomingPayments;
 }
 
 // Auto-patch on import so any entry point that imports api gets the scoped
