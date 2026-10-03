@@ -122,8 +122,13 @@ export async function reviseProposal(
     amount_paid_so_far: old.amount_paid_so_far ?? 0,
     // Carry the old proposal's area onto the revised row. If the old row never
     // had one (legacy), resolve one now so the new proposal is never blank.
+    // resolveTerritoryId prefers the super-admin switcher area, then the
+    // manager's own territory; it returns null if no area is picked (do not
+    // stamp Honeysuckle). When the old row already has an id, keep it so a
+    // Nik TN proposal stays Nik TN even if the switcher is on another area.
     territory_id:
-      old.territory_id ?? (await resolveTerritoryId().catch(() => null)),
+      (old.territory_id as string | null) ??
+      (await resolveTerritoryId().catch(() => null)),
     // Explicitly fresh — no signed/invoice/off-platform/coverage state carried.
     status: "pending",
     contract_status: null,

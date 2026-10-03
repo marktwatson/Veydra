@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
 import { api } from "./api";
 import { ensureWeddingForProposal } from "./proposal-wedding";
+import { resolveTerritoryId } from "./territory";
 import {
   packageIncludesVideo,
   getCoverageStatus,
@@ -78,7 +79,9 @@ export async function requestCoverage(
   const weddingId = existingWeddingId;
 
   // Copy the wedding's territory_id onto any new coverage jobs so they are
-  // scoped to the same territory as the wedding/proposal.
+  // scoped to the same territory as the wedding/proposal. If the wedding has
+  // no territory, fall back to the viewed area (super-admin switcher →
+  // manager territory). Never insert a blank-area job.
   let weddingTerritoryId: string | null = null;
   try {
     const { data: wRow } = await supabase
@@ -89,6 +92,9 @@ export async function requestCoverage(
     weddingTerritoryId = (wRow as any)?.territory_id || null;
   } catch {
     // non-fatal
+  }
+  if (!weddingTerritoryId) {
+    weddingTerritoryId = await resolveTerritoryId().catch(() => null);
   }
 
   // Determine which roles to create.

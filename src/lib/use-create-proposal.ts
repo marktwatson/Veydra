@@ -91,6 +91,9 @@ export function useCreateProposal() {
       stampTerritoryId = await resolveTerritoryId(user?.id).catch(() => null);
       if (stampTerritoryId) setTerritoryId(stampTerritoryId);
     }
+    if (!stampTerritoryId) {
+      throw new Error("Pick an area before adding this.");
+    }
 
     const payload = {
       client_name: formData.clientName,
@@ -223,6 +226,15 @@ export function useCreateProposal() {
       if (!stampTerritoryId) {
         stampTerritoryId = await resolveTerritoryId(user?.id).catch(() => null);
         if (stampTerritoryId) setTerritoryId(stampTerritoryId);
+      }
+      if (!stampTerritoryId) {
+        toast({
+          title: "Pick an area before adding this",
+          description: "Select an area in the header switcher first.",
+          variant: "destructive",
+        });
+        setIsSubmitting(false);
+        return;
       }
 
       const payload = {

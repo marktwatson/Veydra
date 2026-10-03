@@ -2,6 +2,7 @@ import ProposalShareModal from "@/components/ProposalShareModal";
 import { CreateProposalCoverageBlock } from "@/components/CreateProposalCoverageBlock";
 export { CreateProposalFooter } from "@/components/CreateProposalFooter";
 import { supabase } from "@/lib/supabase";
+import { resolveTerritoryId } from "@/lib/territory";
 
 export interface CreateProposalModalsProps {
   /** The saved proposal row (from the hook). */
@@ -36,6 +37,13 @@ async function ensureProposalSaved(
   id: string | undefined,
   formData: any,
 ): Promise<any> {
+  // Stamp the viewed area on a new proposal. resolveTerritoryId prefers the
+  // super-admin switcher area, then the manager's own territory. Returns null
+  // when no area is picked — block the insert so the proposal is never blank.
+  const territoryId = id ? null : await resolveTerritoryId().catch(() => null);
+  if (!id && !territoryId) {
+    throw new Error("Pick an area before adding this.");
+  }
   const payload = {
     client_name: formData.clientName,
     client_email: formData.clientEmail,
@@ -66,6 +74,7 @@ async function ensureProposalSaved(
           installments: formData.customPaymentPlan.installments,
         }
       : { enabled: false, deposit: 0, installments: [] },
+    ...(territoryId ? { territory_id: territoryId } : {}),
   };
 
   if (id) {

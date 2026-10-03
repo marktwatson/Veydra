@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { createGhlInvoice } from "./ghl-invoice-api";
+import { resolveTerritoryId } from "./territory";
 
 function todayStr() {
   return new Date().toISOString().split("T")[0];
@@ -144,7 +145,8 @@ export async function processBartendingUpsell(
   }
 
   // e) Insert ONE unassigned Bartender job if none exists for this wedding.
-  //    Do not assign anyone. Do not create a second row.
+  //    Do not assign anyone. Do not create a second row. Scope the job to the
+  //    wedding's territory, else the viewed area.
   try {
     const { data: existingBarJobs } = await supabase
       .from("jobs")
@@ -152,6 +154,10 @@ export async function processBartendingUpsell(
       .eq("wedding_id", wedding.id)
       .ilike("role", "Bartender");
     if (!existingBarJobs || existingBarJobs.length === 0) {
+      let jobTerritoryId: string | null = (wedding as any).territory_id || null;
+      if (!jobTerritoryId) {
+        jobTerritoryId = await resolveTerritoryId().catch(() => null);
+      }
       await supabase.from("jobs").insert({
         wedding_id: wedding.id,
         role: "Bartender",
@@ -161,10 +167,7 @@ export async function processBartendingUpsell(
         hours: null,
         addons: [],
         requirements: "",
-        // Scope the bartender job to the same territory as the wedding.
-        ...((wedding as any).territory_id
-          ? { territory_id: (wedding as any).territory_id }
-          : {}),
+        ...(jobTerritoryId ? { territory_id: jobTerritoryId } : {}),
       });
     }
   } catch (jobErr) {

@@ -70,11 +70,17 @@ export async function ensureWeddingForProposal(
       await supabase.from("weddings").update(update).eq("id", weddingId);
     } else {
       // Resolve the territory_id to stamp on the new wedding. Inherit the
-      // proposal's territory_id when present (the manager flow already stamped
-      // it); otherwise resolve from manager/primary/Honeysuckle.
+      // proposal's territory_id when present (child rows inherit the parent);
+      // otherwise resolve from the super-admin switcher area, then the
+      // manager's territory. resolveTerritoryId returns null when no area is
+      // picked — do NOT fall back to Honeysuckle. The wedding keeps the
+      // proposal's id so a Nik TN proposal stays Nik TN.
       const weddingTerritoryId: string | null = proposal.territory_id
         ? (proposal.territory_id as string)
         : await resolveTerritoryId().catch(() => null);
+      if (!weddingTerritoryId) {
+        throw new Error("Pick an area before adding this.");
+      }
       const { data: wedding, error: weddingError } = await supabase
         .from("weddings")
         .insert([
