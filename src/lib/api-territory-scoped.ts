@@ -76,6 +76,45 @@ export async function fetchJobById(jobId: string) {
   };
 }
 
+export async function fetchMyApplications(contractorId: string) {
+  const { data, error } = await supabase
+    .from("applications")
+    .select(
+      "id, job_id, contractor_id, status, message, created_at, jobs(id, status, role, pay_rate, hours, weddings(client_name, date, location, region))",
+    )
+    .eq("contractor_id", contractorId)
+    .order("created_at", { ascending: false })
+    .limit(500);
+  if (error) throw error;
+  return data || [];
+}
+
+export async function fetchMyApplicationForJob(
+  jobId: string,
+  contractorId: string,
+) {
+  const { data, error } = await supabase
+    .from("applications")
+    .select("*")
+    .eq("job_id", jobId)
+    .eq("contractor_id", contractorId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  let bid_amount = null;
+  let message = data.message;
+  if (message) {
+    const match = message.match(/\[BID:(\d+(?:\.\d+)?)\]/);
+    if (match) {
+      bid_amount = parseFloat(match[1]);
+      message = message.replace(/\[BID:\d+(?:\.\d+)?\]\s*/, "").trim();
+    }
+  }
+  return { ...data, message, bid_amount };
+}
+
 export async function fetchOpenJobsForTerritory(territoryId: string) {
   const { data, error } = await supabase
     .from("jobs")

@@ -27,7 +27,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { geocodeAddress, calculateDistanceMiles } from "@/lib/geocoding";
 import { formatDisplayDate } from "@/lib/utils";
 import { getContractorByEmail } from "@/lib/contractor-by-email";
-import { fetchOpenJobsForTerritory } from "@/lib/api-territory-scoped";
+import { fetchOpenJobsForTerritory, fetchMyApplications } from "@/lib/api-territory-scoped";
 import { contractorCanSeeJob } from "@/lib/contractor-job-visibility";
 
 export default function Opportunities() {
@@ -54,8 +54,9 @@ export default function Opportunities() {
   });
 
   const { data: applications = [], isLoading: isLoadingApps } = useQuery({
-    queryKey: ["applications"],
-    queryFn: api.getApplications,
+    queryKey: ["my-applications", currentUser?.id],
+    queryFn: () => fetchMyApplications(currentUser!.id),
+    enabled: !!currentUser?.id,
   });
 
   const { data: settings } = useQuery({

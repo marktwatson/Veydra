@@ -42,7 +42,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { fetchJobById } from "@/lib/api-territory-scoped";
+import { fetchJobById, fetchMyApplicationForJob } from "@/lib/api-territory-scoped";
 import { useAuth } from "@/contexts/AuthContext";
 import { geocodeAddress, calculateDistanceMiles } from "@/lib/geocoding";
 import { formatDisplayDate, applyForJobWithTerritory } from "@/lib/utils";
@@ -65,11 +65,6 @@ export default function OpportunityDetail() {
     queryFn: api.getAssignments,
   });
 
-  const { data: applications = [], isLoading: isLoadingApps } = useQuery({
-    queryKey: ["applications"],
-    queryFn: api.getApplications,
-  });
-
   const { data: currentUser, isLoading: isLoadingContractors } = useQuery({
     queryKey: ["contractor-by-email", user?.email],
     queryFn: async () =>
@@ -78,13 +73,25 @@ export default function OpportunityDetail() {
       ),
     enabled: !!user?.email,
   });
+
+  const { data: myApplication = null, isLoading: isLoadingApps } = useQuery({
+    queryKey: ["my-application", id, currentUser?.id],
+    queryFn: () => fetchMyApplicationForJob(id!, currentUser!.id),
+    enabled: !!id && !!currentUser?.id,
+  });
+  const application = myApplication;
+
+  const { data: applications = [] } = useQuery({
+    queryKey: ["job-applications", id],
+    queryFn: () => api.getApplications(),
+    enabled: !!id,
+    select: (rows) => rows.filter((a) => a.job_id === id),
+  });
+
   const { data: settings } = useQuery({
     queryKey: ["portalSettings"],
     queryFn: api.getPortalSettings,
   });
-  const application = applications.find(
-    (a) => a.job_id === id && a.contractor_id === currentUser?.id,
-  );
 
   const [distance, setDistance] = useState<number | null>(null);
 
@@ -180,11 +187,18 @@ export default function OpportunityDetail() {
         bid_amount:
           position!.pay_type === "bidding" ? parseFloat(bidAmount) : undefined,
       }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["applications"] });
-
+    onSuccess: (saved) => {
       const submittedBid =
         position?.pay_type === "bidding" ? parseFloat(bidAmount) : undefined;
+      queryClient.setQueryData(["my-application", id, currentUser?.id], {
+        ...saved,
+        status: saved?.status || "pending",
+        bid_amount: submittedBid ?? saved?.bid_amount ?? null,
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["my-application", id, currentUser?.id],
+      });
+      queryClient.invalidateQueries({ queryKey: ["applications"] });
 
       if (
         submittedBid !== undefined &&
@@ -220,6 +234,10 @@ export default function OpportunityDetail() {
   const withdrawMutation = useMutation({
     mutationFn: () => api.withdrawApplication(application!.id),
     onSuccess: () => {
+      queryClient.setQueryData(["my-application", id, currentUser?.id], null);
+      queryClient.invalidateQueries({
+        queryKey: ["my-application", id, currentUser?.id],
+      });
       queryClient.invalidateQueries({ queryKey: ["applications"] });
       toast({
         title: "Application Withdrawn",
