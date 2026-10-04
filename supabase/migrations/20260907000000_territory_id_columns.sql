@@ -28,4 +28,30 @@ ALTER TABLE public.territories ADD COLUMN IF NOT EXISTS slug text;
 -- salesperson's name + email before sending.
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS sales_pin text;
 
+-- Per-area editor payout Stripe secret. An owner/super admin pastes the
+-- Stripe secret for THIS area; editor onboarding + payouts use it instead of
+-- the shared Veydra edge secret. Null until set. Never stored in portal_settings.
+ALTER TABLE public.territories ADD COLUMN IF NOT EXISTS editor_payout_stripe_key text;
+
+-- editors.territory_id so an editor row can be scoped to an area. Nullable:
+-- legacy editors have none. One editor email may edit multiple areas via
+-- separate editor_payout_accounts rows (below).
+ALTER TABLE public.editors ADD COLUMN IF NOT EXISTS territory_id UUID;
+
+-- Per-(editor, territory) connected Stripe account. An editor who edits two
+-- areas keeps two rows, each with its own acct_ created under that area's
+-- Stripe key. Prevents reusing an acct_ from another territory.
+CREATE TABLE IF NOT EXISTS public.editor_payout_accounts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  editor_id uuid NOT NULL,
+  territory_id uuid NOT NULL,
+  stripe_account_id text NOT NULL,
+  created_at timestamptz DEFAULT now(),
+  UNIQUE (editor_id, territory_id)
+);
+ALTER TABLE public.editor_payout_accounts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "epa_auth_all" ON public.editor_payout_accounts;
+CREATE POLICY "epa_auth_all" ON public.editor_payout_accounts FOR ALL TO authenticated USING (true) WITH CHECK (true);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.editor_payout_accounts TO authenticated;
+
 NOTIFY pgrst, 'reload schema';

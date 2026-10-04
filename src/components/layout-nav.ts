@@ -18,6 +18,7 @@ import {
   Shield,
   GraduationCap,
   MapPin,
+  Radar,
 } from "lucide-react";
 
 export const contractorNavItems = [
@@ -119,4 +120,12 @@ export const ownerRoyaltyNavItem = {
   icon: Crown,
   label: "Royalty Dashboard",
   path: "/owner/royalty",
+};
+
+// Command page nav item — only shown for the two allow-listed emails
+// (see command-access.ts). Appended to the Intel & Growth group.
+export const commandNavItem = {
+  icon: Radar,
+  label: "Command",
+  path: "/manager/command",
 };

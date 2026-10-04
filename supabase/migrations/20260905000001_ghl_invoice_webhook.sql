@@ -387,5 +387,22 @@ WHERE p.package_id = pk.id
   AND p.territory_id = pk.territory_id
   AND (p.package_name IS NULL OR p.package_name = '');
 
+-- Per-area editor payout Stripe secret + editor_payout_accounts table.
+-- Mirrors 20260907000000_territory_id_columns.sql so every synced area gets it.
+ALTER TABLE public.territories ADD COLUMN IF NOT EXISTS editor_payout_stripe_key text;
+ALTER TABLE public.editors ADD COLUMN IF NOT EXISTS territory_id UUID;
+CREATE TABLE IF NOT EXISTS public.editor_payout_accounts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  editor_id uuid NOT NULL,
+  territory_id uuid NOT NULL,
+  stripe_account_id text NOT NULL,
+  created_at timestamptz DEFAULT now(),
+  UNIQUE (editor_id, territory_id)
+);
+ALTER TABLE public.editor_payout_accounts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "epa_auth_all" ON public.editor_payout_accounts;
+CREATE POLICY "epa_auth_all" ON public.editor_payout_accounts FOR ALL TO authenticated USING (true) WITH CHECK (true);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.editor_payout_accounts TO authenticated;
+
 -- Reload PostgREST schema cache so the API sees the new columns immediately.
 NOTIFY pgrst, 'reload schema';

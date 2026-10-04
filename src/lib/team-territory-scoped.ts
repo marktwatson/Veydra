@@ -32,18 +32,17 @@ export async function loadTeamForTerritory(): Promise<any[]> {
   const { data: m, error: mErr } = await mgrQuery;
   if (mErr) throw mErr;
 
-  // Editors: no territory_id column exists, so only include them when not
-  // filtering to a single area (i.e. All Areas). When an area is picked,
-  // editors are hidden since we cannot tell which area they belong to.
+  // Editors: no territory_id column exists, so we cannot scope them by area.
+  // Always load every editor and include them in the team list regardless of
+  // the selected area (editors are assigned to weddings via editor_id, which is
+  // the real scope). Do not require "All Areas" to see them.
   let editors: any[] = [];
-  if (!territoryId) {
-    const { data: e, error: eErr } = await supabase
-      .from("editors")
-      .select("*")
-      .order("created_at", { ascending: true });
-    if (eErr && eErr.code !== "42P01") throw eErr;
-    if (!eErr) editors = (e || []).map((ed) => ({ ...ed, role: "editor" }));
-  }
+  const { data: e, error: eErr } = await supabase
+    .from("editors")
+    .select("*")
+    .order("created_at", { ascending: true });
+  if (eErr && eErr.code !== "42P01") throw eErr;
+  if (!eErr) editors = (e || []).map((ed) => ({ ...ed, role: "editor" }));
 
   const all = [...(m || []), ...editors];
 

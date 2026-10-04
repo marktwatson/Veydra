@@ -8,6 +8,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { queryClient } from "@/lib/query-client";
 import { ProtectedRoute, Mgr, MgrOwner } from "@/components/ProtectedRoute";
+import { CommandRoute } from "@/components/CommandRoute";
 
 import Dashboard from "@/pages/Dashboard";
 import Opportunities from "@/pages/Opportunities";
@@ -58,6 +59,7 @@ import GrowthHub from "@/pages/manager/GrowthHub";
 import ExportProject from "@/pages/manager/ExportProject";
 import Territories from "@/pages/manager/Territories";
 import Areas from "@/pages/manager/Areas";
+import Command from "@/pages/manager/Command";
 import PostProductionBoard from "@/pages/manager/PostProduction";
 import EditorDashboard from "@/pages/editor/Dashboard";
 import EditorInvoices from "@/pages/editor/Invoices";
@@ -328,6 +330,14 @@ const App = () => {
                     <Mgr>
                       <GrowthHub />
                     </Mgr>
+                  }
+                />
+                <Route
+                  path="/manager/command"
+                  element={
+                    <CommandRoute>
+                      <Command />
+                    </CommandRoute>
                   }
                 />
                 <Route

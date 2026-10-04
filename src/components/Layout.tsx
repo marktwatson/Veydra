@@ -593,7 +593,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const isTerminated =
     role === "contractor" && profile?.status === "terminated";
 
-  const visibleManagerNavGroups = buildVisibleManagerNavGroups(role);
+  const visibleManagerNavGroups = buildVisibleManagerNavGroups(
+    role,
+    user?.email,
+  );
 
   // Owners use the same filtered manager nav groups (with their royalty dashboard appended)
   const effectiveNavGroups = visibleManagerNavGroups;

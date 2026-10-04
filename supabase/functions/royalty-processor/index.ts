@@ -494,7 +494,7 @@ Deno.serve(async (req) => {
     // Fixed window: most recent scheduled processing weekday at 00:00 portal TZ (not today).
     const _procDow = Number(settings.processing_day_of_week ?? 5);
     const _dm: any = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-    const _dtf = new Intl.DateTimeFormat("en-US", { timeZone: portalTz, weekday: "short", year: "numeric", month: "2-digit", day: "2-digit" });
+    const _dtf = new Intl.DateTimeFormat("en-US", { timeZone: (await (async () => { try { const { data: tzPs } = await supabase.from("portal_settings").select("timezone, company_timezone").eq("territory_id", territory.id).limit(1).maybeSingle(); return tzPs?.timezone || tzPs?.company_timezone || "America/New_York"; } catch { return "America/New_York"; } })()), weekday: "short", year: "numeric", month: "2-digit", day: "2-digit" });
     const _pp: any = {}; for (const x of _dtf.formatToParts(new Date())) _pp[x.type] = x.value;
     const _daysBack = ((_dm[_pp.weekday] ?? 5) - _procDow + 7) % 7;
     const _base = new Date(`${_pp.year}-${_pp.month}-${_pp.day}T00:00:00Z`);

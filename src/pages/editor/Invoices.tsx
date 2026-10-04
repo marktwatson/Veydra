@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
+import { getWeddingsForEditor } from "@/lib/editor-weddings";
 import {
   Card,
   CardContent,
@@ -38,6 +39,9 @@ export default function EditorInvoices() {
   const queryClient = useQueryClient();
   const [isConnectingStripe, setIsConnectingStripe] = useState(false);
   const [stripeCountry, setStripeCountry] = useState("US");
+  const [activeTerritoryId, setActiveTerritoryId] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -73,22 +77,83 @@ export default function EditorInvoices() {
     enabled: !!user?.email,
   });
 
+  // Editor invoices are scoped by assignment (editor_id), across ALL areas.
+  const { data: weddings = [], isLoading: isWeddingsLoading } = useQuery({
+    queryKey: ["editor-weddings"],
+    queryFn: () => getWeddingsForEditor(user?.id || ""),
+    enabled: !!user?.id,
+  });
+
+  // Territories this editor has weddings in (for the per-area Stripe connect).
+  const { data: editorTerritories = [] } = useQuery({
+    queryKey: ["editor-territories", user?.id],
+    queryFn: async () => {
+      const ids = new Set<string>();
+      weddings.forEach((w: any) => {
+        if (w.territory_id) ids.add(w.territory_id);
+      });
+      if (editorProfile?.territory_id) ids.add(editorProfile.territory_id);
+      if (ids.size === 0) return [];
+      const { data, error } = await supabase
+        .from("territories")
+        .select("id, name, editor_payout_stripe_key")
+        .in("id", Array.from(ids));
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!user?.id && !!editorProfile,
+  });
+
+  // Default the active territory to the editor's home area, else first.
+  useEffect(() => {
+    if (activeTerritoryId) return;
+    if (editorProfile?.territory_id) {
+      setActiveTerritoryId(editorProfile.territory_id);
+    } else if (editorTerritories.length > 0) {
+      setActiveTerritoryId(editorTerritories[0].id);
+    }
+  }, [editorProfile, editorTerritories, activeTerritoryId]);
+
+  // Connected Stripe account for the active territory.
+  const { data: activeAccount, isLoading: isLoadingAccount } = useQuery({
+    queryKey: ["editor-payout-account", user?.id, activeTerritoryId],
+    queryFn: async () => {
+      if (!user?.id || !activeTerritoryId) return null;
+      const { data, error } = await supabase
+        .from("editor_payout_accounts")
+        .select("stripe_account_id, territory_id")
+        .eq("editor_id", user.id)
+        .eq("territory_id", activeTerritoryId)
+        .maybeSingle();
+      if (error) throw error;
+      return data || null;
+    },
+    enabled: !!user?.id && !!activeTerritoryId,
+  });
+
+  const activeTerritory = editorTerritories.find(
+    (t: any) => t.id === activeTerritoryId,
+  );
+  const activeHasStripeKey = !!activeTerritory?.editor_payout_stripe_key;
+
   const disconnectStripeMutation = useMutation({
     mutationFn: async () => {
-      if (!editorProfile?.id) throw new Error("Editor record not found");
+      if (!editorProfile?.id || !activeTerritoryId)
+        throw new Error("Editor record or area not found");
       const { error } = await supabase
-        .from("editors")
-        .update({ stripe_account_id: null })
-        .eq("id", editorProfile.id);
+        .from("editor_payout_accounts")
+        .delete()
+        .eq("editor_id", editorProfile.id)
+        .eq("territory_id", activeTerritoryId);
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["editor-profile", user?.email],
+        queryKey: ["editor-payout-account", user?.id, activeTerritoryId],
       });
       toast({
         title: "Stripe Disconnected",
-        description: "Your Stripe account has been removed.",
+        description: "Your Stripe account has been removed for this area.",
       });
     },
     onError: (error: any) => {
@@ -98,11 +163,6 @@ export default function EditorInvoices() {
         description: error.message,
       });
     },
-  });
-
-  const { data: weddings = [], isLoading: isWeddingsLoading } = useQuery({
-    queryKey: ["editor-weddings"],
-    queryFn: api.getWeddings,
   });
 
   const myInvoices = weddings.filter(
@@ -327,151 +387,203 @@ export default function EditorInvoices() {
             <CardHeader>
               <CardTitle>Payout Settings</CardTitle>
               <CardDescription>
-                Manage how you receive your payments.
+                Manage how you receive your payments. Stripe connects per area —
+                each area uses its own Stripe account.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between rounded-lg border p-4 gap-4">
-                <div className="space-y-0.5">
-                  <Label className="text-base flex items-center gap-2">
-                    <DollarSign className="h-4 w-4" />
-                    Stripe Payouts
-                  </Label>
-                  <p className="text-sm text-muted-foreground">
-                    Connect your Stripe account to receive direct payouts.
-                  </p>
-                </div>
-                {editorProfile?.stripe_account_id ? (
-                  <div className="flex items-center gap-2">
-                    <Badge
-                      variant="outline"
-                      className="bg-green-50 text-green-600 border-green-200"
-                    >
-                      Connected
-                    </Badge>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive hover:text-destructive"
-                      onClick={() => disconnectStripeMutation.mutate()}
-                      disabled={disconnectStripeMutation.isPending}
-                    >
-                      {disconnectStripeMutation.isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      ) : null}
-                      Disconnect
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
+              {editorTerritories.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  You don't have any area assignments yet. Once you're assigned
+                  to a wedding, your areas will appear here.
+                </p>
+              ) : (
+                <>
+                  <div className="grid gap-2 max-w-sm">
+                    <Label htmlFor="area-select">Area</Label>
                     <Select
-                      value={stripeCountry}
-                      onValueChange={setStripeCountry}
-                      disabled={isConnectingStripe}
+                      value={activeTerritoryId || undefined}
+                      onValueChange={setActiveTerritoryId}
                     >
-                      <SelectTrigger className="w-[140px]">
-                        <SelectValue placeholder="Country" />
+                      <SelectTrigger id="area-select">
+                        <SelectValue placeholder="Select an area" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="US">United States</SelectItem>
-                        <SelectItem value="PH">Philippines</SelectItem>
-                        <SelectItem value="CA">Canada</SelectItem>
-                        <SelectItem value="GB">United Kingdom</SelectItem>
-                        <SelectItem value="AU">Australia</SelectItem>
+                        {editorTerritories.map((t: any) => (
+                          <SelectItem key={t.id} value={t.id}>
+                            {t.name}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
-                    <Button
-                      variant="outline"
-                      disabled={isConnectingStripe}
-                      onClick={async () => {
-                        if (!editorProfile?.id || !user?.email) return;
-                        setIsConnectingStripe(true);
-                        try {
-                          const returnUrl = `${window.location.origin}/editor/invoices?stripe=success`;
-                          const refreshUrl = `${window.location.origin}/editor/invoices?stripe=refresh`;
-
-                          let {
-                            data: { session },
-                          } = await supabase.auth.getSession();
-                          if (!session?.access_token) {
-                            const { data } =
-                              await supabase.auth.refreshSession();
-                            session = data.session;
-                          }
-
-                          const token = session?.access_token;
-                          if (!token || !token.startsWith("eyJ")) {
-                            throw new Error(
-                              "Your session has expired. Please log out and log back in.",
-                            );
-                          }
-
-                          const res = await fetch(
-                            `${supabaseUrl}/functions/v1/stripe-onboard`,
-                            {
-                              method: "POST",
-                              headers: {
-                                "Content-Type": "application/json",
-                                Authorization: `Bearer ${token}`,
-                                apikey: supabaseAnonKey,
-                              },
-                              body: JSON.stringify({
-                                user_id: editorProfile.id,
-                                user_type: "editor",
-                                email: user.email,
-                                country: stripeCountry,
-                                return_url: returnUrl,
-                                refresh_url: refreshUrl,
-                              }),
-                            },
-                          );
-
-                          if (!res.ok) {
-                            let errorText = `Server returned ${res.status}`;
-                            try {
-                              const json = await res.json();
-                              if (json.error) errorText = json.error;
-                            } catch (e) {
-                              try {
-                                const text = await res.text();
-                                if (text) errorText = text;
-                              } catch (e2) {}
-                            }
-                            throw new Error(
-                              errorText ||
-                                "Failed to initialize Stripe onboarding",
-                            );
-                          }
-
-                          const data = await res.json();
-
-                          if (data?.url) {
-                            window.open(data.url, "_blank");
-                            setIsConnectingStripe(false);
-                          } else {
-                            throw new Error("No URL returned from Stripe");
-                          }
-                        } catch (err: any) {
-                          console.error("Stripe Onboard Error:", err);
-                          toast({
-                            variant: "destructive",
-                            title: "Failed to connect Stripe",
-                            description:
-                              err.message ||
-                              "An error occurred while connecting to Stripe.",
-                          });
-                          setIsConnectingStripe(false);
-                        }
-                      }}
-                    >
-                      {isConnectingStripe ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : null}
-                      Connect Stripe
-                    </Button>
                   </div>
-                )}
-              </div>
+
+                  {!activeHasStripeKey ? (
+                    <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-700 dark:text-amber-400">
+                      This area hasn't set up its editor payout Stripe key yet.
+                      Ask the area owner to add it in Settings → Integrations
+                      before connecting.
+                    </div>
+                  ) : (
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between rounded-lg border p-4 gap-4">
+                      <div className="space-y-0.5">
+                        <Label className="text-base flex items-center gap-2">
+                          <DollarSign className="h-4 w-4" />
+                          Stripe Payouts
+                        </Label>
+                        <p className="text-sm text-muted-foreground">
+                          Connect your Stripe account to receive direct payouts
+                          for{" "}
+                          <span className="font-medium text-foreground">
+                            {activeTerritory?.name || "this area"}
+                          </span>
+                          .
+                        </p>
+                      </div>
+                      {isLoadingAccount ? (
+                        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                      ) : activeAccount?.stripe_account_id ? (
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant="outline"
+                            className="bg-green-50 text-green-600 border-green-200"
+                          >
+                            Connected · {activeTerritory?.name}
+                          </Badge>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => disconnectStripeMutation.mutate()}
+                            disabled={disconnectStripeMutation.isPending}
+                          >
+                            {disconnectStripeMutation.isPending ? (
+                              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                            ) : null}
+                            Disconnect
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <Select
+                            value={stripeCountry}
+                            onValueChange={setStripeCountry}
+                            disabled={isConnectingStripe}
+                          >
+                            <SelectTrigger className="w-[140px]">
+                              <SelectValue placeholder="Country" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="US">United States</SelectItem>
+                              <SelectItem value="PH">Philippines</SelectItem>
+                              <SelectItem value="CA">Canada</SelectItem>
+                              <SelectItem value="GB">United Kingdom</SelectItem>
+                              <SelectItem value="AU">Australia</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Button
+                            variant="outline"
+                            disabled={isConnectingStripe}
+                            onClick={async () => {
+                              if (
+                                !editorProfile?.id ||
+                                !user?.email ||
+                                !activeTerritoryId
+                              )
+                                return;
+                              setIsConnectingStripe(true);
+                              try {
+                                const returnUrl = `${window.location.origin}/editor/invoices?stripe=success`;
+                                const refreshUrl = `${window.location.origin}/editor/invoices?stripe=refresh`;
+
+                                let {
+                                  data: { session },
+                                } = await supabase.auth.getSession();
+                                if (!session?.access_token) {
+                                  const { data } =
+                                    await supabase.auth.refreshSession();
+                                  session = data.session;
+                                }
+
+                                const token = session?.access_token;
+                                if (!token || !token.startsWith("eyJ")) {
+                                  throw new Error(
+                                    "Your session has expired. Please log out and log back in.",
+                                  );
+                                }
+
+                                const res = await fetch(
+                                  `${supabaseUrl}/functions/v1/stripe-onboard`,
+                                  {
+                                    method: "POST",
+                                    headers: {
+                                      "Content-Type": "application/json",
+                                      Authorization: `Bearer ${token}`,
+                                      apikey: supabaseAnonKey,
+                                    },
+                                    body: JSON.stringify({
+                                      user_id: editorProfile.id,
+                                      user_type: "editor",
+                                      email: user.email,
+                                      country: stripeCountry,
+                                      territory_id: activeTerritoryId,
+                                      return_url: returnUrl,
+                                      refresh_url: refreshUrl,
+                                    }),
+                                  },
+                                );
+
+                                if (!res.ok) {
+                                  let errorText = `Server returned ${res.status}`;
+                                  try {
+                                    const json = await res.json();
+                                    if (json.error) errorText = json.error;
+                                  } catch (e) {
+                                    try {
+                                      const text = await res.text();
+                                      if (text) errorText = text;
+                                    } catch (e2) {}
+                                  }
+                                  throw new Error(
+                                    errorText ||
+                                      "Failed to initialize Stripe onboarding",
+                                  );
+                                }
+
+                                const data = await res.json();
+
+                                if (data?.url) {
+                                  window.open(data.url, "_blank");
+                                  setIsConnectingStripe(false);
+                                } else {
+                                  throw new Error(
+                                    "No URL returned from Stripe",
+                                  );
+                                }
+                              } catch (err: any) {
+                                console.error("Stripe Onboard Error:", err);
+                                toast({
+                                  variant: "destructive",
+                                  title: "Failed to connect Stripe",
+                                  description:
+                                    err.message ||
+                                    "An error occurred while connecting to Stripe.",
+                                });
+                                setIsConnectingStripe(false);
+                              }
+                            }}
+                          >
+                            {isConnectingStripe ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : null}
+                            Connect Stripe
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

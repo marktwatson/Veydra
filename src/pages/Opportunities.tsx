@@ -27,6 +27,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { geocodeAddress, calculateDistanceMiles } from "@/lib/geocoding";
 import { parseRegions, formatDisplayDate } from "@/lib/utils";
 import { specialtyMatchesJob } from "@/lib/specialty-job-match";
+import { getContractorByEmail } from "@/lib/contractor-by-email";
 
 export default function Opportunities() {
   const { user } = useAuth();
@@ -47,19 +48,16 @@ export default function Opportunities() {
     queryFn: api.getApplications,
   });
 
-  const { data: contractors = [], isLoading: isLoadingContractors } = useQuery({
-    queryKey: ["contractors"],
-    queryFn: api.getContractors,
+  const { data: currentUser, isLoading: isLoadingContractors } = useQuery({
+    queryKey: ["contractor-by-email", user?.email],
+    queryFn: () => getContractorByEmail(user?.email || ""),
+    enabled: !!user?.email,
   });
 
   const { data: settings } = useQuery({
     queryKey: ["portalSettings"],
     queryFn: api.getPortalSettings,
   });
-
-  const currentUser = contractors.find(
-    (c) => c.email?.trim().toLowerCase() === user?.email?.trim().toLowerCase(),
-  );
   const [distances, setDistances] = useState<Record<string, number>>({});
 
   const myActiveAssignments = assignments.filter(
@@ -85,6 +83,14 @@ export default function Opportunities() {
   const visiblePositions = jobs
     .filter((p) => {
       if (p.status !== "open") return false;
+      // Hide jobs in another area — contractor can only see their own area's jobs.
+      const jobTerritory = (p as any)?.territory_id;
+      if (
+        jobTerritory &&
+        currentUser?.territory_id &&
+        jobTerritory !== currentUser.territory_id
+      )
+        return false;
       if (myBookedDates.has(p.weddings?.date)) return false;
 
       const isInvited = p.invited_contractors?.includes(currentUser?.id);

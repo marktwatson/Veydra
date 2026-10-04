@@ -68,19 +68,18 @@ export default function OpportunityDetail() {
     queryFn: api.getApplications,
   });
 
-  const { data: contractors = [], isLoading: isLoadingContractors } = useQuery({
-    queryKey: ["contractors"],
-    queryFn: api.getContractors,
+  const { data: currentUser, isLoading: isLoadingContractors } = useQuery({
+    queryKey: ["contractor-by-email", user?.email],
+    queryFn: async () =>
+      (await import("@/lib/contractor-by-email")).getContractorByEmail(
+        user?.email || "",
+      ),
+    enabled: !!user?.email,
   });
-
   const { data: settings } = useQuery({
     queryKey: ["portalSettings"],
     queryFn: api.getPortalSettings,
   });
-
-  const currentUser = contractors.find(
-    (c) => c.email?.trim().toLowerCase() === user?.email?.trim().toLowerCase(),
-  );
   const position = jobs.find((p) => p.id === id);
   const application = applications.find(
     (a) => a.job_id === id && a.contractor_id === currentUser?.id,
@@ -310,6 +309,19 @@ export default function OpportunityDetail() {
         title: "Error",
         description:
           "Could not find your contractor profile. Please contact support.",
+      });
+      return;
+    }
+    const jobTerritory = (position as any)?.territory_id;
+    if (
+      jobTerritory &&
+      currentUser.territory_id &&
+      jobTerritory !== currentUser.territory_id
+    ) {
+      toast({
+        variant: "destructive",
+        title: "This job is in another area.",
+        description: "You can only apply to jobs in your assigned area.",
       });
       return;
     }

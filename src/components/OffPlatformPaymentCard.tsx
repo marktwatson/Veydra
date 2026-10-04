@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { EditorPayoutStripeKeyCard } from "@/components/EditorPayoutStripeKeyCard";
 import {
   Card,
   CardHeader,
@@ -102,101 +103,104 @@ export function OffPlatformPaymentCard({ saved }: { saved?: any }) {
   };
 
   return (
-    <Card className="md:col-span-2 max-w-3xl">
-      <CardHeader>
-        <CardTitle>Off-Platform Payment Options</CardTitle>
-        <CardDescription>
-          Offer Venmo / Cash App / Zelle as a "Pay in full instead" option on
-          the booking payment step. Only full remaining balance — no
-          installments.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Venmo */}
-        <div className="space-y-2 pb-4 border-b border-border/40">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="accept-venmo" className="font-semibold">
-              Venmo
-            </Label>
-            <Switch
-              id="accept-venmo"
-              checked={acceptVenmo}
-              onCheckedChange={setAcceptVenmo}
-            />
-          </div>
-          {acceptVenmo && (
-            <div className="grid gap-1">
-              <Label htmlFor="venmo-handle" className="text-xs">
-                Venmo handle
+    <>
+      <Card className="md:col-span-2 max-w-3xl">
+        <CardHeader>
+          <CardTitle>Off-Platform Payment Options</CardTitle>
+          <CardDescription>
+            Offer Venmo / Cash App / Zelle as a "Pay in full instead" option on
+            the booking payment step. Only full remaining balance — no
+            installments.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Venmo */}
+          <div className="space-y-2 pb-4 border-b border-border/40">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="accept-venmo" className="font-semibold">
+                Venmo
               </Label>
-              <Input
-                id="venmo-handle"
-                placeholder="@yourbusiness"
-                value={venmoHandle}
-                onChange={(e) => setVenmoHandle(e.target.value)}
+              <Switch
+                id="accept-venmo"
+                checked={acceptVenmo}
+                onCheckedChange={setAcceptVenmo}
               />
             </div>
-          )}
-        </div>
-
-        {/* Cash App */}
-        <div className="space-y-2 pb-4 border-b border-border/40">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="accept-cashapp" className="font-semibold">
-              Cash App
-            </Label>
-            <Switch
-              id="accept-cashapp"
-              checked={acceptCashapp}
-              onCheckedChange={setAcceptCashapp}
-            />
+            {acceptVenmo && (
+              <div className="grid gap-1">
+                <Label htmlFor="venmo-handle" className="text-xs">
+                  Venmo handle
+                </Label>
+                <Input
+                  id="venmo-handle"
+                  placeholder="@yourbusiness"
+                  value={venmoHandle}
+                  onChange={(e) => setVenmoHandle(e.target.value)}
+                />
+              </div>
+            )}
           </div>
-          {acceptCashapp && (
-            <div className="grid gap-1">
-              <Label htmlFor="cashapp-cashtag" className="text-xs">
-                Cash App $cashtag
+
+          {/* Cash App */}
+          <div className="space-y-2 pb-4 border-b border-border/40">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="accept-cashapp" className="font-semibold">
+                Cash App
               </Label>
-              <Input
-                id="cashapp-cashtag"
-                placeholder="$yourbusiness"
-                value={cashappCashtag}
-                onChange={(e) => setCashappCashtag(e.target.value)}
+              <Switch
+                id="accept-cashapp"
+                checked={acceptCashapp}
+                onCheckedChange={setAcceptCashapp}
               />
             </div>
-          )}
-        </div>
-
-        {/* Zelle */}
-        <div className="space-y-2 pb-4">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="accept-zelle" className="font-semibold">
-              Zelle
-            </Label>
-            <Switch
-              id="accept-zelle"
-              checked={acceptZelle}
-              onCheckedChange={setAcceptZelle}
-            />
+            {acceptCashapp && (
+              <div className="grid gap-1">
+                <Label htmlFor="cashapp-cashtag" className="text-xs">
+                  Cash App $cashtag
+                </Label>
+                <Input
+                  id="cashapp-cashtag"
+                  placeholder="$yourbusiness"
+                  value={cashappCashtag}
+                  onChange={(e) => setCashappCashtag(e.target.value)}
+                />
+              </div>
+            )}
           </div>
-          {acceptZelle && (
-            <div className="grid gap-1">
-              <Label htmlFor="zelle-target" className="text-xs">
-                Zelle target (email or phone)
+
+          {/* Zelle */}
+          <div className="space-y-2 pb-4">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="accept-zelle" className="font-semibold">
+                Zelle
               </Label>
-              <Input
-                id="zelle-target"
-                placeholder="payments@yourbusiness.com"
-                value={zelleTarget}
-                onChange={(e) => setZelleTarget(e.target.value)}
+              <Switch
+                id="accept-zelle"
+                checked={acceptZelle}
+                onCheckedChange={setAcceptZelle}
               />
             </div>
-          )}
-        </div>
+            {acceptZelle && (
+              <div className="grid gap-1">
+                <Label htmlFor="zelle-target" className="text-xs">
+                  Zelle target (email or phone)
+                </Label>
+                <Input
+                  id="zelle-target"
+                  placeholder="payments@yourbusiness.com"
+                  value={zelleTarget}
+                  onChange={(e) => setZelleTarget(e.target.value)}
+                />
+              </div>
+            )}
+          </div>
 
-        <Button onClick={handleSave} disabled={saving || !loaded}>
-          {saving ? "Saving..." : "Save Off-Platform Settings"}
-        </Button>
-      </CardContent>
-    </Card>
+          <Button onClick={handleSave} disabled={saving || !loaded}>
+            {saving ? "Saving..." : "Save Off-Platform Settings"}
+          </Button>
+        </CardContent>
+      </Card>
+      <EditorPayoutStripeKeyCard />
+    </>
   );
 }
