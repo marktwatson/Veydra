@@ -13,6 +13,8 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
 import { healOffPlatformColumns } from "@/lib/off-platform-payment";
+import { loadScopedPortalSettings } from "@/lib/portal-settings-load";
+import { updatePortalSettingsRow } from "@/lib/portal-settings-update";
 
 const HEAL_SQL = `
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS accept_venmo boolean DEFAULT false;
@@ -43,13 +45,9 @@ export function OffPlatformPaymentCard({ saved }: { saved?: any }) {
     (async () => {
       try {
         await healOffPlatformColumns();
-        const { data } = await supabase
-          .from("portal_settings")
-          .select(
-            "accept_venmo, venmo_handle, accept_cashapp, cashapp_cashtag, accept_zelle, zelle_target",
-          )
-          .limit(1)
-          .maybeSingle();
+        // Load the current area's row only (never a bare .limit(1) —
+        // portal_settings has one row per area now).
+        const data = await loadScopedPortalSettings();
         if (data) {
           setAcceptVenmo(!!data.accept_venmo);
           setVenmoHandle((data.venmo_handle as string) || "");
@@ -82,19 +80,12 @@ export function OffPlatformPaymentCard({ saved }: { saved?: any }) {
         accept_zelle: acceptZelle,
         zelle_target: acceptZelle ? zelleTarget.trim() || null : null,
       };
-      let { error } = await supabase
-        .from("portal_settings")
-        .update(patch)
-        .neq("id", "00000000-0000-0000-0000-000000000000");
-      if (error && error.message?.includes("schema cache")) {
-        await new Promise((r) => setTimeout(r, 300));
-        const retry = await supabase
-          .from("portal_settings")
-          .update(patch)
-          .neq("id", "00000000-0000-0000-0000-000000000000");
-        error = retry.error;
+      // Save to the current area's row only (scoped by territory_id).
+      try {
+        await updatePortalSettingsRow(patch);
+      } catch (err: any) {
+        throw err;
       }
-      if (error) throw error;
       toast({
         title: "Saved",
         description: "Off-platform payment options updated.",

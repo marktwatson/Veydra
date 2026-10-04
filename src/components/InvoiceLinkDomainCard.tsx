@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
+import { updatePortalSettingsRow } from "@/lib/portal-settings-update";
 
 /** Normalize the invoice link domain: trim, strip trailing slash, and if the
  *  user pasted a full invoice URL keep only the origin (host only). */
@@ -61,22 +62,9 @@ export function InvoiceLinkDomainCard({
         ghl_invoice_base_url: normalized || null,
         ghl_webhook_secret: webhookSecret.trim() || null,
       };
-      let { error } = await supabase
-        .from("portal_settings")
-        .update(patch)
-        .neq("id", "00000000-0000-0000-0000-000000000000");
-
-      // If schema cache hasn't refreshed yet, wait 300ms and retry once
-      if (error && error.message?.includes("schema cache")) {
-        await new Promise((r) => setTimeout(r, 300));
-        const retry = await supabase
-          .from("portal_settings")
-          .update(patch)
-          .neq("id", "00000000-0000-0000-0000-000000000000");
-        error = retry.error;
-      }
-
-      if (error) throw error;
+      // Save to the current area's row only (scoped by territory_id — never
+      // a bare unscoped .neq("id", ...) which would update every area).
+      await updatePortalSettingsRow(patch);
       toast({
         title: "Saved",
         description: "Invoice link domain and webhook secret updated.",

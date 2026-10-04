@@ -107,15 +107,31 @@ export interface OffPlatformConfig {
   zelle: { enabled: boolean; handle: string };
 }
 
-export async function getOffPlatformConfig(): Promise<OffPlatformConfig> {
+export async function getOffPlatformConfig(
+  weddingId?: string | null,
+): Promise<OffPlatformConfig> {
   await healOffPlatformColumns();
-  const { data } = await supabase
+  // Resolve the territory from the wedding (bride-facing pages have no
+  // logged-in manager). Never a bare .limit(1) — portal_settings has one
+  // row per area now.
+  let tid: string | null = null;
+  if (weddingId) {
+    try {
+      const { data: w } = await supabase
+        .from("weddings")
+        .select("territory_id")
+        .eq("id", weddingId)
+        .maybeSingle();
+      tid = w?.territory_id || null;
+    } catch {}
+  }
+  let query = supabase
     .from("portal_settings")
     .select(
       "accept_venmo, venmo_handle, accept_cashapp, cashapp_cashtag, accept_zelle, zelle_target",
-    )
-    .limit(1)
-    .maybeSingle();
+    );
+  if (tid) query = query.eq("territory_id", tid);
+  const { data } = await query.limit(1).maybeSingle();
   return {
     venmo: {
       enabled: !!data?.accept_venmo,

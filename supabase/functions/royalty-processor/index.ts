@@ -446,10 +446,9 @@ Deno.serve(async (req) => {
     const { data: settings } = await supabase.from("royalty_settings").select("*").limit(1).single();
     if (!settings) return jsonResponse({ error: "Royalty settings not configured" }, 400);
 
-    // Portal timezone — same source as the scheduler / header clock. Processing
-    // day/time are interpreted in THIS timezone, not UTC.
-    const { data: portalSettings } = await supabase.from("portal_settings").select("timezone, company_timezone").limit(1).maybeSingle();
-    const portalTz = portalSettings?.timezone || portalSettings?.company_timezone || "America/New_York";
+    // Portal timezone — load from the territory being processed (never a bare limit(1); one row per area now).
+    let portalTz = "America/New_York"; const tzTid = specificTerritoryId || null;
+    if (tzTid) { try { const { data: tzPs } = await supabase.from("portal_settings").select("timezone, company_timezone").eq("territory_id", tzTid).limit(1).maybeSingle(); portalTz = tzPs?.timezone || tzPs?.company_timezone || portalTz; } catch (e: any) { console.warn("[royalty-processor] tz load failed:", e?.message); } }
 
     // Scheduled (auto) runs only fire on the configured day at/after the
     // configured time in portal TZ. Manual "Run Weekly Processor" always runs

@@ -16,10 +16,12 @@ export async function markProposalAsBooked(
   },
 ): Promise<void> {
   try {
-    const { data: settings } = await supabase
-      .from("portal_settings")
-      .select("*")
-      .single();
+    // Load this area's settings only (never a bare .single() — one row per
+    // area now). Scope by the proposal's territory_id.
+    let settingsQuery = supabase.from("portal_settings").select("*");
+    if (proposal?.territory_id)
+      settingsQuery = settingsQuery.eq("territory_id", proposal.territory_id);
+    const { data: settings } = await settingsQuery.limit(1).maybeSingle();
     let weddingId = proposal.is_upgrade
       ? proposal.original_wedding_id
       : proposal.wedding_id;

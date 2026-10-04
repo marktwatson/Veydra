@@ -61,19 +61,32 @@ const ALT_METHOD_META: {
  * Always includes Card/GHL + Cash + Other, plus any OFFERED alt method
  * (accept_* true AND handle non-empty).
  */
-export async function buildPaidInFullMethods(): Promise<
-  { value: PaidInFullMethod; label: string }[]
-> {
+export async function buildPaidInFullMethods(
+  weddingId?: string | null,
+): Promise<{ value: PaidInFullMethod; label: string }[]> {
   const methods = [...BASE_PAID_IN_FULL_METHODS];
   try {
     await healOffPlatformColumns();
-    const { data } = await supabase
+    // Resolve the territory from the wedding (never a bare .limit(1) —
+    // portal_settings has one row per area now).
+    let tid: string | null = null;
+    if (weddingId) {
+      try {
+        const { data: w } = await supabase
+          .from("weddings")
+          .select("territory_id")
+          .eq("id", weddingId)
+          .maybeSingle();
+        tid = w?.territory_id || null;
+      } catch {}
+    }
+    let query = supabase
       .from("portal_settings")
       .select(
         "accept_venmo, venmo_handle, accept_cashapp, cashapp_cashtag, accept_zelle, zelle_target",
-      )
-      .limit(1)
-      .maybeSingle();
+      );
+    if (tid) query = query.eq("territory_id", tid);
+    const { data } = await query.limit(1).maybeSingle();
     for (const meta of ALT_METHOD_META) {
       if (data && data[meta.setting] && (data[meta.handle] as string)?.trim()) {
         methods.push({ value: meta.value, label: meta.label });

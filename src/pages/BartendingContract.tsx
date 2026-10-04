@@ -89,20 +89,27 @@ export default function BartendingContract() {
           setSignedDate(purchaseData.signed_at || "");
         }
 
+        let weddingTerritoryId: string | null = null;
         if (purchaseData.wedding_id) {
           const { data: weddingData } = await supabase
             .from("weddings")
             .select("*")
             .eq("id", purchaseData.wedding_id)
             .single();
-          if (weddingData) setWedding(weddingData);
+          if (weddingData) {
+            setWedding(weddingData);
+            weddingTerritoryId = weddingData.territory_id || null;
+          }
         }
 
-        const { data: settingsData } = await supabase
-          .from("portal_settings")
-          .select("*")
+        // Load this area's settings only (never a bare .limit(1) — one row
+        // per area now). Fall back to Honeysuckle if the wedding has no area.
+        let settingsQuery = supabase.from("portal_settings").select("*");
+        if (weddingTerritoryId)
+          settingsQuery = settingsQuery.eq("territory_id", weddingTerritoryId);
+        const { data: settingsData } = await settingsQuery
           .limit(1)
-          .single();
+          .maybeSingle();
         if (settingsData) setSettings(settingsData);
       } catch {
         setError("Could not load this contract.");

@@ -62,15 +62,9 @@ export default function PaymentPlanApproval() {
     message?: string;
   } | null>(null);
 
-  useEffect(() => {
-    supabase
-      .from("portal_settings")
-      .select("*")
-      .single()
-      .then(({ data }) => {
-        if (data) setSettings(data);
-      });
-  }, []);
+  // Settings are loaded scoped to the wedding's territory inside the fetch
+  // effect below (never a bare .single() — portal_settings has one row per
+  // area now, so .single() errors when multiple rows exist).
 
   useEffect(() => {
     if (!token) return;
@@ -84,7 +78,7 @@ export default function PaymentPlanApproval() {
       body: JSON.stringify({ action: "fetch", token }),
     })
       .then((r) => r.json())
-      .then((data) => {
+      .then(async (data) => {
         if (data.error) {
           setResult({ type: "error", message: data.error });
         } else {
@@ -93,6 +87,12 @@ export default function PaymentPlanApproval() {
           if (data.request?.status === "expired") {
             setResult({ type: "expired" });
           }
+          // Load this area's settings only.
+          const wTid = data.wedding?.territory_id || null;
+          let sQuery = supabase.from("portal_settings").select("*");
+          if (wTid) sQuery = sQuery.eq("territory_id", wTid);
+          const { data: sData } = await sQuery.limit(1).maybeSingle();
+          if (sData) setSettings(sData);
         }
       })
       .catch(() =>

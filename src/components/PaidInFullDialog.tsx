@@ -79,7 +79,7 @@ export function PaidInFullDialog({ wedding, open, onOpenChange }: Props) {
       setConfirmCollected(false);
       setActivate(false);
       setPending(false);
-      buildPaidInFullMethods().then((m) => {
+      buildPaidInFullMethods(wedding.id).then((m) => {
         setMethods(m);
         if (!m.find((x) => x.value === method)) setMethod("card");
       });

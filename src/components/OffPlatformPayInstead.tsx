@@ -64,7 +64,7 @@ export function OffPlatformPayInstead({
     if (!open) return;
     setLoading(true);
     setSelectedMethod(null);
-    getOffPlatformConfig()
+    getOffPlatformConfig(weddingId)
       .then((c) => {
         setConfig(c);
         const methods = availableMethods(c);

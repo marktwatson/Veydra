@@ -1040,7 +1040,12 @@ export default function Profile() {
                               const { data: settings } = await supabase
                                 .from("portal_settings")
                                 .select("contract_template, company_name")
-                                .single();
+                                .eq(
+                                  "territory_id",
+                                  (profile as any)?.territory_id || "",
+                                )
+                                .limit(1)
+                                .maybeSingle();
                               const companyName =
                                 settings?.company_name || "the Company";
                               const contractorName = `${profile.first_name} ${profile.last_name}`;

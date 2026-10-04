@@ -1799,11 +1799,11 @@ export const api = {
 
   async runDailyHeartbeat() {
     try {
-      const { data: settings } = await supabase
-        .from("portal_settings")
-        .select("*")
-        .limit(1)
-        .maybeSingle();
+      // Scope to the current area (never a bare .limit(1) — one row per area).
+      const tid = await resolveTerritoryId().catch(() => null);
+      let q = supabase.from("portal_settings").select("*");
+      if (tid) q = q.eq("territory_id", tid);
+      const { data: settings } = await q.limit(1).maybeSingle();
       if (!settings) return;
 
       const tz = settings.timezone || "America/New_York";
@@ -1946,11 +1946,10 @@ export const api = {
 
   async forceRunAutomations() {
     try {
-      const { data: settings } = await supabase
-        .from("portal_settings")
-        .select("*")
-        .limit(1)
-        .single();
+      const tid = await resolveTerritoryId().catch(() => null);
+      let fq = supabase.from("portal_settings").select("*");
+      if (tid) fq = fq.eq("territory_id", tid);
+      const { data: settings } = await fq.limit(1).maybeSingle();
       if (settings) {
         await supabase
           .from("portal_settings")
@@ -2065,10 +2064,10 @@ export const api = {
   async getUpcomingAutomations() {
     const upcoming: any[] = [];
     try {
-      const { data: settingsRows } = await supabase
-        .from("portal_settings")
-        .select("*")
-        .limit(1);
+      const tid = await resolveTerritoryId().catch(() => null);
+      let aq = supabase.from("portal_settings").select("*");
+      if (tid) aq = aq.eq("territory_id", tid);
+      const { data: settingsRows } = await aq.limit(1);
       const settings = settingsRows?.[0] || {};
       const now = new Date();
       const todayAtMidnight = new Date(now);

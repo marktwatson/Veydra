@@ -47,7 +47,7 @@ export function PayStepChoice({
   const [hasOffPlatform, setHasOffPlatform] = useState(false);
 
   useEffect(() => {
-    getOffPlatformConfig()
+    getOffPlatformConfig(weddingId)
       .then((c) => setHasOffPlatform(availableMethods(c).length > 0))
       .catch(() => setHasOffPlatform(false));
   }, []);

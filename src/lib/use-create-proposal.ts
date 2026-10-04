@@ -72,26 +72,30 @@ export function useCreateProposal() {
       amountPaidSoFar,
     } = args;
 
-    let snapshotTemplate: string | null = null;
-    try {
-      const { data: settingsData } = await supabase
-        .from("portal_settings")
-        .select("wedding_contract_template")
-        .single();
-      if (settingsData && (settingsData as any).wedding_contract_template) {
-        snapshotTemplate = (settingsData as any).wedding_contract_template;
-      }
-    } catch (e) {
-      console.warn("Could not fetch wedding_contract_template snapshot:", e);
-    }
-
-    // Never insert a proposal without territory_id. If the mount-time resolve
-    // hasn't landed (or returned null), resolve synchronously here before insert.
+    // Resolve the area's contract template scoped to the proposal's territory
+    // (never a bare .single() — portal_settings has one row per area now).
     let stampTerritoryId = territoryId;
     if (!stampTerritoryId) {
       stampTerritoryId = await resolveTerritoryId(user?.id).catch(() => null);
       if (stampTerritoryId) setTerritoryId(stampTerritoryId);
     }
+    let snapshotTemplate: string | null = null;
+    try {
+      if (stampTerritoryId) {
+        const { data: settingsData } = await supabase
+          .from("portal_settings")
+          .select("wedding_contract_template")
+          .eq("territory_id", stampTerritoryId)
+          .limit(1)
+          .maybeSingle();
+        if (settingsData && (settingsData as any).wedding_contract_template) {
+          snapshotTemplate = (settingsData as any).wedding_contract_template;
+        }
+      }
+    } catch (e) {
+      console.warn("Could not fetch wedding_contract_template snapshot:", e);
+    }
+
     if (!stampTerritoryId) {
       throw new Error("Pick an area before adding this.");
     }
@@ -216,19 +220,6 @@ export function useCreateProposal() {
       // a short-notice proposal that hasn't requested coverage behaves like
       // a normal proposal: Generate opens the share modal. "Request coverage
       // first" is a separate secondary action on the builder.
-      let snapshotTemplate: string | null = null;
-      try {
-        const { data: settingsData } = await supabase
-          .from("portal_settings")
-          .select("wedding_contract_template")
-          .single();
-        if (settingsData && (settingsData as any).wedding_contract_template) {
-          snapshotTemplate = (settingsData as any).wedding_contract_template;
-        }
-      } catch (e) {
-        console.warn("Could not fetch wedding_contract_template snapshot:", e);
-      }
-
       // Never insert a proposal without territory_id. If the mount-time resolve
       // hasn't landed (or returned null), resolve synchronously here.
       let stampTerritoryId = territoryId;
@@ -244,6 +235,22 @@ export function useCreateProposal() {
         });
         setIsSubmitting(false);
         return;
+      }
+      // Resolve the area's contract template scoped to the proposal's
+      // territory (never a bare .single() — one row per area now).
+      let snapshotTemplate: string | null = null;
+      try {
+        const { data: settingsData } = await supabase
+          .from("portal_settings")
+          .select("wedding_contract_template")
+          .eq("territory_id", stampTerritoryId)
+          .limit(1)
+          .maybeSingle();
+        if (settingsData && (settingsData as any).wedding_contract_template) {
+          snapshotTemplate = (settingsData as any).wedding_contract_template;
+        }
+      } catch (e) {
+        console.warn("Could not fetch wedding_contract_template snapshot:", e);
       }
 
       // Snapshot the package name + feature lists from the area's pricing row

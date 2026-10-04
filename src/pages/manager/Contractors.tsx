@@ -673,11 +673,13 @@ export default function ManagerContractors() {
 
   const syncInterviewFromCRM = async (contractor: any, isAutoSync = false) => {
     try {
+      const tid = await currentTerritoryId();
       const { data: settings } = await supabase
         .from("portal_settings")
         .select("hl_api_key, hl_location_id")
+        .eq("territory_id", tid || "")
         .limit(1)
-        .single();
+        .maybeSingle();
       if (!settings?.hl_api_key || !settings?.hl_location_id) {
         if (!isAutoSync)
           toast({

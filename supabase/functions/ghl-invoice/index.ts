@@ -273,7 +273,7 @@ Deno.serve(async (req) => {
     const settingsCols = "hl_api_key, hl_location_id, company_name, ghl_invoice_base_url, hl_user_id";
     let pSettings: any = null, settingsErr: any = null;
     if (wedding.territory_id) { const { data: t, error: te } = await db.from("portal_settings").select(settingsCols).eq("territory_id", wedding.territory_id).limit(1).maybeSingle(); if (te) settingsErr = te; if (t) pSettings = t; }
-    if (!pSettings) { const { data: f, error: fe } = await db.from("portal_settings").select(settingsCols).limit(1).maybeSingle(); if (fe && !settingsErr) settingsErr = fe; if (f) pSettings = f; }
+    if (!pSettings) { return jsonResp({ error: "No portal settings for this territory", territory_id: wedding.territory_id || null }, 400); }
 
     if (settingsErr) {
       console.error("[ghl-invoice] portal_settings query error:", settingsErr.message);

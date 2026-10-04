@@ -63,28 +63,41 @@ serve(async (req) => {
     if (!su || !sk) return new Response(JSON.stringify({ error: "Missing Supabase configuration" }), { status: 500 });
     const supabase = createClient(su, sk);
 
-    const { data: settings } = await supabase.from('portal_settings').select('*').single();
+    // Stripe is one HQ account. Load portal_settings scoped to the primary
+    // territory (never a bare .single() — portal_settings has one row per
+    // area now, so .single() errors when multiple rows exist). Per-wedding
+    // CRM sync uses the wedding's own territory_id via syncToCRM below.
+    let settings: any = null;
+    try {
+      const { data: primTerr } = await supabase.from("territories").select("id").eq("is_primary", true).limit(1).maybeSingle();
+      const primTid = primTerr?.id || null;
+      if (primTid) { const { data: ps } = await supabase.from("portal_settings").select("*").eq("territory_id", primTid).limit(1).maybeSingle(); settings = ps; }
+      if (!settings) { const { data: ps2 } = await supabase.from("portal_settings").select("*").limit(1).maybeSingle(); settings = ps2; }
+    } catch (e) { console.warn("[stripe-webhook] portal_settings load failed:", (e as any)?.message); }
     const hlKey = settings?.hl_api_key || "";
     const hlLoc = settings?.hl_location_id || "";
 
     const syncToCRM = async (wedding: any, amount: number, type: string) => {
-      if (!hlKey || !hlLoc || !wedding.client_email) return;
+      // Resolve this wedding's area keys (never borrow another area's).
+      let sKey = hlKey, sLoc = hlLoc;
+      if (wedding?.territory_id) { try { const { data: wps } = await supabase.from("portal_settings").select("hl_api_key, hl_location_id").eq("territory_id", wedding.territory_id).limit(1).maybeSingle(); if (wps?.hl_api_key) sKey = wps.hl_api_key; if (wps?.hl_location_id) sLoc = wps.hl_location_id; } catch {} }
+      if (!sKey || !sLoc || !wedding.client_email) return;
       try {
-        const contactId = await findLcContact(wedding.client_email, hlKey, hlLoc);
+        const contactId = await findLcContact(wedding.client_email, sKey, sLoc);
         let cid = contactId;
         if (!cid) {
           const tags = ["booked", "payment-received"];
           if (type === 'gift') tags.push("gift-received"); else if (type === 'subscription') tags.push("subscription-payment");
-          const cp: any = { locationId: hlLoc, email: wedding.client_email, name: wedding.client_name || "", tags };
+          const cp: any = { locationId: sLoc, email: wedding.client_email, name: wedding.client_name || "", tags };
           if (wedding.client_name) { const p = wedding.client_name.trim().split(" "); cp.firstName = p[0]; if (p.length > 1) cp.lastName = p.slice(1).join(" "); }
-          const cr = await fetch(`https://services.leadconnectorhq.com/contacts/`, { method: "POST", headers: lcHeaders(hlKey), body: JSON.stringify(cp) });
+          const cr = await fetch(`https://services.leadconnectorhq.com/contacts/`, { method: "POST", headers: lcHeaders(sKey), body: JSON.stringify(cp) });
           cid = (await cr.json()).contact?.id;
         }
         if (cid) {
-          const existing = (await (await fetch(`https://services.leadconnectorhq.com/contacts/?locationId=${hlLoc}&query=${encodeURIComponent(wedding.client_email)}`, { headers: lcHeaders(hlKey) })).json()).contacts?.[0]?.tags || [];
+          const existing = (await (await fetch(`https://services.leadconnectorhq.com/contacts/?locationId=${sLoc}&query=${encodeURIComponent(wedding.client_email)}`, { headers: lcHeaders(sKey) })).json()).contacts?.[0]?.tags || [];
           const newTags = new Set([...existing, "booked", "payment-received"]);
           if (type === 'gift') newTags.add("gift-received"); else if (type === 'subscription') newTags.add("subscription-payment");
-          await fetch(`https://services.leadconnectorhq.com/contacts/${cid}`, { method: "PUT", headers: lcHeaders(hlKey), body: JSON.stringify({ tags: Array.from(newTags) }) });
+          await fetch(`https://services.leadconnectorhq.com/contacts/${cid}`, { method: "PUT", headers: lcHeaders(sKey), body: JSON.stringify({ tags: Array.from(newTags) }) });
         }
       } catch (e) { console.error("CRM Sync Error:", e); }
     };
@@ -92,10 +105,11 @@ serve(async (req) => {
     const recordRoyaltySale = async (weddingId: string | null, amount: number, description: string, isRefund = false, stripeChargeId?: string) => {
       if (!amount || amount <= 0) return;
       try {
+        // Use the wedding's territory, not the primary — a Captured Memories
+        // payment must not post a royalty sale to Honeysuckle.
         let territory: any = null;
-        const { data: primaryTerr } = await supabase.from("territories").select("id").eq("is_primary", true).limit(1).maybeSingle();
-        if (primaryTerr?.id) territory = primaryTerr;
-        else { const { data: anyTerr } = await supabase.from("territories").select("id").limit(1).maybeSingle(); if (anyTerr?.id) { territory = anyTerr; console.warn("[ROYALTY] No is_primary territory — using first row."); } }
+        if (weddingId) { try { const { data: wTerr } = await supabase.from("weddings").select("territory_id").eq("id", weddingId).maybeSingle(); if (wTerr?.territory_id) { const { data: tRow } = await supabase.from("territories").select("id").eq("id", wTerr.territory_id).limit(1).maybeSingle(); if (tRow?.id) territory = tRow; } } catch {} }
+        if (!territory) { const { data: primaryTerr } = await supabase.from("territories").select("id").eq("is_primary", true).limit(1).maybeSingle(); if (primaryTerr?.id) territory = primaryTerr; }
         if (!territory?.id) { console.warn(`[ROYALTY] SKIPPED ${isRefund ? "refund" : "sale"} $${amount} — no territory.`); return; }
         // Idempotent on stripe_charge_id: if a row already exists for this
         // charge, do NOT insert a duplicate positive sale. Refunds flip the

@@ -51,20 +51,13 @@ Deno.serve(async (req) => {
     }
     const db = createClient(su, sk);
 
-    // Shared-secret guard (if configured).
+    // Shared-secret guard (if configured). The DB-stored secret is verified
+    // AFTER the wedding is resolved so we load it by the wedding's territory
+    // (portal_settings has one row per area now — a bare limit(1) would use
+    // another area's secret). Here we only check the env-var secret.
     const expectedSecret = Deno.env.get("GHL_WEBHOOK_SECRET") || "";
-    let savedSecret = "";
     let portalSettings: any = null;
-    try {
-      const { data: ps } = await db
-        .from("portal_settings")
-        .select("ghl_webhook_secret, hl_api_key, hl_location_id")
-        .limit(1)
-        .maybeSingle();
-      portalSettings = ps;
-      savedSecret = (ps?.ghl_webhook_secret || "").trim();
-    } catch {}
-    const secret = savedSecret || expectedSecret;
+    const secret = expectedSecret;
     if (secret) {
       const got = req.headers.get("x-webhook-secret") || "";
       if (got !== secret) {
@@ -233,8 +226,9 @@ Deno.serve(async (req) => {
         JSON.stringify(payload.customData || {}).slice(0, 2000),
       );
 
-      const fbApiKey = (portalSettings?.hl_api_key || "").trim();
-      const fbLocationId = (portalSettings?.hl_location_id || "").trim();
+      // Resolve this area's CRM keys from contact email → wedding → territory_id (never a bare limit(1)).
+      let fbApiKey = "", fbLocationId = "";
+      if (contactEmail) { try { const { data: fbWed } = await db.from("weddings").select("territory_id").eq("client_email", contactEmail).order("created_at", { ascending: false }).limit(1).maybeSingle(); const fbTid = fbWed?.territory_id || null; if (fbTid) { const { data: fbPs } = await db.from("portal_settings").select("hl_api_key, hl_location_id").eq("territory_id", fbTid).limit(1).maybeSingle(); fbApiKey = (fbPs?.hl_api_key || "").trim(); fbLocationId = (fbPs?.hl_location_id || "").trim(); } } catch (e: any) { console.warn("[ghl-invoice-webhook] fallback key resolve failed:", e?.message); } }
       if (fbApiKey && fbLocationId) {
         const fbHeaders: Record<string, string> = {
           Authorization: `Bearer ${fbApiKey}`,
@@ -484,7 +478,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const weddingId = wedding.id; let weddingTerritoryId: string | null = null; try { const { data: wT } = await db.from("weddings").select("territory_id").eq("id", weddingId).maybeSingle(); weddingTerritoryId = wT?.territory_id || null; if (weddingTerritoryId) { const { data: tS } = await db.from("portal_settings").select("hl_api_key, hl_location_id").eq("territory_id", weddingTerritoryId).limit(1).maybeSingle(); if (tS) portalSettings = { ...(portalSettings || {}), ...tS }; } } catch (e: any) { console.warn("[ghl-invoice-webhook] territory settings failed:", e?.message); }
+    const weddingId = wedding.id; let weddingTerritoryId: string | null = null; try { const { data: wT } = await db.from("weddings").select("territory_id").eq("id", weddingId).maybeSingle(); weddingTerritoryId = wT?.territory_id || null; if (weddingTerritoryId) { const { data: tS } = await db.from("portal_settings").select("ghl_webhook_secret, hl_api_key, hl_location_id").eq("territory_id", weddingTerritoryId).limit(1).maybeSingle(); if (tS) portalSettings = tS; const dbSec = (tS?.ghl_webhook_secret || "").trim(); if (dbSec && (req.headers.get("x-webhook-secret") || "") !== dbSec) return jsonResp({ error: "Invalid webhook secret for this area" }, 401); } } catch (e: any) { console.warn("[ghl-invoice-webhook] territory settings failed:", e?.message); }
     if ((Number(wedding.total_amount)||0) > 0 && (Number(wedding.paid_amount)||0) >= (Number(wedding.total_amount)||0) - 0.01) {
       return jsonResp({ ignored: "already paid in full", weddingId, invoiceId: invoiceId || invoiceNumber || `email:${contactEmail}`, paid_amount: Number(wedding.paid_amount)||0, total_amount: Number(wedding.total_amount)||0 });
     }
@@ -599,21 +593,9 @@ Deno.serve(async (req) => {
     }
 
     try {
-      const { data: primaryTerr } = await db
-        .from("territories")
-        .select("id")
-        .eq("is_primary", true)
-        .limit(1)
-        .maybeSingle();
-      let territoryId = primaryTerr?.id;
-      if (!territoryId) {
-        const { data: anyTerr } = await db
-          .from("territories")
-          .select("id")
-          .limit(1)
-          .maybeSingle();
-        territoryId = anyTerr?.id;
-      }
+      // Use the wedding's own territory, not the primary — a Captured
+      // Memories payment must not post a royalty sale to Honeysuckle.
+      const territoryId = weddingTerritoryId || null;
       if (territoryId && delta > 0) {
         const chargeKey = `ghl:${ledgerKey}:${effectiveAmountPaid}`;
         const { data: dup } = await db

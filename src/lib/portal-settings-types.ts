@@ -237,5 +237,11 @@ export interface DbPortalSettings {
   upsell_bartending_email_subject?: string | null;
   upsell_bartending_email_template?: string | null;
   upsell_bartending_sms_template?: string | null;
+  accept_venmo?: boolean | null;
+  venmo_handle?: string | null;
+  accept_cashapp?: boolean | null;
+  cashapp_cashtag?: string | null;
+  accept_zelle?: boolean | null;
+  zelle_target?: string | null;
   updated_at: string;
 }
