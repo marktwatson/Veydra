@@ -313,11 +313,10 @@ export default function OpportunityDetail() {
       return;
     }
     const jobTerritory = (position as any)?.territory_id;
-    if (
-      jobTerritory &&
-      currentUser.territory_id &&
-      jobTerritory !== currentUser.territory_id
-    ) {
+    const myTerritory = currentUser.territory_id;
+    // A blank territory_id on either side is treated as another area, not a
+    // match. Block the application instead of letting it through.
+    if (!jobTerritory || !myTerritory || jobTerritory !== myTerritory) {
       toast({
         variant: "destructive",
         title: "This job is in another area.",

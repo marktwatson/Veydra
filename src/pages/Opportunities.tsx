@@ -83,13 +83,11 @@ export default function Opportunities() {
   const visiblePositions = jobs
     .filter((p) => {
       if (p.status !== "open") return false;
-      // Hide jobs in another area — contractor can only see their own area's jobs.
+      // Hide jobs in another area — contractor can only see their own area's
+      // jobs. A blank territory_id on either side is NOT a match; hide it.
       const jobTerritory = (p as any)?.territory_id;
-      if (
-        jobTerritory &&
-        currentUser?.territory_id &&
-        jobTerritory !== currentUser.territory_id
-      )
+      const myTerritory = currentUser?.territory_id;
+      if (!jobTerritory || !myTerritory || jobTerritory !== myTerritory)
         return false;
       if (myBookedDates.has(p.weddings?.date)) return false;
 
