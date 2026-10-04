@@ -5517,10 +5517,12 @@ export const api = {
     startDate?: string,
     endDate?: string,
   ): Promise<any[]> {
-    const { data: settings } = await supabase
+    const fbTid = await resolveTerritoryId().catch(() => null);
+    let fbQ = supabase
       .from("portal_settings")
-      .select("fb_access_token, fb_ad_account_id")
-      .single();
+      .select("fb_access_token, fb_ad_account_id");
+    if (fbTid) fbQ = fbQ.eq("territory_id", fbTid);
+    const { data: settings } = await fbQ.limit(1).maybeSingle();
     if (!settings?.fb_access_token || !settings?.fb_ad_account_id) {
       console.warn("Missing Facebook API credentials in portal_settings.");
       throw new Error("Missing Credentials");
