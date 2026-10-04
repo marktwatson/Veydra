@@ -198,6 +198,7 @@ export default function OpportunityDetail() {
       queryClient.invalidateQueries({
         queryKey: ["my-application", id, currentUser?.id],
       });
+      queryClient.invalidateQueries({ queryKey: ["my-applications"] });
       queryClient.invalidateQueries({ queryKey: ["applications"] });
 
       if (
