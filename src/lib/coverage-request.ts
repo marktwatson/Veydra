@@ -48,20 +48,70 @@ export async function requestCoverage(
   // Self-heal columns FIRST so a stale PostgREST cache can't fake-fail.
   await healCoverageColumns();
 
-  // GUARD: if coverage was already requested OR an open photo/video job
-  // already exists for this wedding, do NOT insert again. Return the
-  // existing state so the caller can show state 2.
-  const existingWeddingId = await ensureWeddingForProposal(proposal.id);
-  if (!existingWeddingId) {
+  // ── Load the proposal FRESH from the database ──────────────────────────
+  // Never trust the passed-in page object for the wedding id — a stale id
+  // on the page is how a proposal gets attached to another couple's jobs.
+  // Use ONLY this DB row's wedding_id (never original_wedding_id, never a
+  // name/email lookup).
+  const { data: dbProposal, error: dbErr } = await supabase
+    .from("proposals")
+    .select("*")
+    .eq("id", proposal.id)
+    .single();
+  if (dbErr || !dbProposal) {
     throw new Error(
-      "Could not create the wedding record for this proposal. Please try again or contact support.",
+      `Could not load this proposal: ${dbErr?.message || "not found"}`,
     );
   }
-  if (proposal.coverage_requested_at) {
+  const proposalId = dbProposal.id;
+
+  // Resolve the wedding id from the DB row only. If empty, create the
+  // wedding now and save the new id back onto the proposal before inserting
+  // any jobs.
+  let weddingId: string | null = dbProposal.wedding_id || null;
+
+  if (!weddingId) {
+    // Create a fresh wedding for THIS proposal. ensureWeddingForProposal
+    // stamps territory_id from the proposal row and throws if there is no
+    // area — it does NOT reuse another wedding.
+    const newWeddingId = await ensureWeddingForProposal(proposalId);
+    if (!newWeddingId) {
+      throw new Error(
+        "Could not create the wedding record for this proposal. Please try again or contact support.",
+      );
+    }
+    weddingId = newWeddingId;
+  }
+
+  // ── Verify the wedding actually belongs to this proposal ──────────────
+  // If the resolved wedding's client does not match the proposal, stop and
+  // return the error. Do NOT stamp coverage_requested_at and do NOT touch
+  // any jobs.
+  const { data: weddingRow } = await supabase
+    .from("weddings")
+    .select("id, client_name, territory_id")
+    .eq("id", weddingId)
+    .maybeSingle();
+  if (!weddingRow) {
+    throw new Error(
+      "The wedding record for this proposal could not be found. Please refresh and try again.",
+    );
+  }
+  const sameClient =
+    (weddingRow.client_name || "").trim().toLowerCase() ===
+    (dbProposal.client_name || "").trim().toLowerCase();
+  if (!sameClient) {
+    throw new Error(
+      `This proposal's wedding does not match the client on record (${weddingRow.client_name || "unknown"}). Coverage was not requested — please refresh the page and try again.`,
+    );
+  }
+
+  // GUARD: if coverage was already requested, return the existing state.
+  if (dbProposal.coverage_requested_at) {
     const { data: existingJobs } = await supabase
       .from("jobs")
       .select("id")
-      .eq("wedding_id", existingWeddingId)
+      .eq("wedding_id", weddingId)
       .in("role", [
         "Photographer",
         "Videographer",
@@ -70,35 +120,23 @@ export async function requestCoverage(
       ])
       .neq("status", "cancelled");
     return {
-      weddingId: existingWeddingId,
+      weddingId: weddingId,
       createdJobs: [],
       notified: 0,
     };
   }
 
-  const weddingId = existingWeddingId;
-
   // Copy the wedding's territory_id onto any new coverage jobs so they are
   // scoped to the same territory as the wedding/proposal. If the wedding has
   // no territory, fall back to the viewed area (super-admin switcher →
   // manager territory). Never insert a blank-area job.
-  let weddingTerritoryId: string | null = null;
-  try {
-    const { data: wRow } = await supabase
-      .from("weddings")
-      .select("territory_id")
-      .eq("id", weddingId)
-      .maybeSingle();
-    weddingTerritoryId = (wRow as any)?.territory_id || null;
-  } catch {
-    // non-fatal
-  }
+  let weddingTerritoryId: string | null = weddingRow.territory_id || null;
   if (!weddingTerritoryId) {
     weddingTerritoryId = await resolveTerritoryId().catch(() => null);
   }
 
-  // Determine which roles to create.
-  const videoNeeded = packageIncludesVideo(proposal);
+  // Determine which roles to create (use the DB-loaded proposal).
+  const videoNeeded = packageIncludesVideo(dbProposal);
   const photoCfg = payload?.roles?.photo;
   const videoCfg = payload?.roles?.video;
 
@@ -107,13 +145,14 @@ export async function requestCoverage(
     ? videoCfg.enabled && videoCfg.payRate > 0
     : videoNeeded;
 
-  const coverageHours = extractCoverageHours(proposal);
+  const coverageHours = extractCoverageHours(dbProposal);
   const notes = payload?.notes || "";
 
-  // Fetch existing jobs for this wedding.
+  // Fetch existing jobs for THIS wedding only. Select proposal_id so we can
+  // avoid overwriting a job that already belongs to a different proposal.
   const { data: existingData } = await supabase
     .from("jobs")
-    .select("id, role, status, contractor_id, coverage_request")
+    .select("id, role, status, contractor_id, coverage_request, proposal_id")
     .eq("wedding_id", weddingId);
   const existing: any[] = existingData || [];
 
@@ -152,7 +191,7 @@ export async function requestCoverage(
       pay_rate: r.payRate,
       hours: r.hours || null,
       coverage_request: true,
-      proposal_id: proposal.id,
+      proposal_id: proposalId,
       requirements: notes || null,
       ...(weddingTerritoryId ? { territory_id: weddingTerritoryId } : {}),
     };
@@ -167,9 +206,6 @@ export async function requestCoverage(
       /schema cache|Could not find|column/i.test(error.message || "")
     ) {
       await new Promise((res) => setTimeout(res, 800));
-      // Force re-heal: the cached flag is private to coverage.ts, so we
-      // call the public function which re-runs if the cache was stale.
-      // We bypass the cache by calling the RPC directly here.
       try {
         await supabase.rpc("exec_sql", {
           sql_text: `
@@ -203,14 +239,20 @@ export async function requestCoverage(
     if (data) createdJobs.push(data.id);
   }
 
-  // Mark any already-existing photo/video jobs as coverage requests too.
+  // Mark any already-existing photo/video jobs as coverage requests too —
+  // but NEVER overwrite a job that already has a different proposal_id, and
+  // only touch jobs whose wedding_id equals this proposal's wedding (the
+  // query above is already scoped to weddingId).
   if (existing.length) {
     const ids = existing
       .filter(
         (j) =>
           /photo|video/.test(String(j.role || "").toLowerCase()) &&
           j.status !== "cancelled" &&
-          j.coverage_request !== true,
+          j.coverage_request !== true &&
+          // Only adopt jobs that have no proposal_id yet, or already point at
+          // THIS proposal. Never steal a job from another proposal.
+          (!j.proposal_id || j.proposal_id === proposalId),
       )
       .map((j) => j.id);
     if (ids.length) {
@@ -218,7 +260,7 @@ export async function requestCoverage(
         .from("jobs")
         .update({
           coverage_request: true,
-          proposal_id: proposal.id,
+          proposal_id: proposalId,
           ...(notes ? { requirements: notes } : {}),
         })
         .in("id", ids);
@@ -245,11 +287,11 @@ export async function requestCoverage(
       .eq("id", weddingId);
   }
 
-  // Stamp the proposal.
+  // Stamp the proposal (use the DB-loaded id).
   await supabase
     .from("proposals")
     .update({ coverage_requested_at: new Date().toISOString() })
-    .eq("id", proposal.id);
+    .eq("id", proposalId);
 
   // Notify contractors via the existing job-alert path (SMS/email/in-app +
   // webhook). resendJobAlerts filters by specialty + region automatically and
