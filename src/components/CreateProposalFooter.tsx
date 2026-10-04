@@ -144,12 +144,14 @@ export function CreateProposalFooter({
     setNotes("");
     if (!regions.length) {
       try {
-        const { data } = await supabase
-          .from("portal_settings")
-          .select("regions")
-          .maybeSingle();
-        if (Array.isArray((data as any)?.regions))
-          setRegions((data as any).regions);
+        const { getRegionsForTerritory } =
+          await import("@/lib/portal-settings-by-territory");
+        const tid =
+          (savedRow as any)?.territory_id ||
+          (formData as any)?.territoryId ||
+          null;
+        const list = await getRegionsForTerritory(tid);
+        if (list.length) setRegions(list);
       } catch {
         /* ignore */
       }

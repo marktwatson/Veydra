@@ -74,15 +74,21 @@ export function ProposalCoverageBlock({
   }, [propPackages]);
 
   useEffect(() => {
-    supabase
-      .from("portal_settings")
-      .select("regions")
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }: any) => {
-        if (Array.isArray(data?.regions)) setRegions(data.regions);
-      });
-  }, []);
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getRegionsForTerritory } =
+          await import("@/lib/portal-settings-by-territory");
+        const list = await getRegionsForTerritory(proposal?.territory_id);
+        if (!cancelled && list.length) setRegions(list);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [proposal?.territory_id]);
 
   const [status, setStatus] = useState<CoverageStatus | null>(null);
   const [loading, setLoading] = useState(false);
