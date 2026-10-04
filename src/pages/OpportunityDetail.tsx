@@ -42,6 +42,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { fetchJobById } from "@/lib/api-territory-scoped";
 import { useAuth } from "@/contexts/AuthContext";
 import { geocodeAddress, calculateDistanceMiles } from "@/lib/geocoding";
 import { formatDisplayDate, applyForJobWithTerritory } from "@/lib/utils";
@@ -53,9 +54,10 @@ export default function OpportunityDetail() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
-  const { data: jobs = [], isLoading: isLoadingJobs } = useQuery({
-    queryKey: ["jobs"],
-    queryFn: api.getJobs,
+  const { data: position, isLoading: isLoadingJobs } = useQuery({
+    queryKey: ["contractor-job", id],
+    queryFn: () => fetchJobById(id!),
+    enabled: !!id,
   });
 
   const { data: assignments = [], isLoading: isLoadingAssignments } = useQuery({
@@ -80,7 +82,6 @@ export default function OpportunityDetail() {
     queryKey: ["portalSettings"],
     queryFn: api.getPortalSettings,
   });
-  const position = jobs.find((p) => p.id === id);
   const application = applications.find(
     (a) => a.job_id === id && a.contractor_id === currentUser?.id,
   );
