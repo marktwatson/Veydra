@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
 import { Globe } from "lucide-react";
 import {
   Select,
@@ -8,49 +7,111 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  loadTerritoriesForPicker,
-  isSuperAdminActive,
-} from "@/lib/active-territory";
+import { supabase } from "@/lib/supabase";
+import { isSuperAdminEmail } from "@/lib/super-admin";
 import {
   getSuperAdminViewTerritory,
   setSuperAdminViewTerritory,
-  ALL_AREAS_VALUE,
 } from "@/lib/current-territory";
+import { HONEYSUCKLE_TERRITORY_ID } from "@/lib/territory";
+
+interface SwitcherArea {
+  id: string;
+  name: string;
+}
 
 /**
- * Area switcher for super admins.
+ * Area switcher for super admins AND multi-area managers.
  *
- * Lets HQ view one area at a time instead of every area's data mixed
- * together. The selection persists to localStorage `veydra_view_territory_id`
- * (null / "all" = All Areas) and reloads the page so every list query
- * (Weddings, Proposals, Contractors, Payment Audit) re-runs scoped to the
- * picked area via currentTerritoryId().
+ *  - Super admin: every territory. No "All Areas" item — they pick one area.
+ *  - Multi-area manager (territory_ids has > 1 id): only their allowed areas.
  *
- * Managers / owners are locked to their own area, so this is hidden for them.
+ * The selection persists to localStorage `veydra_view_territory_id` and
+ * reloads the page so every list query re-runs scoped to the picked area via
+ * currentTerritoryId().
+ *
+ * Single-area managers / owners never see this (canSwitchAreas() is false).
  */
 export function SuperAdminAreaSwitcher() {
-  const [territories, setTerritories] = useState<
-    { id: string; name: string; slug: string | null }[]
-  >([]);
-  const [value, setValue] = useState<string>(ALL_AREAS_VALUE);
+  const [areas, setAreas] = useState<SwitcherArea[]>([]);
+  const [value, setValue] = useState<string>("");
+  const [defaultId, setDefaultId] = useState<string>(HONEYSUCKLE_TERRITORY_ID);
 
   useEffect(() => {
-    loadTerritoriesForPicker().then((rows) => {
-      setTerritories(rows);
-      const v = getSuperAdminViewTerritory();
-      // Reset a stale id (area deleted) back to All Areas.
-      if (v && !rows.some((r) => r.id === v)) {
-        setSuperAdminViewTerritory(null);
-        setValue(ALL_AREAS_VALUE);
-      } else {
-        setValue(v ?? ALL_AREAS_VALUE);
+    let cancelled = false;
+    (async () => {
+      // 1. Resolve the user's allowed areas + home area.
+      let allowedIds: string[] | null = null; // null = every area (super admin)
+      let homeId = HONEYSUCKLE_TERRITORY_ID;
+      let isSuper = false;
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        isSuper = isSuperAdminEmail(user?.email);
+        if (isSuper) {
+          allowedIds = null;
+        } else if (user?.email) {
+          const { data: mgr } = await supabase
+            .from("managers")
+            .select("territory_id, territory_ids")
+            .ilike("email", user.email)
+            .maybeSingle();
+          if (mgr) {
+            homeId = (mgr.territory_id as string) || homeId;
+            const ids = (mgr.territory_ids as any) || [];
+            const set = new Set<string>();
+            if (Array.isArray(ids)) ids.forEach((t: string) => t && set.add(t));
+            if (homeId) set.add(homeId);
+            allowedIds = Array.from(set);
+          }
+        }
+      } catch {
+        /* ignore */
       }
-    });
+
+      // 2. Load territory rows. Super admin → all; manager → only allowed.
+      let rows: SwitcherArea[] = [];
+      try {
+        let q = supabase.from("territories").select("id, name").order("name");
+        if (allowedIds && allowedIds.length > 0) {
+          q = q.in("id", allowedIds);
+        }
+        const { data, error } = await q;
+        if (!error && data) rows = data as SwitcherArea[];
+      } catch {
+        /* ignore */
+      }
+      if (rows.length === 0) {
+        rows = [{ id: HONEYSUCKLE_TERRITORY_ID, name: "Honeysuckle" }];
+      }
+
+      // 3. Default = home area (manager) or first area (super admin).
+      const def = isSuper
+        ? rows[0]?.id || HONEYSUCKLE_TERRITORY_ID
+        : homeId || rows[0]?.id || HONEYSUCKLE_TERRITORY_ID;
+      setDefaultId(def);
+      setAreas(rows);
+
+      // 4. Saved pick — keep only if still in the allowed list.
+      const saved = getSuperAdminViewTerritory();
+      const inList = rows.some((r) => r.id === saved);
+      if (saved && inList) {
+        setValue(saved);
+      } else {
+        // Stale or missing → reset to the default and persist it.
+        if (saved && !inList) setSuperAdminViewTerritory(def);
+        setValue(def);
+      }
+      if (cancelled) return;
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleChange = (v: string) => {
-    setSuperAdminViewTerritory(v === ALL_AREAS_VALUE ? null : v);
+    setSuperAdminViewTerritory(v);
     setValue(v);
     // Reload so every list query re-runs scoped to the new area.
     window.location.reload();
@@ -64,8 +125,7 @@ export function SuperAdminAreaSwitcher() {
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value={ALL_AREAS_VALUE}>All Areas</SelectItem>
-          {territories.map((t) => (
+          {areas.map((t) => (
             <SelectItem key={t.id} value={t.id}>
               {t.name}
             </SelectItem>
@@ -76,80 +136,11 @@ export function SuperAdminAreaSwitcher() {
   );
 }
 
+/**
+ * Mounts the area switcher into the header for users who can switch areas
+ * (super admin or multi-area manager). Rendered directly in LayoutHeader
+ * JSX; this mounter is kept for backward compatibility.
+ */
 export function SuperAdminAreaSwitcherMounter() {
-  const [host, setHost] = useState<HTMLElement | null>(null);
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
-
-  // Locate the header's right-side control div.
-  const findHost = (): HTMLElement | null => {
-    const header = document.querySelector("header");
-    if (!header) return null;
-    // The header has two direct children: left (logo) + right (controls).
-    // The controls div is the last direct child div of the header.
-    const children = Array.from(
-      header.querySelectorAll<HTMLElement>(":scope > div"),
-    );
-    return children[children.length - 1] ?? null;
-  };
-
-  useEffect(() => {
-    let cancelled = false;
-    const slotId = "super-admin-area-switcher-host";
-
-    const attach = async () => {
-      if (cancelled) return false;
-      // If already mounted (StrictMode / remount), reuse it.
-      const existing = document.getElementById(slotId) as HTMLElement | null;
-      if (existing) {
-        setHost(existing);
-        setIsSuperAdmin(true);
-        return true;
-      }
-      const el = findHost();
-      if (!el) return false;
-      // By the time the header is in the DOM, auth has finished loading, so
-      // the super-admin check is reliable here (not a race at app start).
-      let ok = false;
-      try {
-        ok = await isSuperAdminActive();
-      } catch {
-        ok = false;
-      }
-      if (cancelled || !ok) return false;
-      if (el.querySelector(`#${slotId}`)) return true;
-      const slot = document.createElement("div");
-      slot.id = slotId;
-      slot.className = "flex items-center";
-      el.insertBefore(slot, el.firstChild);
-      setHost(slot);
-      setIsSuperAdmin(true);
-      return true;
-    };
-
-    // Watch for the header appearing (auth-loading clears, route changes).
-    const observer = new MutationObserver(() => {
-      attach().then((d) => {
-        if (d) observer.disconnect();
-      });
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    // Safety timeout so we never leave an observer running forever.
-    const stop = setTimeout(() => observer.disconnect(), 20000);
-
-    // Kick off the initial attach without blocking the effect's return.
-    attach().then((done) => {
-      if (done) observer.disconnect();
-    });
-
-    return () => {
-      cancelled = true;
-      observer.disconnect();
-      clearTimeout(stop);
-    };
-  }, []);
-
-  if (!isSuperAdmin || !host) return null;
-
-  return createPortal(<SuperAdminAreaSwitcher />, host);
+  return null;
 }

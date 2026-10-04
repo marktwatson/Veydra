@@ -1,10 +1,14 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { isSuperAdminEmail } from "@/lib/super-admin";
 import { HONEYSUCKLE_TERRITORY_ID } from "@/lib/territory";
+import { loadTeamForTerritory } from "@/lib/team-territory-scoped";
 import { TeamAddAdminDialog } from "@/components/TeamAddAdminDialog";
+import { TeamEditAdminDialog } from "@/components/TeamEditAdminDialog";
+import { TeamDeleteAdminDialog } from "@/components/TeamDeleteAdminDialog";
+import { TeamMemberActions } from "@/components/TeamMemberActions";
 import {
   sendInviteNotifications,
   sendResetNotifications,
@@ -29,16 +33,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
   Table,
   TableBody,
   TableCell,
@@ -46,33 +40,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Shield,
-  Trash2,
-  Loader2,
-  Key,
-  Mail,
-  MoreHorizontal,
-  Edit,
-  Camera,
-  LogIn,
-} from "lucide-react";
+import { Shield, Loader2, Key } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useNavigate } from "react-router-dom";
 
@@ -86,8 +57,6 @@ export default function ManagerTeam() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingAdmin, setEditingAdmin] = useState<any>(null);
-  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
@@ -99,9 +68,6 @@ export default function ManagerTeam() {
   const { user, impersonate } = useAuth();
   const navigate = useNavigate();
 
-  // Load territories (id, name, slug) once for the Team page — used for the
-  // Area badge on each member and the Area <Select> on invite / edit. Falls
-  // back to the Honeysuckle single-area option when the table is empty.
   const { data: territories = [] } = useQuery({
     queryKey: ["team-territories"],
     queryFn: async () => {
@@ -113,11 +79,6 @@ export default function ManagerTeam() {
       return (data || []) as TerritoryLite[];
     },
   });
-
-  const areaOptions: TerritoryLite[] =
-    territories.length > 0
-      ? territories
-      : [{ id: HONEYSUCKLE_TERRITORY_ID, name: "Honeysuckle", slug: null }];
 
   const territoryNameById = (id?: string | null): string => {
     if (!id) return "Honeysuckle";
@@ -205,136 +166,6 @@ export default function ManagerTeam() {
       });
     },
   });
-
-  const updateMutation = useMutation({
-    mutationFn: async (data: { member: any; updates: any }) => {
-      const { member, updates } = data;
-      // territory_id lives on the managers table only; preserve it across
-      // role conversions where a managers row is (re)created.
-      const territoryId =
-        updates.territory_id || member.territory_id || HONEYSUCKLE_TERRITORY_ID;
-
-      if (member.role === "editor" && updates.role !== "editor") {
-        await api.removeEditor(member.id).catch(() => {});
-        await supabase.from("managers").delete().eq("email", member.email);
-        return api.addManager({
-          id: member.id,
-          name: updates.name,
-          email: member.email,
-          role: updates.role,
-          status: member.status,
-          avatar_url: member.avatar_url,
-          territory_id: territoryId,
-        } as any);
-      } else if (member.role !== "editor" && updates.role === "editor") {
-        await api.removeManager(member.id).catch(() => {});
-        if (member.status === "invited") {
-          return api.addManager({
-            id: member.id,
-            name: updates.name,
-            email: member.email,
-            role: "editor",
-            status: "invited",
-            avatar_url: member.avatar_url,
-            territory_id: territoryId,
-          } as any);
-        }
-        return api.addEditor({
-          id: member.id,
-          name: updates.name,
-          email: member.email,
-          status: member.status,
-          avatar_url: member.avatar_url,
-        });
-      }
-
-      if (updates.role === "editor" || member.role === "editor") {
-        return api.updateEditor(member.id, { name: updates.name });
-      } else {
-        await supabase
-          .from("managers")
-          .update({ name: updates.name, role: updates.role })
-          .eq("email", member.email);
-        // Update managers.territory_id only (plus name/role as today); do not
-        // overwrite email or other fields.
-        return api.updateManager(member.id, {
-          name: updates.name,
-          role: updates.role,
-          territory_id: territoryId,
-        } as any);
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["managers"] });
-      toast({
-        title: "Team member updated",
-        description: "Team member details have been updated.",
-      });
-      setIsEditDialogOpen(false);
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Failed to update team member",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
-
-  const handleEditSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingAdmin) return;
-    const originalMember = managers.find((m: any) => m.id === editingAdmin.id);
-    updateMutation.mutate({
-      member: originalMember,
-      updates: {
-        name: editingAdmin.name,
-        role: editingAdmin.role || "manager",
-        territory_id: editingAdmin.territory_id || HONEYSUCKLE_TERRITORY_ID,
-      },
-    });
-  };
-
-  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !editingAdmin) return;
-    try {
-      setIsUploadingAvatar(true);
-      const fileExt = file.name.split(".").pop();
-      const safeEmail = editingAdmin.email.replace(/[^a-zA-Z0-9]/g, "_");
-      const fileName = `admin-${safeEmail}-${Date.now()}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage
-        .from("avatars")
-        .upload(fileName, file, { upsert: true });
-      if (uploadError) throw uploadError;
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from("avatars").getPublicUrl(fileName);
-      setEditingAdmin({ ...editingAdmin, avatar_url: publicUrl });
-      if (editingAdmin.role === "editor") {
-        await supabase
-          .from("editors")
-          .update({ avatar_url: publicUrl })
-          .eq("email", editingAdmin.email);
-      } else {
-        const { error: updateError } = await supabase
-          .from("managers")
-          .update({ avatar_url: publicUrl })
-          .eq("email", editingAdmin.email);
-        if (updateError) throw updateError;
-      }
-      queryClient.invalidateQueries({ queryKey: ["managers"] });
-    } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Upload failed",
-        description: error.message,
-      });
-    } finally {
-      setIsUploadingAvatar(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  };
 
   const handleDeleteInvite = async (member: any) => {
     deleteMutation.mutate(member);
@@ -482,6 +313,24 @@ export default function ManagerTeam() {
     }
   };
 
+  const handleImpersonate = (manager: any) => {
+    let targetRole = manager.role || "manager";
+    if (targetRole === "super_admin") targetRole = "super_admin";
+    if (targetRole === "owner_readonly") targetRole = "owner_readonly";
+    impersonate({
+      id: manager.id,
+      name: manager.name,
+      email: manager.email,
+      role: targetRole as any,
+    });
+    if (targetRole === "editor") navigate("/editor");
+    else navigate("/manager");
+    toast({
+      title: `Logged in as ${manager.name}`,
+      description: `You are now impersonating ${manager.name} (${targetRole})`,
+    });
+  };
+
   const allManagers = Array.isArray(managers) ? managers : [];
 
   return (
@@ -623,190 +472,115 @@ export default function ManagerTeam() {
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className="text-[10px] font-normal"
-                        >
-                          {isSuperAdminEmail(manager.email)
-                            ? "All"
-                            : territoryNameById(manager.territory_id)}
-                        </Badge>
+                      <TableCell className="align-middle">
+                        {isSuperAdminEmail(manager.email) ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20 whitespace-nowrap">
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                            All Areas
+                          </span>
+                        ) : Array.isArray(manager.territory_ids) &&
+                          manager.territory_ids.length > 1 ? (
+                          <div className="flex flex-wrap gap-1 max-w-[220px]">
+                            {manager.territory_ids.map((tid: string) => (
+                              <span
+                                key={tid}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-secondary/80 text-foreground border border-border/60 whitespace-nowrap"
+                              >
+                                <span className="h-1.5 w-1.5 rounded-full bg-primary/60" />
+                                {territoryNameById(tid)}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-secondary/80 text-foreground border border-border/60 whitespace-nowrap">
+                            <span className="h-1.5 w-1.5 rounded-full bg-primary/60" />
+                            {territoryNameById(manager.territory_id)}
+                          </span>
+                        )}
                       </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="capitalize">
-                          {manager.role === "owner_readonly"
-                            ? "Owner (Read Only)"
-                            : manager.role
-                              ? manager.role.replace("_", " ")
-                              : "Manager"}
-                        </Badge>
+                      <TableCell className="align-middle whitespace-nowrap">
+                        {manager.role === "super_admin" ||
+                        isSuperAdminEmail(manager.email) ? (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20">
+                            Super Admin
+                          </span>
+                        ) : manager.role === "owner" ? (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20">
+                            Owner
+                          </span>
+                        ) : manager.role === "owner_readonly" ? (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20">
+                            Owner (Read Only)
+                          </span>
+                        ) : manager.role === "editor" ? (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                            Editor
+                          </span>
+                        ) : manager.role === "read_only" ? (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-muted text-muted-foreground border border-border">
+                            Read Only
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-primary/10 text-primary border border-primary/20">
+                            Manager
+                          </span>
+                        )}
                       </TableCell>
-                      <TableCell>
-                        {manager.role === "editor" &&
-                          (manager.stripe_account_id ? (
-                            <Badge
-                              variant="outline"
-                              className="text-[10px] bg-indigo-50/50 text-indigo-600"
-                            >
+                      <TableCell className="align-middle">
+                        {manager.role === "editor" ? (
+                          manager.stripe_account_id ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20 whitespace-nowrap">
                               Stripe Connected
-                            </Badge>
+                            </span>
                           ) : manager.venmo_handle ? (
-                            <Badge
-                              variant="outline"
-                              className="text-[10px] bg-sky-50/50 text-sky-600"
-                            >
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20 whitespace-nowrap">
                               Venmo Added
-                            </Badge>
+                            </span>
                           ) : (
-                            <Badge
-                              variant="outline"
-                              className="text-[10px] bg-red-50/50 text-red-600"
-                            >
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/20 whitespace-nowrap">
                               No Payment Info
-                            </Badge>
-                          ))}
+                            </span>
+                          )
+                        ) : (
+                          <span className="text-xs text-muted-foreground/60">
+                            —
+                          </span>
+                        )}
                       </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={
-                            manager.status === "invited"
-                              ? "secondary"
-                              : "default"
-                          }
-                        >
-                          {manager.status === "invited" ? "Invited" : "Active"}
-                        </Badge>
+                      <TableCell className="align-middle whitespace-nowrap">
+                        {manager.status === "invited" ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                            Invited
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                            Active
+                          </span>
+                        )}
                       </TableCell>
-                      <TableCell className="text-muted-foreground">
+                      <TableCell className="text-muted-foreground whitespace-nowrap align-middle text-xs">
                         {new Date(manager.created_at).toLocaleDateString()}
                       </TableCell>
                       <TableCell className="text-right">
-                        {manager.status === "invited" ? (
-                          <div className="flex justify-end gap-2 items-center">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => {
-                                setEditingAdmin(manager);
-                                setIsEditDialogOpen(true);
-                              }}
-                              className="text-muted-foreground hover:text-foreground"
-                              title="Edit Admin Role"
-                            >
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm">
-                                  <MoreHorizontal className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem
-                                  onClick={() => handleResendInvite(manager)}
-                                >
-                                  Resend Invite
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  className="text-destructive focus:bg-destructive focus:text-destructive-foreground"
-                                  onClick={() => handleDeleteInvite(manager)}
-                                >
-                                  Delete Invite
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-                        ) : (
-                          <div className="flex justify-end gap-2 items-center">
-                            {manager.id !== user?.id && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  let targetRole = manager.role || "manager";
-                                  if (targetRole === "super_admin")
-                                    targetRole = "super_admin";
-                                  if (targetRole === "owner_readonly")
-                                    targetRole = "owner_readonly";
-                                  impersonate({
-                                    id: manager.id,
-                                    name: manager.name,
-                                    email: manager.email,
-                                    role: targetRole as any,
-                                  });
-                                  if (targetRole === "editor")
-                                    navigate("/editor");
-                                  else navigate("/manager");
-                                  toast({
-                                    title: `Logged in as ${manager.name}`,
-                                    description: `You are now impersonating ${manager.name} (${targetRole})`,
-                                  });
-                                }}
-                                className="text-primary hover:bg-primary/10 gap-1 text-xs"
-                                title={`Log in as ${manager.name}`}
-                              >
-                                <LogIn className="h-4 w-4" /> Log in as
-                              </Button>
-                            )}
-                            {manager.id === user?.id ? (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setIsPasswordDialogOpen(true)}
-                                className="text-muted-foreground hover:text-foreground"
-                              >
-                                <Key className="h-4 w-4 mr-2" /> Reset Password
-                              </Button>
-                            ) : manager.role !== "owner" ? (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() =>
-                                  handleSendResetEmail(manager.email)
-                                }
-                                className="text-muted-foreground hover:text-foreground"
-                                title="Send Password Reset Email"
-                              >
-                                <Mail className="h-4 w-4 mr-2" /> Reset Password
-                              </Button>
-                            ) : null}
-                            {(manager.role !== "owner" ||
-                              manager.id === user?.id) && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => {
-                                  setEditingAdmin(manager);
-                                  setIsEditDialogOpen(true);
-                                }}
-                                className="text-muted-foreground hover:text-foreground"
-                                title="Edit Admin"
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleDeleteAdmin(manager)}
-                              disabled={
-                                manager.id === user?.id ||
-                                manager.role === "super_admin" ||
-                                (manager.role === "owner" &&
-                                  user?.role !== "super_admin") ||
-                                (manager.role === "owner_readonly" &&
-                                  user?.role !== "super_admin") ||
-                                isSuperAdminEmail(manager.email) ||
-                                deleteMutation.isPending
-                              }
-                              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                              title="Remove Team Member"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        )}
+                        <TeamMemberActions
+                          manager={manager}
+                          user={user}
+                          onEdit={(m) => {
+                            setEditingAdmin(m);
+                            setIsEditDialogOpen(true);
+                          }}
+                          onDelete={handleDeleteAdmin}
+                          onResendInvite={handleResendInvite}
+                          onDeleteInvite={handleDeleteInvite}
+                          onSendResetEmail={handleSendResetEmail}
+                          onOpenOwnPassword={() =>
+                            setIsPasswordDialogOpen(true)
+                          }
+                          onImpersonate={handleImpersonate}
+                          isDeleting={deleteMutation.isPending}
+                        />
                       </TableCell>
                     </TableRow>
                   ))}
@@ -817,162 +591,21 @@ export default function ManagerTeam() {
         </CardContent>
       </Card>
 
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Edit Administrator</DialogTitle>
-            <DialogDescription>
-              Update details and permissions for this admin.
-            </DialogDescription>
-          </DialogHeader>
-          {editingAdmin && (
-            <form onSubmit={handleEditSubmit} className="space-y-4 pt-4">
-              <div className="flex flex-col items-center gap-4 mb-4">
-                <Avatar className="h-20 w-20">
-                  <AvatarImage src={editingAdmin.avatar_url} />
-                  <AvatarFallback>
-                    {editingAdmin.name?.charAt(0) ||
-                      editingAdmin.email?.charAt(0)}
-                  </AvatarFallback>
-                </Avatar>
-                <div>
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleAvatarUpload}
-                    className="hidden"
-                    accept="image/*"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isUploadingAvatar}
-                  >
-                    {isUploadingAvatar ? (
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    ) : (
-                      <Camera className="h-4 w-4 mr-2" />
-                    )}
-                    Upload Photo
-                  </Button>
-                </div>
-              </div>
+      <TeamEditAdminDialog
+        open={isEditDialogOpen}
+        onOpenChange={setIsEditDialogOpen}
+        admin={editingAdmin}
+        territories={territories}
+      />
 
-              <div className="space-y-2">
-                <Label htmlFor="edit-name">Full Name</Label>
-                <Input
-                  id="edit-name"
-                  value={editingAdmin.name || ""}
-                  onChange={(e) =>
-                    setEditingAdmin({ ...editingAdmin, name: e.target.value })
-                  }
-                  required
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="edit-role">Role</Label>
-                <Select
-                  value={editingAdmin.role || "manager"}
-                  onValueChange={(value) =>
-                    setEditingAdmin({ ...editingAdmin, role: value })
-                  }
-                  disabled={
-                    editingAdmin.role === "super_admin" ||
-                    isSuperAdminEmail(editingAdmin.email)
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {user?.role === "super_admin" && (
-                      <SelectItem value="super_admin">Super Admin</SelectItem>
-                    )}
-                    <SelectItem value="owner">Owner</SelectItem>
-                    <SelectItem value="owner_readonly">
-                      Owner (Read Only)
-                    </SelectItem>
-                    <SelectItem value="manager">Manager</SelectItem>
-                    <SelectItem value="editor">Editor</SelectItem>
-                    <SelectItem value="read_only">Read Only</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="edit-area">Area</Label>
-                <Select
-                  value={editingAdmin.territory_id || HONEYSUCKLE_TERRITORY_ID}
-                  onValueChange={(value) =>
-                    setEditingAdmin({ ...editingAdmin, territory_id: value })
-                  }
-                  disabled={
-                    editingAdmin.role === "super_admin" ||
-                    isSuperAdminEmail(editingAdmin.email)
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select an area" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {areaOptions.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {t.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <DialogFooter className="pt-4">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setIsEditDialogOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={updateMutation.isPending}>
-                  {updateMutation.isPending && (
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  )}
-                  Save Changes
-                </Button>
-              </DialogFooter>
-            </form>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog
-        open={!!memberToDelete}
-        onOpenChange={(open) => !open && setMemberToDelete(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove Team Member</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to remove {memberToDelete?.name}? They will
-              lose access to the portal immediately.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                deleteMutation.mutate(memberToDelete);
-                setMemberToDelete(null);
-              }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Remove User
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <TeamDeleteAdminDialog
+        member={memberToDelete}
+        onClose={() => setMemberToDelete(null)}
+        onConfirm={(member) => {
+          deleteMutation.mutate(member);
+          setMemberToDelete(null);
+        }}
+      />
     </div>
   );
 }

@@ -10,6 +10,11 @@ ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS territory_id UUID;
 ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS territory_id UUID;
 ALTER TABLE public.contractors ADD COLUMN IF NOT EXISTS territory_id UUID;
 ALTER TABLE public.managers ADD COLUMN IF NOT EXISTS territory_id UUID;
+-- One or more areas a manager can switch between with a single login.
+-- territory_id stays their home/default area; territory_ids is the full
+-- allowed list (always includes territory_id). Super admins bypass this
+-- and see every area.
+ALTER TABLE public.managers ADD COLUMN IF NOT EXISTS territory_ids UUID[] DEFAULT '{}';
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS territory_id UUID;
 ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS territory_id UUID;
 ALTER TABLE public.assignments ADD COLUMN IF NOT EXISTS territory_id UUID;

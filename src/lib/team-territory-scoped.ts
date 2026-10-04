@@ -16,13 +16,18 @@ import { currentTerritoryId } from "./current-territory";
 export async function loadTeamForTerritory(): Promise<any[]> {
   const territoryId = await currentTerritoryId();
 
-  // Managers: scope by territory_id when a specific area is selected.
+  // Managers: scope by territory_id OR territory_ids contains the area, so a
+  // multi-area manager shows up under every area they can access.
   let mgrQuery = supabase
     .from("managers")
     .select("*")
     .order("created_at", { ascending: true });
   if (territoryId) {
-    mgrQuery = mgrQuery.eq("territory_id", territoryId);
+    // PostgREST: territory_id = X OR territory_ids contains X. Use .or() with
+    // cs (contains) for the array column.
+    mgrQuery = mgrQuery.or(
+      `territory_id.eq.${territoryId},territory_ids.cs.{${territoryId}}`,
+    );
   }
   const { data: m, error: mErr } = await mgrQuery;
   if (mErr) throw mErr;

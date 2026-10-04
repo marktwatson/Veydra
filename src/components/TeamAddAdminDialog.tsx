@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
+import { getManagerTerritoryIdRaw } from "@/lib/current-territory";
 import { HONEYSUCKLE_TERRITORY_ID } from "@/lib/territory";
 import { sendInviteNotifications } from "@/lib/team-invite-notifications";
 import { Button } from "@/components/ui/button";
@@ -95,8 +96,14 @@ export function TeamAddAdminDialog({
       return;
     }
 
-    // Area is required; default to Honeysuckle if somehow empty.
-    const territoryId = newAdmin.territory_id || HONEYSUCKLE_TERRITORY_ID;
+    // Super admin picks the area; non-super-admins default to their own area.
+    let territoryId: string;
+    if (user?.role === "super_admin") {
+      territoryId = newAdmin.territory_id || HONEYSUCKLE_TERRITORY_ID;
+    } else {
+      territoryId =
+        (await getManagerTerritoryIdRaw()) || HONEYSUCKLE_TERRITORY_ID;
+    }
 
     const currentActiveEmails = new Set(
       managers.map((m: any) => m.email?.toLowerCase()),
@@ -282,26 +289,28 @@ export function TeamAddAdminDialog({
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="area">Area</Label>
-            <Select
-              value={newAdmin.territory_id}
-              onValueChange={(value) =>
-                setNewAdmin({ ...newAdmin, territory_id: value })
-              }
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select an area" />
-              </SelectTrigger>
-              <SelectContent>
-                {areaOptions.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {user?.role === "super_admin" && (
+            <div className="space-y-2">
+              <Label htmlFor="area">Area</Label>
+              <Select
+                value={newAdmin.territory_id}
+                onValueChange={(value) =>
+                  setNewAdmin({ ...newAdmin, territory_id: value })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select an area" />
+                </SelectTrigger>
+                <SelectContent>
+                  {areaOptions.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <DialogFooter className="pt-4">
             <Button
               type="button"

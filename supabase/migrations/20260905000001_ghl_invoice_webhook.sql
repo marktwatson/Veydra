@@ -317,6 +317,7 @@ ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS territory_id UUID;
 ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS territory_id UUID;
 ALTER TABLE public.contractors ADD COLUMN IF NOT EXISTS territory_id UUID;
 ALTER TABLE public.managers ADD COLUMN IF NOT EXISTS territory_id UUID;
+ALTER TABLE public.managers ADD COLUMN IF NOT EXISTS territory_ids UUID[] DEFAULT '{}';
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS territory_id UUID;
 ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS territory_id UUID;
 ALTER TABLE public.assignments ADD COLUMN IF NOT EXISTS territory_id UUID;

@@ -37,6 +37,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { HeaderClock } from "@/components/HeaderClock";
 import { SuperAdminAreaSwitcher } from "@/components/SuperAdminAreaSwitcher";
+import { canSwitchAreas } from "@/lib/current-territory";
 import { cn, DEFAULT_LOGO_URL } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { CHANGELOG_DATA } from "@/pages/manager/Changelog";
@@ -73,6 +74,13 @@ export function LayoutHeader({
   const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [hasNewChangelog, setHasNewChangelog] = useState(false);
+  const [showSwitcher, setShowSwitcher] = useState(false);
+
+  useEffect(() => {
+    canSwitchAreas()
+      .then((ok) => setShowSwitcher(ok))
+      .catch(() => setShowSwitcher(false));
+  }, [user?.email]);
 
   useEffect(() => {
     const checkChangelog = () => {
@@ -158,7 +166,7 @@ export function LayoutHeader({
           )}
         </div>
         <div className="flex items-center gap-1 sm:gap-2">
-          {role === "super_admin" && <SuperAdminAreaSwitcher />}
+          {showSwitcher && <SuperAdminAreaSwitcher />}
           {role === "super_admin" && <HeaderClock />}
           <Tooltip>
             <TooltipTrigger asChild>
