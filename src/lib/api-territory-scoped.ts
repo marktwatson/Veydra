@@ -54,6 +54,31 @@ function resolveJobPay(job: any) {
   return { addons, isBidding, pay_rate };
 }
 
+export async function fetchOpenJobsForTerritory(territoryId: string) {
+  const { data, error } = await supabase
+    .from("jobs")
+    .select(
+      `
+      *,
+      weddings (client_name, date, location, region, is_lgbtq, territory_id)
+    `,
+    )
+    .eq("status", "open")
+    .eq("territory_id", territoryId)
+    .order("created_at", { ascending: false })
+    .limit(2000);
+  if (error) throw error;
+  return (data || []).map((job) => {
+    const { addons, isBidding, pay_rate } = resolveJobPay(job);
+    return {
+      ...job,
+      pay_rate,
+      addons: addons.filter((a) => a !== "PAY_TYPE:BIDDING"),
+      pay_type: isBidding ? "bidding" : "flat",
+    };
+  });
+}
+
 export async function fetchJobsForTerritory(territoryId: string | null) {
   let q = supabase
     .from("jobs")

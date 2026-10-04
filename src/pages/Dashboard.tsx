@@ -60,7 +60,6 @@ import { addDays, parseISO, startOfDay } from "date-fns";
 import {
   generateGoogleCalendarUrl,
   formatDisplayDate,
-  parseRegions,
   getCompanyTimezone,
 } from "@/lib/utils";
 
@@ -80,6 +79,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase, supabaseUrl } from "@/lib/supabase";
+import { getContractorByEmail } from "@/lib/contractor-by-email";
+import { fetchOpenJobsForTerritory } from "@/lib/api-territory-scoped";
+import { contractorCanSeeJob } from "@/lib/contractor-job-visibility";
 import confetti from "canvas-confetti";
 
 const ProfileOnboarding = ({ contractor }: { contractor: any }) => {
@@ -460,13 +462,7 @@ export default function Dashboard() {
 
   const { data: contractor, isLoading: loadingProfile } = useQuery({
     queryKey: ["contractor", user?.email],
-    queryFn: async () => {
-      const contractors = await api.getContractors();
-      return contractors.find(
-        (c) =>
-          c.email?.trim().toLowerCase() === user?.email?.trim().toLowerCase(),
-      );
-    },
+    queryFn: () => getContractorByEmail(user?.email || ""),
     enabled: !!user?.email,
   });
 
@@ -485,13 +481,24 @@ export default function Dashboard() {
     queryFn: api.getJobs,
   });
 
+  const { data: areaOpenJobs = [], isLoading: loadingAreaJobs } = useQuery({
+    queryKey: ["contractor-open-jobs", contractor?.territory_id],
+    queryFn: () =>
+      fetchOpenJobsForTerritory(contractor!.territory_id as string),
+    enabled: !!contractor?.territory_id,
+  });
+
   const { data: settings } = useQuery({
     queryKey: ["portalSettings"],
     queryFn: api.getPortalSettings,
   });
 
   const isLoading =
-    loadingProfile || loadingAssignments || loadingApps || loadingJobs;
+    loadingProfile ||
+    loadingAssignments ||
+    loadingApps ||
+    loadingJobs ||
+    loadingAreaJobs;
 
   if (isLoading) {
     return (
@@ -570,62 +577,12 @@ export default function Dashboard() {
     myActiveAssignments.map((a) => a.jobs?.weddings?.date).filter(Boolean),
   );
 
-  const visiblePositions = jobs.filter((p) => {
-    if (p.status !== "open") return false;
-    if (myBookedDates.has(p.weddings?.date)) return false;
-
-    const isPhotoOnly =
-      p.role?.toLowerCase().includes("photo") &&
-      !p.role?.toLowerCase().includes("video");
-    const requiresDrone =
-      (p.drone_required === true || p.drone_required === "true") &&
-      !isPhotoOnly;
-
-    if (requiresDrone && !contractor?.drone_approved) return false;
-
-    if (contractor?.specialty) {
-      const specialty = (contractor.specialty || "").toLowerCase();
-      const role = (p.role || "").toLowerCase();
-      const isBartender = /bartender/i.test(specialty);
-      const roleIsBartender = /bartender/i.test(role);
-      if (isBartender) return roleIsBartender;
-      if (roleIsBartender) return false;
-      if (!specialty.includes("both") && !specialty.includes("&")) {
-        if (specialty.includes("video") && !role.includes("video"))
-          return false;
-        if (specialty.includes("photo") && !role.includes("photo"))
-          return false;
-        if (specialty.includes("content") && !role.includes("content"))
-          return false;
-      }
-    }
-
-    if (contractor?.region) {
-      const regions = parseRegions(contractor.region);
-      if (regions.length > 0) {
-        const isAllRegions = regions.some(
-          (r: string) => r.toLowerCase() === "all regions",
-        );
-        if (!isAllRegions) {
-          const jobLocation = (p.weddings?.location || "").toLowerCase();
-          const weddingRegions = parseRegions(p.weddings?.region);
-
-          let matchesRegion = false;
-          if (weddingRegions.length > 0) {
-            matchesRegion = regions.some((r) =>
-              weddingRegions.some((wr) => wr.toLowerCase() === r.toLowerCase()),
-            );
-          } else {
-            matchesRegion = regions.some((r) =>
-              jobLocation.includes(r.toLowerCase()),
-            );
-          }
-          if (!matchesRegion) return false;
-        }
-      }
-    }
-    return true;
-  });
+  const visiblePositions = areaOpenJobs.filter((p) =>
+    contractorCanSeeJob(p, contractor, {
+      filterRegion: false,
+      bookedDates: myBookedDates,
+    }),
+  );
 
   const myActiveWeddingIds = new Set(
     myApplications

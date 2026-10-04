@@ -25,17 +25,27 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { geocodeAddress, calculateDistanceMiles } from "@/lib/geocoding";
-import { parseRegions, formatDisplayDate } from "@/lib/utils";
-import { specialtyMatchesJob } from "@/lib/specialty-job-match";
+import { formatDisplayDate } from "@/lib/utils";
 import { getContractorByEmail } from "@/lib/contractor-by-email";
+import { fetchOpenJobsForTerritory } from "@/lib/api-territory-scoped";
+import { contractorCanSeeJob } from "@/lib/contractor-job-visibility";
 
 export default function Opportunities() {
   const { user } = useAuth();
-  const [filterRegion, setFilterRegion] = useState<boolean>(true);
+  // Region is a narrow-down, not the area scope. Default off so every open
+  // job in the contractor's territory is visible.
+  const [filterRegion, setFilterRegion] = useState<boolean>(false);
+
+  const { data: currentUser, isLoading: isLoadingContractors } = useQuery({
+    queryKey: ["contractor-by-email", user?.email],
+    queryFn: () => getContractorByEmail(user?.email || ""),
+    enabled: !!user?.email,
+  });
 
   const { data: jobs = [], isLoading: isLoadingJobs } = useQuery({
-    queryKey: ["jobs"],
-    queryFn: api.getJobs,
+    queryKey: ["contractor-open-jobs", currentUser?.territory_id],
+    queryFn: () => fetchOpenJobsForTerritory(currentUser!.territory_id!),
+    enabled: !!currentUser?.territory_id,
   });
 
   const { data: assignments = [], isLoading: isLoadingAssignments } = useQuery({
@@ -46,12 +56,6 @@ export default function Opportunities() {
   const { data: applications = [], isLoading: isLoadingApps } = useQuery({
     queryKey: ["applications"],
     queryFn: api.getApplications,
-  });
-
-  const { data: currentUser, isLoading: isLoadingContractors } = useQuery({
-    queryKey: ["contractor-by-email", user?.email],
-    queryFn: () => getContractorByEmail(user?.email || ""),
-    enabled: !!user?.email,
   });
 
   const { data: settings } = useQuery({
@@ -81,64 +85,12 @@ export default function Opportunities() {
   );
 
   const visiblePositions = jobs
-    .filter((p) => {
-      if (p.status !== "open") return false;
-      // Hide jobs in another area — contractor can only see their own area's
-      // jobs. A blank territory_id on either side is NOT a match; hide it.
-      const jobTerritory = (p as any)?.territory_id;
-      const myTerritory = currentUser?.territory_id;
-      if (!jobTerritory || !myTerritory || jobTerritory !== myTerritory)
-        return false;
-      if (myBookedDates.has(p.weddings?.date)) return false;
-
-      const isInvited = p.invited_contractors?.includes(currentUser?.id);
-
-      if (isInvited) return true;
-
-      const isPhotoOnly =
-        p.role?.toLowerCase().includes("photo") &&
-        !p.role?.toLowerCase().includes("video");
-      const requiresDrone =
-        (p.drone_required === true || p.drone_required === "true") &&
-        !isPhotoOnly;
-
-      if (requiresDrone && !currentUser?.drone_approved) {
-        return false;
-      }
-      if (currentUser?.specialty) {
-        if (!specialtyMatchesJob(currentUser.specialty, p.role)) return false;
-      }
-
-      if (filterRegion && currentUser?.region) {
-        const regions = parseRegions(currentUser.region);
-        if (regions.length > 0) {
-          const isAllRegions = regions.some(
-            (r: string) => r.toLowerCase() === "all regions",
-          );
-          if (!isAllRegions) {
-            const jobLocation = (p.weddings?.location || "").toLowerCase();
-            const weddingRegions = parseRegions(p.weddings?.region);
-
-            let matchesRegion = false;
-            if (weddingRegions.length > 0) {
-              matchesRegion = regions.some((r: string) =>
-                weddingRegions.some(
-                  (wr: string) => wr.toLowerCase() === r.toLowerCase(),
-                ),
-              );
-            } else {
-              matchesRegion = regions.some((r: string) =>
-                jobLocation.includes(r.toLowerCase()),
-              );
-            }
-
-            if (!matchesRegion) return false;
-          }
-        }
-      }
-
-      return true;
-    })
+    .filter((p) =>
+      contractorCanSeeJob(p, currentUser, {
+        filterRegion,
+        bookedDates: myBookedDates,
+      }),
+    )
     .sort((a, b) => {
       const dateA = new Date(a.weddings?.date || "9999-12-31").getTime();
       const dateB = new Date(b.weddings?.date || "9999-12-31").getTime();
@@ -159,7 +111,7 @@ export default function Opportunities() {
 
   const appliedJobs = myApplications
     .map((app) => {
-      const position = jobs.find((p) => p.id === app.job_id);
+      const position = jobs.find((p) => p.id === app.job_id) || app.jobs;
       if (!position) return null;
       return {
         ...position,
@@ -210,13 +162,28 @@ export default function Opportunities() {
     );
   }
 
+  if (!currentUser?.territory_id) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-3xl font-bold tracking-tight">Open Positions</h1>
+        <Card className="flex flex-col items-center justify-center py-12 text-center">
+          <Briefcase className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
+          <CardTitle className="text-xl">No area on this account</CardTitle>
+          <p className="text-muted-foreground mt-2">
+            This login is not assigned to an area, so no jobs can be shown.
+          </p>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Open Positions</h1>
           <p className="text-muted-foreground">
-            Find and apply to upcoming wedding assignments.
+            Open jobs in your area. Region is optional.
           </p>
         </div>
       </div>
@@ -245,9 +212,11 @@ export default function Opportunities() {
           {openJobs.length === 0 ? (
             <Card className="flex flex-col items-center justify-center py-12 text-center">
               <Briefcase className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
-              <CardTitle className="text-xl">No open positions</CardTitle>
+              <CardTitle className="text-xl">No open positions in your area</CardTitle>
               <p className="text-muted-foreground mt-2">
-                Check back later or expand your region filter.
+                {filterRegion
+                  ? "Nothing in your regions. Turn off the region filter to see every open job in your area."
+                  : "There are no open jobs in your area right now."}
               </p>
             </Card>
           ) : (

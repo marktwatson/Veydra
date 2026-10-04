@@ -30,7 +30,8 @@ function parseRegionsArray(regions: any): string[] {
  * depend on the manager area switcher or getContractors() (which is scoped to
  * the manager's area). A contractor can live in any area.
  *
- * Returns null if no row matches.
+ * Returns null if no row matches. If the same email exists in more than one
+ * area, the oldest row wins. A newer duplicate must not steal the login.
  */
 export async function getContractorByEmail(
   email: string,
@@ -40,6 +41,7 @@ export async function getContractorByEmail(
     .from("contractors")
     .select("*")
     .ilike("email", email.trim())
+    .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
   if (error) throw error;

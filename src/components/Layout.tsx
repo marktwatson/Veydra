@@ -28,12 +28,14 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   cn,
   playNotificationSound,
-  parseRegions,
   DEFAULT_LOGO_URL,
 } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
+import { getContractorByEmail } from "@/lib/contractor-by-email";
+import { fetchOpenJobsForTerritory } from "@/lib/api-territory-scoped";
+import { contractorCanSeeJob } from "@/lib/contractor-job-visibility";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -261,18 +263,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
     queryFn: async () => {
       if (!user || user.role !== "contractor") return 0;
 
-      const [jobs, applications, assignments, contractors] = await Promise.all([
-        api.getJobs(),
+      const currentUser = await getContractorByEmail(user.email || "");
+      if (!currentUser?.territory_id) return 0;
+
+      const [jobs, applications, assignments] = await Promise.all([
+        fetchOpenJobsForTerritory(currentUser.territory_id),
         api.getApplications(),
         api.getAssignments(),
-        api.getContractors(),
       ]);
-
-      const currentUser = contractors.find(
-        (c) =>
-          c.email?.trim().toLowerCase() === user.email?.trim().toLowerCase(),
-      );
-      if (!currentUser) return 0;
 
       const myActiveAssignments = assignments.filter(
         (a: any) =>
@@ -296,60 +294,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
           .filter(Boolean),
       );
 
-      const visiblePositions = jobs.filter((p) => {
-        if (p.status !== "open") return false;
-        if (myBookedDates.has(p.weddings?.date)) return false;
-
-        const isPhotoOnly =
-          p.role?.toLowerCase().includes("photo") &&
-          !p.role?.toLowerCase().includes("video");
-        const requiresDrone =
-          (p.drone_required === true || p.drone_required === "true") &&
-          !isPhotoOnly;
-
-        if (requiresDrone && !currentUser.drone_approved) return false;
-
-        if (currentUser.specialty) {
-          const specialty = (currentUser.specialty || "").toLowerCase();
-          const role = (p.role || "").toLowerCase();
-          if (!specialty.includes("both") && !specialty.includes("&")) {
-            if (specialty.includes("video") && !role.includes("video"))
-              return false;
-            if (specialty.includes("photo") && !role.includes("photo"))
-              return false;
-            if (specialty.includes("content") && !role.includes("content"))
-              return false;
-          }
-        }
-
-        if (currentUser.region) {
-          const regions = parseRegions(currentUser.region);
-          if (regions.length > 0) {
-            const isAllRegions = regions.some(
-              (r: string) => r.toLowerCase() === "all regions",
-            );
-            if (!isAllRegions) {
-              const jobLocation = (p.weddings?.location || "").toLowerCase();
-              const weddingRegions = parseRegions(p.weddings?.region);
-
-              let matchesRegion = false;
-              if (weddingRegions.length > 0) {
-                matchesRegion = regions.some((r) =>
-                  weddingRegions.some(
-                    (wr) => wr.toLowerCase() === r.toLowerCase(),
-                  ),
-                );
-              } else {
-                matchesRegion = regions.some((r) =>
-                  jobLocation.includes(r.toLowerCase()),
-                );
-              }
-              if (!matchesRegion) return false;
-            }
-          }
-        }
-        return true;
-      });
+      const visiblePositions = jobs.filter((p) =>
+        contractorCanSeeJob(p, currentUser, {
+          filterRegion: false,
+          bookedDates: myBookedDates,
+        }),
+      );
 
       const myApplications = applications.filter(
         (a) => a.contractor_id === currentUser.id,

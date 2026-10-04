@@ -128,6 +128,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             .from("contractors")
             .select("id, first_name, last_name")
             .ilike("email", session.user.email)
+            .order("created_at", { ascending: true })
+            .limit(1)
             .maybeSingle();
 
           if (contractor) {
