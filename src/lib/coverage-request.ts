@@ -279,12 +279,19 @@ export async function requestCoverage(
   }
 
   // If a region was chosen, stamp it on the wedding so sendJobAlerts filters
-  // contractors by that region.
+  // contractors by that region. weddings.region is a text array, so wrap the
+  // single chosen region in an array. If the write fails, throw before
+  // coverage_requested_at is stamped.
   if (payload?.region) {
-    await supabase
+    const { error: regionErr } = await supabase
       .from("weddings")
-      .update({ region: payload.region })
+      .update({ region: [payload.region] })
       .eq("id", weddingId);
+    if (regionErr) {
+      throw new Error(
+        `Failed to save the region on the wedding: ${regionErr.message || JSON.stringify(regionErr)}`,
+      );
+    }
   }
 
   // Stamp the proposal (use the DB-loaded id).
