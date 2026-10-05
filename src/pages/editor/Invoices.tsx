@@ -30,8 +30,37 @@ import {
   Clock,
   CheckCircle,
 } from "lucide-react";
-import { formatDisplayDate } from "@/lib/utils";
+import { formatDisplayDate, cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+
+const COMPANY_STYLES = [
+  {
+    bar: "border-l-emerald-500",
+    chip: "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100",
+  },
+  {
+    bar: "border-l-sky-500",
+    chip: "bg-sky-100 text-sky-900 dark:bg-sky-950 dark:text-sky-100",
+  },
+  {
+    bar: "border-l-amber-500",
+    chip: "bg-amber-100 text-amber-950 dark:bg-amber-950 dark:text-amber-100",
+  },
+  {
+    bar: "border-l-violet-500",
+    chip: "bg-violet-100 text-violet-900 dark:bg-violet-950 dark:text-violet-100",
+  },
+  {
+    bar: "border-l-rose-500",
+    chip: "bg-rose-100 text-rose-900 dark:bg-rose-950 dark:text-rose-100",
+  },
+];
+
+function companyStyle(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash + name.charCodeAt(i)) % COMPANY_STYLES.length;
+  return COMPANY_STYLES[hash];
+}
 
 export default function EditorInvoices() {
   const { user } = useAuth();
@@ -219,7 +248,7 @@ export default function EditorInvoices() {
 
   const renderInvoiceCard = (wedding: any) => {
     return (
-      <Card key={wedding.id} className="overflow-hidden">
+      <Card key={wedding.id} className={cn("overflow-hidden border-l-4", companyStyle(companyNameFor(wedding)).bar)}>
         <CardHeader className="pb-3 bg-muted/30">
           <div className="flex justify-between items-start gap-4">
             <div className="min-w-0 flex-1">
@@ -228,7 +257,7 @@ export default function EditorInvoices() {
                 <span className="truncate">{wedding.client_name}</span>
               </CardTitle>
               <CardDescription className="mt-1 flex flex-col gap-1">
-                <span className="font-semibold text-primary">
+                <span className={cn("font-semibold inline-flex rounded-md px-2 py-0.5", companyStyle(companyNameFor(wedding)).chip)}>
                   {companyNameFor(wedding)}
                 </span>
                 <span className="flex items-center gap-2">

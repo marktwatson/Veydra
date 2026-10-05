@@ -60,7 +60,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import { formatDisplayDate, getCompanyTimezone } from "@/lib/utils";
+import { cn, formatDisplayDate, getCompanyTimezone } from "@/lib/utils";
 
 // Parse a date string as a local date (no UTC midnight shift)
 const parseLocalDate = (dateStr: string): Date => {
@@ -97,6 +97,40 @@ import {
 } from "lucide-react";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Link } from "react-router-dom";
+
+const COMPANY_STYLES = [
+  {
+    bar: "border-l-emerald-500",
+    chip: "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100",
+    header: "bg-emerald-50 dark:bg-emerald-950/40",
+  },
+  {
+    bar: "border-l-sky-500",
+    chip: "bg-sky-100 text-sky-900 dark:bg-sky-950 dark:text-sky-100",
+    header: "bg-sky-50 dark:bg-sky-950/40",
+  },
+  {
+    bar: "border-l-amber-500",
+    chip: "bg-amber-100 text-amber-950 dark:bg-amber-950 dark:text-amber-100",
+    header: "bg-amber-50 dark:bg-amber-950/40",
+  },
+  {
+    bar: "border-l-violet-500",
+    chip: "bg-violet-100 text-violet-900 dark:bg-violet-950 dark:text-violet-100",
+    header: "bg-violet-50 dark:bg-violet-950/40",
+  },
+  {
+    bar: "border-l-rose-500",
+    chip: "bg-rose-100 text-rose-900 dark:bg-rose-950 dark:text-rose-100",
+    header: "bg-rose-50 dark:bg-rose-950/40",
+  },
+];
+
+function companyStyle(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash + name.charCodeAt(i)) % COMPANY_STYLES.length;
+  return COMPANY_STYLES[hash];
+}
 
 const STATUS_OPTIONS = [
   { value: "ready_to_edit", label: "Ready to Edit" },
@@ -343,6 +377,17 @@ export default function EditorDashboard() {
     user?.id,
     editorProfile,
   ]);
+
+  const groupedWeddings = useMemo(() => {
+    const groups = new Map<string, typeof activeWeddings>();
+    for (const wedding of activeWeddings) {
+      const name = companyNameFor(wedding);
+      const list = groups.get(name) || [];
+      list.push(wedding);
+      groups.set(name, list);
+    }
+    return Array.from(groups.entries());
+  }, [activeWeddings, companyByTerritory]);
 
   const handleStatusChange = (id: string, newStatus: string) => {
     updateWeddingMutation.mutate({
@@ -597,7 +642,28 @@ export default function EditorDashboard() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {activeWeddings.map((wedding) => {
+                {groupedWeddings.flatMap(([company, rows]) => {
+                  const style = companyStyle(company);
+                  const header = (
+                    <TableRow key={`company-${company}`} className={style.header}>
+                      <TableCell colSpan={6} className="py-3">
+                        <span
+                          className={cn(
+                            "inline-flex rounded-md px-2.5 py-1 text-sm font-semibold",
+                            style.chip,
+                          )}
+                        >
+                          {company}
+                        </span>
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          {rows.length} {rows.length === 1 ? "job" : "jobs"}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  );
+                  return [
+                    header,
+                    ...rows.map((wedding) => {
                   const currentStatus =
                     wedding.editing_status || "ready_to_edit";
                   const deadline = calculateDeadline(wedding);
@@ -615,14 +681,14 @@ export default function EditorDashboard() {
                   return (
                     <TableRow
                       key={wedding.id}
-                      className="cursor-pointer hover:bg-muted/50 transition-colors"
+                      className={cn(
+                        "cursor-pointer hover:bg-muted/50 transition-colors border-l-4",
+                        style.bar,
+                      )}
                       onClick={() => openDetails(wedding)}
                     >
                       <TableCell>
                         <div className="font-medium">{wedding.client_name}</div>
-                        <div className="text-xs font-semibold text-primary mb-1">
-                          {companyNameFor(wedding)}
-                        </div>
                         <div className="text-xs text-muted-foreground mb-1">
                           {formatDisplayDate(wedding.date)}
                         </div>
@@ -828,13 +894,32 @@ export default function EditorDashboard() {
                       </TableCell>
                     </TableRow>
                   );
+                    }),
+                  ];
                 })}
               </TableBody>
             </Table>
           </div>
 
-          <div className="md:hidden space-y-4">
-            {activeWeddings.map((wedding) => {
+          <div className="md:hidden space-y-6">
+            {groupedWeddings.map(([company, rows]) => {
+              const style = companyStyle(company);
+              return (
+                <div key={company} className="space-y-3">
+                  <div className={cn("rounded-md px-3 py-2", style.header)}>
+                    <span
+                      className={cn(
+                        "inline-flex rounded-md px-2.5 py-1 text-sm font-semibold",
+                        style.chip,
+                      )}
+                    >
+                      {company}
+                    </span>
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {rows.length} {rows.length === 1 ? "job" : "jobs"}
+                    </span>
+                  </div>
+                  {rows.map((wedding) => {
               const currentStatus = wedding.editing_status || "ready_to_edit";
               const deadline = calculateDeadline(wedding);
               const isOverdue =
@@ -851,7 +936,10 @@ export default function EditorDashboard() {
               return (
                 <Card
                   key={wedding.id}
-                  className="cursor-pointer hover:bg-muted/50 transition-colors"
+                  className={cn(
+                    "cursor-pointer hover:bg-muted/50 transition-colors border-l-4",
+                    style.bar,
+                  )}
                   onClick={() => openDetails(wedding)}
                 >
                   <CardContent className="p-4 space-y-4">
@@ -859,9 +947,6 @@ export default function EditorDashboard() {
                       <div>
                         <div className="font-semibold">
                           {wedding.client_name}
-                        </div>
-                        <div className="text-xs font-semibold text-primary mt-0.5">
-                          {companyNameFor(wedding)}
                         </div>
                         <div className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
                           <Calendar className="h-3 w-3" />
@@ -1008,6 +1093,9 @@ export default function EditorDashboard() {
                     </div>
                   </CardContent>
                 </Card>
+              );
+                  })}
+                </div>
               );
             })}
           </div>

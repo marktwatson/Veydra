@@ -166,7 +166,7 @@ export function LayoutHeader({
           )}
         </div>
         <div className="flex items-center gap-1 sm:gap-2">
-          {showSwitcher && <SuperAdminAreaSwitcher />}
+          {showSwitcher && role !== "editor" && <SuperAdminAreaSwitcher />}
           {role === "super_admin" && <HeaderClock />}
           <Tooltip>
             <TooltipTrigger asChild>
