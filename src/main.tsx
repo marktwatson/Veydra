@@ -1,6 +1,5 @@
 import { createRoot } from "react-dom/client";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { PaymentDueAlert } from "@/components/PaymentDueAlert";
 import { PackagesTerritoryMounter } from "@/components/PackagesTerritoryPicker";
 import App from "@/App";
 import "@/index.css";
@@ -69,7 +68,6 @@ if ("serviceWorker" in navigator) {
 createRoot(document.getElementById("root")!).render(
   <ErrorBoundary>
     <App />
-    <PaymentDueAlert />
     <PackagesTerritoryMounter />
   </ErrorBoundary>,
 );
