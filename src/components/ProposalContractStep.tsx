@@ -60,32 +60,42 @@ export function ProposalContractStep({
   const resume = useProposalResume(proposal?.id, proposal);
   const [resumeNonce, setResumeNonce] = useState(0);
   const [optOut, setOptOut] = useState(!!proposal?.marketing_opt_out);
-  const [areaCompany, setAreaCompany] = useState("");
+  const [areaCompany, setAreaCompany] = useState(
+    companyName && companyName !== "Veydra" ? companyName : "",
+  );
+  const [companyReady, setCompanyReady] = useState(
+    !!(companyName && companyName !== "Veydra"),
+  );
   const coverage = useCoverageGate(proposal, proposal?.wedding_id);
   useEffect(() => {
-    if (!proposal?.territory_id) return;
+    const territoryId = proposal?.territory_id;
+    if (!territoryId) {
+      setCompanyReady(true);
+      return;
+    }
     let active = true;
     supabase
       .from("portal_settings")
       .select("company_name")
-      .eq("territory_id", proposal.territory_id)
+      .eq("territory_id", territoryId)
       .limit(1)
       .maybeSingle()
       .then(({ data }) => {
-        if (active && data?.company_name) setAreaCompany(data.company_name);
+        if (!active) return;
+        if (data?.company_name) setAreaCompany(data.company_name);
+        setCompanyReady(true);
       });
     return () => {
       active = false;
     };
   }, [proposal?.territory_id]);
-  const releaseCompany =
+  const contractCompany =
     areaCompany ||
     (companyName && companyName !== "Veydra" ? companyName : "");
-  const contractCompany = releaseCompany || companyName;
   const renderContract = (html: string) => {
     const rendered = applyModelRelease(html, contractCompany, optOut);
-    if (!releaseCompany) return rendered;
-    return rendered.replace(/Veydra/g, releaseCompany);
+    if (!contractCompany) return rendered;
+    return rendered.replace(/Veydra/g, contractCompany);
   };
 
   if (resume.state !== "fresh" && resume.state !== "signed_changed") {
@@ -164,7 +174,11 @@ export function ProposalContractStep({
       </div>
 
       <ScrollArea className="h-[500px] w-full rounded-sm border bg-muted/10 p-8 shadow-inner">
-        {proposal.custom_contract_snapshot ? (
+        {!companyReady ? (
+          <div className="flex h-40 items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          </div>
+        ) : proposal.custom_contract_snapshot ? (
           <div
             className="contract-content space-y-6 max-w-3xl mx-auto font-serif prose dark:prose-invert max-w-none text-foreground"
             dangerouslySetInnerHTML={{
@@ -434,7 +448,7 @@ export function ProposalContractStep({
                 8. Model Release
               </h2>
               <p>
-                {modelReleaseParagraph(releaseCompany || companyName, optOut)}
+                {modelReleaseParagraph(contractCompany, optOut)}
                 {!optOut && (
                   <>
                     <br />
@@ -476,7 +490,7 @@ export function ProposalContractStep({
             }}
           />
           <span>
-            Opt out of model release. {releaseCompany || companyName} will not use this wedding's
+            Opt out of model release. {contractCompany} will not use this wedding's
             photos or video for portfolio, social media, website, or marketing.
             The agreement above updates before you sign.
           </span>
