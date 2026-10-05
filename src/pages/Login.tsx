@@ -29,43 +29,75 @@ import { useToast } from "@/hooks/use-toast";
 const LOGIN_LOGO_URL =
   "https://assets.cdn.filesafe.space/76EKIVBXrGYIny0RbqcE/media/6abaa38a7ef452865a26c67d.gif";
 
-// Brand loading screen shown for ~3s after a successful sign-in, before the
-// user is routed to their destination. The logo zooms to fill the screen and
-// a progress bar + caption play out beneath it.
-function BootScreen({ caption }: { caption: string }) {
-  const [zoom, setZoom] = useState(false);
+const BOOT_LINES: Record<"manager" | "contractor" | "editor", string[]> = {
+  editor: [
+    "Loading the editor",
+    "Checking your companies",
+    "Sorting the edit queue",
+    "Opening invoices",
+  ],
+  manager: [
+    "Loading your dashboard",
+    "Checking today's weddings",
+    "Opening your area",
+    "Ready",
+  ],
+  contractor: [
+    "Loading your workspace",
+    "Checking open jobs",
+    "Matching your area",
+    "Opening assignments",
+  ],
+};
+
+function BootScreen({ lines }: { lines: string[] }) {
+  const [step, setStep] = useState(0);
   useEffect(() => {
-    const t = setTimeout(() => setZoom(true), 60);
-    return () => clearTimeout(t);
-  }, []);
+    const t = setInterval(() => {
+      setStep((s) => Math.min(s + 1, lines.length - 1));
+    }, 1100);
+    return () => clearInterval(t);
+  }, [lines.length]);
 
   return (
-    <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-gradient-to-b from-background to-muted/40 overflow-hidden">
-      <img
-        src={LOGIN_LOGO_URL}
-        alt="Portal Logo"
-        className="object-contain transition-all duration-[1200ms] ease-out will-change-transform"
-        style={{
-          width: zoom ? "min(33vw, 33vh)" : "125px",
-          transform: zoom ? "scale(1)" : "scale(0.92)",
-          opacity: zoom ? 1 : 0.85,
-        }}
-      />
-      <div className="mt-10 flex flex-col items-center gap-4">
-        <p className="text-lg font-medium tracking-wide text-foreground">
-          {caption}
-          <span className="inline-flex w-6">
-            <span className="animate-bounce [animation-delay:-0.3s]">.</span>
-            <span className="animate-bounce [animation-delay:-0.15s]">.</span>
-            <span className="animate-bounce">.</span>
-          </span>
-        </p>
-        <div className="w-64 max-w-[70vw] h-1.5 rounded-full bg-muted overflow-hidden">
-          <div
-            className="h-full rounded-full bg-primary transition-[width] duration-[3000ms] ease-linear"
-            style={{ width: zoom ? "100%" : "0%" }}
-          />
-        </div>
+    <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center overflow-hidden bg-[#120c09] text-amber-50">
+      <style>{`
+        @keyframes dragon-glide {
+          0%, 100% { transform: translateY(0) rotate(-2deg); }
+          50% { transform: translateY(-14px) rotate(2deg); }
+        }
+        @keyframes wing-flap {
+          0%, 100% { transform: scaleY(1); }
+          50% { transform: scaleY(0.55); }
+        }
+        @keyframes flame {
+          0%, 100% { opacity: 0.45; transform: scaleX(0.8); }
+          50% { opacity: 1; transform: scaleX(1.15); }
+        }
+        @keyframes ember {
+          0% { transform: translateY(0) scale(1); opacity: 0.8; }
+          100% { transform: translateY(-80px) scale(0.3); opacity: 0; }
+        }
+      `}</style>
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(180,83,9,0.28),transparent_55%)]" />
+      <div className="relative mb-8 h-44 w-64" style={{ animation: "dragon-glide 2.4s ease-in-out infinite" }}>
+        <svg viewBox="0 0 320 200" className="h-full w-full drop-shadow-[0_12px_24px_rgba(251,146,60,0.35)]" aria-hidden="true">
+          <ellipse cx="168" cy="168" rx="70" ry="10" fill="rgba(0,0,0,0.35)" />
+          <path d="M40 118 C70 70 110 78 132 96" fill="none" stroke="#fb923c" strokeWidth="8" strokeLinecap="round" />
+          <path d="M118 92 C150 40 210 46 236 86 C250 70 286 78 292 108 C270 100 246 112 230 108 C214 132 170 128 146 112 Z" fill="#9a3412" />
+          <path d="M150 78 C168 28 214 24 236 62" fill="#c2410c" style={{ transformOrigin: "190px 70px", animation: "wing-flap 0.45s ease-in-out infinite" }} />
+          <path d="M146 108 C170 118 188 116 206 104" fill="none" stroke="#fdba74" strokeWidth="3" />
+          <circle cx="248" cy="96" r="16" fill="#7c2d12" />
+          <circle cx="254" cy="93" r="2.5" fill="#fff7ed" />
+          <path d="M262 100 C286 104 304 112 312 118" stroke="#fdba74" strokeWidth="6" strokeLinecap="round" style={{ transformOrigin: "262px 100px", animation: "flame 0.35s ease-in-out infinite" }} />
+          <path d="M118 112 C86 126 62 122 46 108" fill="none" stroke="#9a3412" strokeWidth="8" strokeLinecap="round" />
+        </svg>
+        <span className="absolute left-8 top-16 h-1.5 w-1.5 rounded-full bg-amber-300" style={{ animation: "ember 1.6s ease-out infinite" }} />
+        <span className="absolute left-16 top-20 h-1 w-1 rounded-full bg-orange-400" style={{ animation: "ember 1.9s ease-out infinite 0.4s" }} />
+      </div>
+      <p className="relative text-lg font-medium tracking-wide">{lines[step]}</p>
+      <div className="relative mt-6 h-1 w-56 overflow-hidden rounded-full bg-white/10">
+        <div className="h-full rounded-full bg-orange-400 transition-all duration-700" style={{ width: `${((step + 1) / lines.length) * 100}%` }} />
       </div>
     </div>
   );
@@ -84,7 +116,7 @@ export default function Login() {
   // Boot sequence state.
   const [booting, setBooting] = useState(false);
   const [bootDest, setBootDest] = useState("/");
-  const [bootCaption, setBootCaption] = useState("Loading your workspace");
+  const [bootLines, setBootLines] = useState(BOOT_LINES.contractor);
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -97,7 +129,7 @@ export default function Login() {
     if (!booting) return;
     const t = setTimeout(() => {
       navigate(bootDest, { replace: true });
-    }, 3000);
+    }, 4500);
     return () => clearTimeout(t);
   }, [booting, bootDest, navigate]);
 
@@ -127,16 +159,15 @@ export default function Login() {
               : from
             : from;
 
-      const caption =
-        type === "manager" || isSuperAdminEmail(email)
-          ? "Loading your dashboard"
-          : type === "editor"
-            ? "Loading the editor"
-            : "Loading your workspace";
+      const lines =
+        type === "editor"
+          ? BOOT_LINES.editor
+          : type === "manager" || isSuperAdminEmail(email)
+            ? BOOT_LINES.manager
+            : BOOT_LINES.contractor;
 
-      // Emulate a loading screen before routing the user in.
       setBootDest(dest);
-      setBootCaption(caption);
+      setBootLines(lines);
       setBooting(true);
     } catch (error: any) {
       toast({
@@ -183,6 +214,8 @@ export default function Login() {
       setIsSendingMagicLink(false);
     }
   };
+
+  if (booting) return <BootScreen lines={bootLines} />;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
