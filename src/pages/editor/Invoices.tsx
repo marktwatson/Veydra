@@ -56,10 +56,8 @@ const COMPANY_STYLES = [
   },
 ];
 
-function companyStyle(name: string) {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = (hash + name.charCodeAt(i)) % COMPANY_STYLES.length;
-  return COMPANY_STYLES[hash];
+function companyStyle(index: number) {
+  return COMPANY_STYLES[index % COMPANY_STYLES.length];
 }
 
 export default function EditorInvoices() {
@@ -246,9 +244,50 @@ export default function EditorInvoices() {
     );
   }
 
+  const companyLabel = (territoryId: string, fallback?: string) =>
+    companyByTerritory[territoryId] || fallback || "Company not set";
+
+  const renderInvoiceGroups = (list: any[]) => {
+    const groups = new Map<string, any[]>();
+    for (const wedding of list) {
+      const name = companyNameFor(wedding);
+      const rows = groups.get(name) || [];
+      rows.push(wedding);
+      groups.set(name, rows);
+    }
+    return Array.from(groups.entries()).map(([company, rows], index) => (
+      <div key={company} className="space-y-3">
+        <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              "inline-flex rounded-md px-2.5 py-1 text-sm font-semibold",
+              companyStyle(index).chip,
+            )}
+          >
+            {company}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {rows.length} {rows.length === 1 ? "invoice" : "invoices"}
+          </span>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          {rows.map(renderInvoiceCard)}
+        </div>
+      </div>
+    ));
+  };
+
   const renderInvoiceCard = (wedding: any) => {
+    const style = companyStyle(
+      Math.max(
+        0,
+        Array.from(
+          new Set(myInvoices.map((w) => companyNameFor(w))),
+        ).indexOf(companyNameFor(wedding)),
+      ),
+    );
     return (
-      <Card key={wedding.id} className={cn("overflow-hidden border-l-4", companyStyle(companyNameFor(wedding)).bar)}>
+      <Card key={wedding.id} className={cn("overflow-hidden border-l-4", style.bar)}>
         <CardHeader className="pb-3 bg-muted/30">
           <div className="flex justify-between items-start gap-4">
             <div className="min-w-0 flex-1">
@@ -257,7 +296,7 @@ export default function EditorInvoices() {
                 <span className="truncate">{wedding.client_name}</span>
               </CardTitle>
               <CardDescription className="mt-1 flex flex-col gap-1">
-                <span className={cn("font-semibold inline-flex rounded-md px-2 py-0.5", companyStyle(companyNameFor(wedding)).chip)}>
+                <span className={cn("font-semibold inline-flex rounded-md px-2 py-0.5", style.chip)}>
                   {companyNameFor(wedding)}
                 </span>
                 <span className="flex items-center gap-2">
@@ -411,8 +450,8 @@ export default function EditorInvoices() {
               </p>
             </Card>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              {[...approvedInvoices, ...pendingInvoices].map(renderInvoiceCard)}
+            <div className="space-y-6">
+              {renderInvoiceGroups([...approvedInvoices, ...pendingInvoices])}
             </div>
           )}
         </TabsContent>
@@ -427,8 +466,8 @@ export default function EditorInvoices() {
               </p>
             </Card>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              {paidInvoices.map(renderInvoiceCard)}
+            <div className="space-y-6">
+              {renderInvoiceGroups(paidInvoices)}
             </div>
           )}
         </TabsContent>
@@ -451,18 +490,18 @@ export default function EditorInvoices() {
               ) : (
                 <>
                   <div className="grid gap-2 max-w-sm">
-                    <Label htmlFor="area-select">Area</Label>
+                    <Label htmlFor="area-select">Company</Label>
                     <Select
                       value={activeTerritoryId || undefined}
                       onValueChange={setActiveTerritoryId}
                     >
                       <SelectTrigger id="area-select">
-                        <SelectValue placeholder="Select an area" />
+                        <SelectValue placeholder="Select a company" />
                       </SelectTrigger>
                       <SelectContent>
                         {editorTerritories.map((t: any) => (
                           <SelectItem key={t.id} value={t.id}>
-                            {t.name}
+                            {companyLabel(t.id, t.name)}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -486,7 +525,10 @@ export default function EditorInvoices() {
                           Connect your Stripe account to receive direct payouts
                           for{" "}
                           <span className="font-medium text-foreground">
-                            {activeTerritory?.name || "this area"}
+                            {companyLabel(
+                              activeTerritoryId || "",
+                              activeTerritory?.name,
+                            )}
                           </span>
                           .
                         </p>
@@ -499,7 +541,11 @@ export default function EditorInvoices() {
                             variant="outline"
                             className="bg-green-50 text-green-600 border-green-200"
                           >
-                            Connected · {activeTerritory?.name}
+                            Connected ·{" "}
+                            {companyLabel(
+                              activeTerritoryId || "",
+                              activeTerritory?.name,
+                            )}
                           </Badge>
                           <Button
                             variant="ghost"

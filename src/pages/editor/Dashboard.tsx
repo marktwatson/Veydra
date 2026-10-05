@@ -42,6 +42,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -126,10 +127,8 @@ const COMPANY_STYLES = [
   },
 ];
 
-function companyStyle(name: string) {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = (hash + name.charCodeAt(i)) % COMPANY_STYLES.length;
-  return COMPANY_STYLES[hash];
+function companyStyle(index: number) {
+  return COMPANY_STYLES[index % COMPANY_STYLES.length];
 }
 
 const STATUS_OPTIONS = [
@@ -157,7 +156,7 @@ export default function EditorDashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortColumn, setSortColumn] = useState<"date" | "status">("date");
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [listTab, setListTab] = useState<"pipeline" | "archive">("pipeline");
 
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [selectedWedding, setSelectedWedding] = useState<DbWedding | null>(
@@ -378,16 +377,34 @@ export default function EditorDashboard() {
     editorProfile,
   ]);
 
+  const pipelineWeddings = activeWeddings.filter(
+    (w) =>
+      !(
+        (w.editing_status || "") === "delivered" &&
+        w.editor_invoice_status === "paid"
+      ),
+  );
+  const archiveWeddings = activeWeddings.filter(
+    (w) =>
+      (w.editing_status || "") === "delivered" &&
+      w.editor_invoice_status === "paid",
+  );
+  const visibleWeddings =
+    listTab === "archive" ? archiveWeddings : pipelineWeddings;
+  const needsInvoice = pipelineWeddings.filter(
+    (w) => (w.editing_status || "") === "delivered" && !w.editor_invoice_status,
+  );
+
   const groupedWeddings = useMemo(() => {
-    const groups = new Map<string, typeof activeWeddings>();
-    for (const wedding of activeWeddings) {
+    const groups = new Map<string, typeof visibleWeddings>();
+    for (const wedding of visibleWeddings) {
       const name = companyNameFor(wedding);
       const list = groups.get(name) || [];
       list.push(wedding);
       groups.set(name, list);
     }
     return Array.from(groups.entries());
-  }, [activeWeddings, companyByTerritory]);
+  }, [visibleWeddings, companyByTerritory]);
 
   const handleStatusChange = (id: string, newStatus: string) => {
     updateWeddingMutation.mutate({
@@ -569,16 +586,42 @@ export default function EditorDashboard() {
         </div>
       </div>
 
+      {needsInvoice.length > 0 && listTab === "pipeline" && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+          {needsInvoice.length} delivered{" "}
+          {needsInvoice.length === 1 ? "job has" : "jobs have"} no invoice yet.
+          Use Send invoice on the job to request payment.
+        </div>
+      )}
+
+      <Tabs
+        value={listTab}
+        onValueChange={(v) => setListTab(v as "pipeline" | "archive")}
+      >
+        <TabsList>
+          <TabsTrigger value="pipeline">
+            Pipeline ({pipelineWeddings.length})
+          </TabsTrigger>
+          <TabsTrigger value="archive">
+            Paid archive ({archiveWeddings.length})
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+
       {isLoading ? (
         <div className="flex justify-center p-12">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
-      ) : activeWeddings.length === 0 ? (
+      ) : visibleWeddings.length === 0 ? (
         <div className="text-center p-12 bg-card rounded-lg border border-border">
           <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4 opacity-50" />
-          <h3 className="text-lg font-medium">No projects found</h3>
+          <h3 className="text-lg font-medium">
+            {listTab === "archive" ? "No paid jobs yet" : "No projects in the pipeline"}
+          </h3>
           <p className="text-muted-foreground">
-            Try adjusting your filters or search query.
+            {listTab === "archive"
+              ? "Delivered jobs move here after the manager marks the invoice paid."
+              : "Try adjusting your filters or search query."}
           </p>
         </div>
       ) : (
@@ -642,8 +685,8 @@ export default function EditorDashboard() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {groupedWeddings.flatMap(([company, rows]) => {
-                  const style = companyStyle(company);
+                {groupedWeddings.flatMap(([company, rows], companyIndex) => {
+                  const style = companyStyle(companyIndex);
                   const header = (
                     <TableRow key={`company-${company}`} className={style.header}>
                       <TableCell colSpan={6} className="py-3">
@@ -839,9 +882,11 @@ export default function EditorDashboard() {
                                   openInvoiceModal(wedding);
                               }}
                             >
-                              {wedding.editor_invoice_status
-                                ? "Invoiced"
-                                : "Invoice"}
+                              {wedding.editor_invoice_status === "paid"
+                                ? "Paid"
+                                : wedding.editor_invoice_status
+                                  ? "Invoice sent"
+                                  : "Send invoice"}
                             </Button>
                           )}
 
@@ -902,8 +947,8 @@ export default function EditorDashboard() {
           </div>
 
           <div className="md:hidden space-y-6">
-            {groupedWeddings.map(([company, rows]) => {
-              const style = companyStyle(company);
+            {groupedWeddings.map(([company, rows], companyIndex) => {
+              const style = companyStyle(companyIndex);
               return (
                 <div key={company} className="space-y-3">
                   <div className={cn("rounded-md px-3 py-2", style.header)}>
@@ -1073,9 +1118,11 @@ export default function EditorDashboard() {
                                 openInvoiceModal(wedding);
                             }}
                           >
-                            {wedding.editor_invoice_status
-                              ? "Invoiced"
-                              : "Invoice"}
+                            {wedding.editor_invoice_status === "paid"
+                              ? "Paid"
+                              : wedding.editor_invoice_status
+                                ? "Invoice sent"
+                                : "Send invoice"}
                           </Button>
                         )}
                         <Button
@@ -1420,7 +1467,7 @@ export default function EditorDashboard() {
                           openInvoiceModal(selectedWedding);
                         }}
                       >
-                        Create Invoice
+                        Send invoice
                       </Button>
                     )}
                 </div>
