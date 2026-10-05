@@ -82,11 +82,21 @@ export function ProposalContractStep({
       }
       const { data: rows } = await supabase
         .from("portal_settings")
-        .select("company_name, wedding_contract_template")
-        .eq("territory_id", territoryId)
-        .limit(1);
+        .select("company_name, state, territory_id, wedding_contract_template")
+        .limit(20);
       if (!active) return;
-      const row = rows?.[0];
+      const list = rows || [];
+      const row =
+        list.find((r) => r.territory_id === territoryId && r.company_name) ||
+        list.find((r) => r.territory_id === territoryId) ||
+        list.find(
+          (r) =>
+            r.company_name &&
+            r.state &&
+            companyState &&
+            r.state.toLowerCase() === companyState.toLowerCase(),
+        ) ||
+        list.find((r) => r.company_name);
       if (row?.company_name) setAreaCompany(row.company_name);
       if (row?.wedding_contract_template) {
         setAreaTemplate(row.wedding_contract_template);
