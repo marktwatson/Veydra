@@ -111,15 +111,22 @@ export default function EditorInvoices() {
     enabled: !!user?.id,
   });
 
-  // Territories this editor has weddings in (for the per-area Stripe connect).
+  // Companies this editor can be paid by. Built from assigned weddings and
+  // granted areas, and only after those weddings have loaded.
+  const territoryKey = [
+    ...weddings.map((w: any) => w.territory_id),
+    editorProfile?.territory_id,
+    ...(Array.isArray(editorProfile?.territory_ids)
+      ? editorProfile.territory_ids
+      : []),
+  ]
+    .filter(Boolean)
+    .sort()
+    .join(",");
   const { data: editorTerritories = [] } = useQuery({
-    queryKey: ["editor-territories", user?.id],
+    queryKey: ["editor-territories", user?.id, territoryKey],
     queryFn: async () => {
-      const ids = new Set<string>();
-      weddings.forEach((w: any) => {
-        if (w.territory_id) ids.add(w.territory_id);
-      });
-      if (editorProfile?.territory_id) ids.add(editorProfile.territory_id);
+      const ids = new Set<string>(territoryKey.split(",").filter(Boolean));
       if (ids.size === 0) return [];
       const { data, error } = await supabase
         .from("territories")
@@ -128,7 +135,7 @@ export default function EditorInvoices() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!user?.id && !!editorProfile,
+    enabled: !!user?.id && !isWeddingsLoading,
   });
 
   // Default the active territory to the editor's home area, else first.
