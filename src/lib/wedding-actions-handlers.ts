@@ -237,6 +237,7 @@ export async function requestHighlightSongs(
       description: `Sent to ${brideEmail}`,
     });
   }
+  return sentAny;
 }
 
 export function buildPaymentReceipt(wedding: any, settings: any) {

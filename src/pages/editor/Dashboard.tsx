@@ -150,6 +150,48 @@ function calculateDeadline(wedding: DbWedding) {
   return date;
 }
 
+function AreaManagerNote({ territoryId }: { territoryId?: string | null }) {
+  const { data: manager } = useQuery({
+    queryKey: ["area-manager", territoryId],
+    queryFn: async () => {
+      if (!territoryId) return null;
+      const { data } = await supabase
+        .from("managers")
+        .select("name, email, role")
+        .or(`territory_id.eq.${territoryId},territory_ids.cs.{${territoryId}}`)
+        .in("role", ["manager", "owner"])
+        .limit(1);
+      return data?.[0] || null;
+    },
+    enabled: !!territoryId,
+  });
+  if (!manager?.email) {
+    return (
+      <p className="text-xs text-amber-900 dark:text-amber-100">
+        If the songs are still missing, contact the manager for this company.
+      </p>
+    );
+  }
+  return (
+    <p className="text-xs text-amber-900 dark:text-amber-100">
+      If they still have not added the songs, email {manager.name || "the manager"}{" "}
+      at{" "}
+      <a className="underline" href={`mailto:${manager.email}`}>
+        {manager.email}
+      </a>
+      .
+    </p>
+  );
+}
+
+function songRequestLock(wedding: any) {
+  const sentAt = wedding?.songs_reminder_sent_at
+    ? new Date(wedding.songs_reminder_sent_at)
+    : null;
+  if (!sentAt || Number.isNaN(sentAt.getTime())) return null;
+  const nextAt = new Date(sentAt.getTime() + 7 * 24 * 60 * 60 * 1000);
+  return { sentAt, nextAt, locked: nextAt.getTime() > Date.now() };
+}
 function needsHighlightSongs(wedding: any) {
   const targets = Array.isArray(wedding?.editor_video_targets)
     ? wedding.editor_video_targets
@@ -750,7 +792,9 @@ export default function EditorDashboard() {
                         </div>
                         {needsHighlightSongs(wedding) && (
                           <Badge className="bg-amber-100 text-amber-950 hover:bg-amber-100 dark:bg-amber-950 dark:text-amber-100">
-                            Songs missing
+                            {songRequestLock(wedding)
+                              ? `Songs requested ${formatDisplayDate(wedding.songs_reminder_sent_at)}`
+                              : "Songs missing"}
                           </Badge>
                         )}
                         {(wedding.editor_photo_target ||
@@ -1017,7 +1061,9 @@ export default function EditorDashboard() {
                         </div>
                         {needsHighlightSongs(wedding) && (
                           <Badge className="mt-1 bg-amber-100 text-amber-950 hover:bg-amber-100 dark:bg-amber-950 dark:text-amber-100">
-                            Songs missing
+                            {songRequestLock(wedding)
+                              ? `Songs requested ${formatDisplayDate(wedding.songs_reminder_sent_at)}`
+                              : "Songs missing"}
                           </Badge>
                         )}
                       </div>
@@ -1304,14 +1350,31 @@ export default function EditorDashboard() {
                       <div className="font-semibold flex items-center gap-2 text-amber-950 dark:text-amber-100">
                         <Music className="h-4 w-4" /> Highlight songs missing
                       </div>
-                      <p className="text-sm text-amber-900 dark:text-amber-100">
-                        This video job has no songs yet. Request them from the
-                        couple. The message sends from{" "}
-                        {companyNameFor(selectedWedding)}, not another company.
-                      </p>
+                      {songRequestLock(selectedWedding) ? (
+                        <p className="text-sm text-amber-900 dark:text-amber-100">
+                          Songs requested{" "}
+                          {formatDisplayDate(
+                            selectedWedding.songs_reminder_sent_at || "",
+                          )}
+                          . Another request can be sent{" "}
+                          {formatDisplayDate(
+                            songRequestLock(selectedWedding)!.nextAt.toISOString(),
+                          )}
+                          .
+                        </p>
+                      ) : (
+                        <p className="text-sm text-amber-900 dark:text-amber-100">
+                          This video job has no songs yet. Request them from the
+                          couple. The message sends from{" "}
+                          {companyNameFor(selectedWedding)}, not another company.
+                        </p>
+                      )}
                       <Button
                         size="sm"
+                        disabled={!!songRequestLock(selectedWedding)?.locked}
                         onClick={async () => {
+                          const lock = songRequestLock(selectedWedding);
+                          if (lock?.locked) return;
                           if (!selectedWedding.client_email) {
                             toast({
                               variant: "destructive",
@@ -1326,17 +1389,29 @@ export default function EditorDashboard() {
                             .eq("territory_id", selectedWedding.territory_id)
                             .limit(1)
                             .maybeSingle();
-                          await requestHighlightSongs(
+                          const sent = await requestHighlightSongs(
                             selectedWedding,
                             selectedWedding.client_email,
                             areaSettings,
                             portalLinkFor(selectedWedding, areaSettings),
                             toast,
                           );
+                          if (!sent) return;
+                          const stamped = new Date().toISOString();
+                          setSelectedWedding({
+                            ...selectedWedding,
+                            songs_reminder_sent_at: stamped,
+                          });
+                          queryClient.invalidateQueries({
+                            queryKey: ["editor-weddings", user?.id],
+                          });
                         }}
                       >
-                        Request songs
+                        {songRequestLock(selectedWedding)?.locked
+                          ? "Requested this week"
+                          : "Request songs"}
                       </Button>
+                      <AreaManagerNote territoryId={selectedWedding.territory_id} />
                     </div>
                   )}
                   {(() => {
