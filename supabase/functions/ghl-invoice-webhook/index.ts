@@ -469,6 +469,30 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Paid invoice with a client name and total, when the id Ovanta sent is
+    // not the id we stored. Only match a single unpaid wedding with that name
+    // and amount, so a second Courtney cannot take the payment.
+    if (!wedding && status === "paid" && total > 0) {
+      const clientName = String(
+        pick("contact_name", "name", "client_name", "invoice_name") || "",
+      )
+        .trim()
+        .toLowerCase();
+      if (clientName) {
+        const { data: named } = await db
+          .from("weddings")
+          .select(
+            "id, client_name, client_email, paid_amount, total_amount, status, notes, ghl_contact_id, ghl_invoice_id, ghl_invoice_ids, ghl_schedule, ghl_amount_paid",
+          )
+          .ilike("client_name", clientName)
+          .limit(5);
+        const sameAmount = (named || []).filter(
+          (w: any) => Math.abs((Number(w.total_amount) || 0) - total) < 0.01,
+        );
+        if (sameAmount.length === 1) wedding = sameAmount[0];
+      }
+    }
+
     if (!wedding) {
       return jsonResp({
         ignored: "no wedding",
@@ -478,9 +502,12 @@ Deno.serve(async (req) => {
       });
     }
 
-    const weddingId = wedding.id; let weddingTerritoryId: string | null = null; try { const { data: wT } = await db.from("weddings").select("territory_id").eq("id", weddingId).maybeSingle(); weddingTerritoryId = wT?.territory_id || null; if (weddingTerritoryId) { const { data: tS } = await db.from("portal_settings").select("ghl_webhook_secret, hl_api_key, hl_location_id").eq("territory_id", weddingTerritoryId).limit(1).maybeSingle(); if (tS) portalSettings = tS; const dbSec = (tS?.ghl_webhook_secret || "").trim(); if (dbSec && (req.headers.get("x-webhook-secret") || "") !== dbSec) return jsonResp({ error: "Invalid webhook secret for this area" }, 401); } } catch (e: any) { console.warn("[ghl-invoice-webhook] territory settings failed:", e?.message); }
+    const weddingId = wedding.id; let weddingTerritoryId: string | null = null; try { const { data: wT } = await db.from("weddings").select("territory_id").eq("id", weddingId).maybeSingle(); weddingTerritoryId = wT?.territory_id || null; if (weddingTerritoryId) { const { data: tS } = await db.from("portal_settings").select("ghl_webhook_secret, hl_api_key, hl_location_id").eq("territory_id", weddingTerritoryId).limit(1).maybeSingle(); if (tS) portalSettings = tS; const dbSec = (tS?.ghl_webhook_secret || "").trim(); const headerSec = (req.headers.get("x-webhook-secret") || "").trim(); if (dbSec && headerSec && headerSec !== dbSec) return jsonResp({ error: "Invalid webhook secret for this area" }, 401); } } catch (e: any) { console.warn("[ghl-invoice-webhook] territory settings failed:", e?.message); }
     if ((Number(wedding.total_amount)||0) > 0 && (Number(wedding.paid_amount)||0) >= (Number(wedding.total_amount)||0) - 0.01) {
       return jsonResp({ ignored: "already paid in full", weddingId, invoiceId: invoiceId || invoiceNumber || `email:${contactEmail}`, paid_amount: Number(wedding.paid_amount)||0, total_amount: Number(wedding.total_amount)||0 });
+    }
+    if (effectiveAmountPaid <= 0 && (status === "paid" || status === "partially_paid")) {
+      effectiveAmountPaid = Number(wedding.total_amount) || total || 0;
     }
     const ledgerKey = invoiceId || invoiceNumber || `email:${contactEmail}`;
 

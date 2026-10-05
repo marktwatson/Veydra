@@ -560,7 +560,8 @@ export function ManageWeddingSheet({
           });
           return {
             ...job,
-            contractor_id: assignment?.contractor_id || "unassigned",
+            contractor_id:
+              assignment?.contractor_id || job.contractor_id || "unassigned",
           };
         });
         setJobs(jobsWithAssignments);
