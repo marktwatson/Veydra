@@ -4502,12 +4502,13 @@ export default function ManagerSettings() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <CreditCard className="h-5 w-5 text-primary" />
-                  Stripe Connection
+                  Shared Stripe account
                 </CardTitle>
                 <CardDescription>
-                  Payment processing for bride deposits, invoices, and
-                  contractor payouts. Keys are stored securely as environment
-                  variables on the server.
+                  This is the server Stripe account, from the STRIPE_SECRET_KEY
+                  environment variable. It is the same on every area. It is not
+                  the editor payout key. Editor payouts use the Editor Payout
+                  Stripe Secret card.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
