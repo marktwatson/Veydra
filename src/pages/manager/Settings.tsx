@@ -83,6 +83,7 @@ import BartendingModuleToggle from "@/components/BartendingModuleToggle";
 import { BartendingContractTemplateCard } from "@/components/BartendingContractTemplateCard";
 import { useBartendingModule } from "@/hooks/use-bartending-module";
 import { currentTerritoryId } from "@/lib/current-territory";
+import { useAuth } from "@/contexts/AuthContext";
 
 const getPreviewHtml = (html: string) => {
   const logoUrl =
