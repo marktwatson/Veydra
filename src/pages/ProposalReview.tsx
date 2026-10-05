@@ -60,7 +60,7 @@ export default function ProposalReview() {
   );
   const { toast } = useToast();
 
-  const companyName = branding?.company_name || "Veydra";
+  const companyName = branding?.company_name || "";
   const companyState = branding?.state || "Tennessee";
 
   const coverageLabel =

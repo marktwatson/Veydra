@@ -81,6 +81,12 @@ export function ProposalContractStep({
   const releaseCompany =
     areaCompany ||
     (companyName && companyName !== "Veydra" ? companyName : "");
+  const contractCompany = releaseCompany || companyName;
+  const renderContract = (html: string) => {
+    const rendered = applyModelRelease(html, contractCompany, optOut);
+    if (!releaseCompany) return rendered;
+    return rendered.replace(/Veydra/g, releaseCompany);
+  };
 
   if (resume.state !== "fresh" && resume.state !== "signed_changed") {
     return (
@@ -162,11 +168,11 @@ export function ProposalContractStep({
           <div
             className="contract-content space-y-6 max-w-3xl mx-auto font-serif prose dark:prose-invert max-w-none text-foreground"
             dangerouslySetInnerHTML={{
-              __html: applyModelRelease(
+              __html: renderContract(
                 renderContractSnapshot(
                   proposal.custom_contract_snapshot,
                   {
-                    companyName,
+                    companyName: contractCompany,
                     companyState,
                     client_name: proposal.client_name,
                     partner_name: proposal.partner_name,
@@ -185,8 +191,6 @@ export function ProposalContractStep({
                     addonsLookup: ADDONS,
                   },
                 ),
-                releaseCompany || companyName,
-                optOut,
               ),
             }}
           />
@@ -199,7 +203,7 @@ export function ProposalContractStep({
                   : "Wedding Photography & Videography Agreement"}
               </h1>
               <p className="text-muted-foreground italic">
-                ({companyName} — {companyState})
+                ({contractCompany} — {companyState})
               </p>
               <p className="text-muted-foreground italic">
                 This{" "}
@@ -222,7 +226,7 @@ export function ProposalContractStep({
                 {proposal.partner_name ? `& ${proposal.partner_name}` : ""}
               </p>
               <p>
-                <strong>Service Provider:</strong> {companyName}, an
+                <strong>Service Provider:</strong> {contractCompany}, an
                 independently owned and operated limited liability company based
                 in {companyState} (“Photographer/Videographer”).
               </p>
@@ -234,8 +238,8 @@ export function ProposalContractStep({
               </h2>
               <p>
                 {proposal.is_upgrade
-                  ? `This amendment modifies the original agreement. ${companyName} agrees to provide the following upgraded services for the Client’s event:`
-                  : `${companyName} agrees to provide professional wedding photography and/or videography services for the Client’s event as follows:`}
+                  ? `This amendment modifies the original agreement. ${contractCompany} agrees to provide the following upgraded services for the Client’s event:`
+                  : `${contractCompany} agrees to provide professional wedding photography and/or videography services for the Client’s event as follows:`}
               </p>
               <ul className="list-none space-y-2">
                 <li>
@@ -285,7 +289,7 @@ export function ProposalContractStep({
                 </li>
               </ul>
               <p>
-                {companyName} reserves the right to assign qualified creative
+                {contractCompany} reserves the right to assign qualified creative
                 professionals from its trusted network to ensure timely,
                 high-quality coverage.
               </p>
@@ -341,7 +345,7 @@ export function ProposalContractStep({
               </p>
               <p>
                 <strong>Accepted Payments:</strong> Credit Card only (processed
-                securely through {companyName}’s online payment system).
+                securely through {contractCompany}’s online payment system).
               </p>
               <p>
                 Payments made via credit card include standard merchant
@@ -369,7 +373,7 @@ export function ProposalContractStep({
                 refunded if cancellation occurs.
               </p>
               <p>
-                If {companyName} must cancel due to emergency or unforeseen
+                If {contractCompany} must cancel due to emergency or unforeseen
                 circumstances, all payments made by the Client will be refunded
                 in full, and best efforts will be made to assist in finding an
                 alternate provider.
@@ -381,14 +385,14 @@ export function ProposalContractStep({
                 5. Creative Rights
               </h2>
               <p>
-                The Client acknowledges that {companyName} maintains complete
+                The Client acknowledges that {contractCompany} maintains complete
                 creative control over style, editing, and artistic decisions.
                 The Client has reviewed the company’s portfolio and understands
                 the creative nature of the work.
               </p>
               <p>
                 All photographs and videos remain the copyrighted property of{" "}
-                {companyName}, which grants the Client a perpetual,
+                {contractCompany}, which grants the Client a perpetual,
                 non-exclusive, personal-use license to download, print, share,
                 and display the media for personal use.
               </p>
@@ -400,11 +404,11 @@ export function ProposalContractStep({
               </h2>
               <p>
                 If a scheduled Photographer or Videographer is unable to attend
-                due to illness, emergency, or unforeseen event, {companyName}{" "}
+                due to illness, emergency, or unforeseen event, {contractCompany}{" "}
                 will provide a qualified replacement whenever possible.
               </p>
               <p>
-                {companyName} is not responsible for circumstances beyond
+                {contractCompany} is not responsible for circumstances beyond
                 reasonable control (e.g., weather, equipment failure, venue
                 restrictions, or interference by guests).
                 <br />
@@ -447,7 +451,7 @@ export function ProposalContractStep({
               </h2>
               <p>
                 This Agreement represents the full understanding between the
-                Client and {companyName}. Any modifications or additions must be
+                Client and {contractCompany}. Any modifications or additions must be
                 made in writing and signed by both parties.
               </p>
             </section>
