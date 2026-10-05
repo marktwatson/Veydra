@@ -60,12 +60,9 @@ export function ProposalContractStep({
   const resume = useProposalResume(proposal?.id, proposal);
   const [resumeNonce, setResumeNonce] = useState(0);
   const [optOut, setOptOut] = useState(!!proposal?.marketing_opt_out);
-  const [areaCompany, setAreaCompany] = useState(
-    companyName && companyName !== "Veydra" ? companyName : "",
-  );
-  const [companyReady, setCompanyReady] = useState(
-    !!(companyName && companyName !== "Veydra"),
-  );
+  const [areaCompany, setAreaCompany] = useState("");
+  const [areaTemplate, setAreaTemplate] = useState("");
+  const [companyReady, setCompanyReady] = useState(false);
   const coverage = useCoverageGate(proposal, proposal?.wedding_id);
   useEffect(() => {
     let active = true;
@@ -85,21 +82,23 @@ export function ProposalContractStep({
       }
       const { data: rows } = await supabase
         .from("portal_settings")
-        .select("company_name")
+        .select("company_name, wedding_contract_template")
         .eq("territory_id", territoryId)
         .limit(1);
       if (!active) return;
-      const name = rows?.[0]?.company_name;
-      if (name && name !== "Veydra") setAreaCompany(name);
+      const row = rows?.[0];
+      if (row?.company_name) setAreaCompany(row.company_name);
+      if (row?.wedding_contract_template) {
+        setAreaTemplate(row.wedding_contract_template);
+      }
       setCompanyReady(true);
     })();
     return () => {
       active = false;
     };
   }, [proposal?.id, proposal?.territory_id]);
-  const contractCompany =
-    areaCompany ||
-    (companyName && companyName !== "Veydra" ? companyName : "");
+  const contractCompany = areaCompany || companyName || "";
+  const contractHtml = areaTemplate || proposal?.custom_contract_snapshot || "";
   const renderContract = (html: string) => {
     const rendered = applyModelRelease(html, contractCompany, optOut);
     if (!contractCompany) return rendered;
@@ -186,33 +185,30 @@ export function ProposalContractStep({
           <div className="flex h-40 items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
-        ) : proposal.custom_contract_snapshot ? (
+        ) : contractHtml ? (
           <div
             className="contract-content space-y-6 max-w-3xl mx-auto font-serif prose dark:prose-invert max-w-none text-foreground"
             dangerouslySetInnerHTML={{
               __html: renderContract(
-                renderContractSnapshot(
-                  proposal.custom_contract_snapshot,
-                  {
-                    companyName: contractCompany,
-                    companyState,
-                    client_name: proposal.client_name,
-                    partner_name: proposal.partner_name,
-                    wedding_date: proposal.wedding_date,
-                    venue: proposal.venue,
-                    venue_address: proposal.venue_address,
-                    city: proposal.city,
-                    state: proposal.state,
-                    packageString,
-                    total_amount: proposal.total_amount,
-                    contract_signed_at: proposal.contract_signed_at,
-                    addons: proposal.addons,
-                    second_shooter_hours: proposal.second_shooter_hours,
-                    second_shooter_type: proposal.second_shooter_type,
-                    custom_prices: proposal.custom_prices,
-                    addonsLookup: ADDONS,
-                  },
-                ),
+                renderContractSnapshot(contractHtml, {
+                  companyName: contractCompany,
+                  companyState,
+                  client_name: proposal.client_name,
+                  partner_name: proposal.partner_name,
+                  wedding_date: proposal.wedding_date,
+                  venue: proposal.venue,
+                  venue_address: proposal.venue_address,
+                  city: proposal.city,
+                  state: proposal.state,
+                  packageString,
+                  total_amount: proposal.total_amount,
+                  contract_signed_at: proposal.contract_signed_at,
+                  addons: proposal.addons,
+                  second_shooter_hours: proposal.second_shooter_hours,
+                  second_shooter_type: proposal.second_shooter_type,
+                  custom_prices: proposal.custom_prices,
+                  addonsLookup: ADDONS,
+                }),
               ),
             }}
           />
