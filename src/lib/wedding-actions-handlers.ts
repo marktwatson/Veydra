@@ -91,6 +91,7 @@ export async function sendPortalReminderEmail(
       msg,
       wedding.client_name,
       true,
+      wedding.territory_id,
     );
     toast({
       title: "Reminder Sent!",
@@ -117,7 +118,13 @@ export async function sendPortalReminderSms(
     description: `Sending SMS to ${brideEmail}`,
   });
   try {
-    await api.sendOvantaSms(brideEmail!, smsMsg, wedding.client_name, true);
+    await api.sendOvantaSms(
+      brideEmail!,
+      smsMsg,
+      wedding.client_name,
+      true,
+      wedding.territory_id,
+    );
     toast({
       title: "SMS Reminder Sent!",
       description: `SMS successfully sent to ${brideEmail}`,

@@ -833,7 +833,9 @@ export async function sendOvantaSms(
     try {
       const settings = await getScopedCrmCredentials({ territoryId });
       if (!settings?.hl_api_key || !settings?.hl_location_id) {
-        throw new Error("Missing Ovanta API credentials in the database.");
+        throw new Error(
+          "Missing Ovanta API credentials for this wedding's company. Check Settings → Integrations for that area.",
+        );
       }
 
       // Try to find phone number in our DB
@@ -1037,7 +1039,9 @@ export async function sendOvantaEmail(
     try {
       const settings = await getScopedCrmCredentials({ territoryId });
       if (!settings?.hl_api_key || !settings?.hl_location_id) {
-        throw new Error("Missing Ovanta API credentials in the database.");
+        throw new Error(
+          "Missing Ovanta API credentials for this wedding's company. Check Settings → Integrations for that area.",
+        );
       }
 
       const searchRes = await fetch(
