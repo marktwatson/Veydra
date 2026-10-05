@@ -102,7 +102,11 @@ export function ProposalContractStep({
   const renderContract = (html: string) => {
     const rendered = applyModelRelease(html, contractCompany, optOut);
     if (!contractCompany) return rendered;
-    return rendered.replace(/Veydra/g, contractCompany);
+    return rendered
+      .replace(/\{\{company_name\}\}/g, contractCompany)
+      .replace(/Veydra/g, contractCompany)
+      .replace(/\( —/g, `(${contractCompany} —`)
+      .replace(/\(—/g, `(${contractCompany} —`);
   };
 
   if (resume.state !== "fresh" && resume.state !== "signed_changed") {
