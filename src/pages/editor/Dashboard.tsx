@@ -156,6 +156,7 @@ export default function EditorDashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortColumn, setSortColumn] = useState<"date" | "status">("date");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [listTab, setListTab] = useState<"pipeline" | "archive">("pipeline");
 
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
