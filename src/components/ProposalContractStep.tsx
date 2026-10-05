@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import { formatDisplayDate } from "@/lib/utils";
 import { renderContractSnapshot } from "@/lib/booking-fallbacks";
+import { applyModelRelease, modelReleaseParagraph } from "@/lib/model-release";
+import { supabase } from "@/lib/supabase";
 import { useProposalResume } from "@/lib/use-proposal-resume";
 import { ProposalResumeView } from "@/components/ProposalResumeView";
 import { useCoverageGate } from "@/lib/use-coverage-gate";
@@ -57,6 +59,7 @@ export function ProposalContractStep({
   // current state without re-signing.
   const resume = useProposalResume(proposal?.id, proposal);
   const [resumeNonce, setResumeNonce] = useState(0);
+  const [optOut, setOptOut] = useState(!!proposal?.marketing_opt_out);
   const coverage = useCoverageGate(proposal, proposal?.wedding_id);
 
   if (resume.state !== "fresh" && resume.state !== "signed_changed") {
@@ -139,27 +142,31 @@ export function ProposalContractStep({
           <div
             className="contract-content space-y-6 max-w-3xl mx-auto font-serif prose dark:prose-invert max-w-none text-foreground"
             dangerouslySetInnerHTML={{
-              __html: renderContractSnapshot(
-                proposal.custom_contract_snapshot,
-                {
-                  companyName,
-                  companyState,
-                  client_name: proposal.client_name,
-                  partner_name: proposal.partner_name,
-                  wedding_date: proposal.wedding_date,
-                  venue: proposal.venue,
-                  venue_address: proposal.venue_address,
-                  city: proposal.city,
-                  state: proposal.state,
-                  packageString,
-                  total_amount: proposal.total_amount,
-                  contract_signed_at: proposal.contract_signed_at,
-                  addons: proposal.addons,
-                  second_shooter_hours: proposal.second_shooter_hours,
-                  second_shooter_type: proposal.second_shooter_type,
-                  custom_prices: proposal.custom_prices,
-                  addonsLookup: ADDONS,
-                },
+              __html: applyModelRelease(
+                renderContractSnapshot(
+                  proposal.custom_contract_snapshot,
+                  {
+                    companyName,
+                    companyState,
+                    client_name: proposal.client_name,
+                    partner_name: proposal.partner_name,
+                    wedding_date: proposal.wedding_date,
+                    venue: proposal.venue,
+                    venue_address: proposal.venue_address,
+                    city: proposal.city,
+                    state: proposal.state,
+                    packageString,
+                    total_amount: proposal.total_amount,
+                    contract_signed_at: proposal.contract_signed_at,
+                    addons: proposal.addons,
+                    second_shooter_hours: proposal.second_shooter_hours,
+                    second_shooter_type: proposal.second_shooter_type,
+                    custom_prices: proposal.custom_prices,
+                    addonsLookup: ADDONS,
+                  },
+                ),
+                companyName,
+                optOut,
               ),
             }}
           />
@@ -403,12 +410,14 @@ export function ProposalContractStep({
                 8. Model Release
               </h2>
               <p>
-                The Client grants {companyName} permission to use images and/or
-                video clips from the event for portfolio, social media, website,
-                and promotional use.
-                <br />
-                (Optional: Clients may request in writing to opt out prior to
-                the wedding date.)
+                {modelReleaseParagraph(companyName, optOut)}
+                {!optOut && (
+                  <>
+                    <br />
+                    (Optional: Clients may request in writing to opt out prior
+                    to the wedding date.)
+                  </>
+                )}
               </p>
             </section>
 
@@ -427,6 +436,27 @@ export function ProposalContractStep({
       </ScrollArea>
 
       <div className="bg-primary/5 p-8 rounded-sm border border-primary/10 space-y-6">
+        <label className="flex items-start gap-3 text-sm font-sans">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={optOut}
+            onChange={async (e) => {
+              const next = e.target.checked;
+              setOptOut(next);
+              if (!proposal?.id) return;
+              await supabase
+                .from("proposals")
+                .update({ marketing_opt_out: next })
+                .eq("id", proposal.id);
+            }}
+          />
+          <span>
+            Opt out of model release. {companyName} will not use this wedding's
+            photos or video for portfolio, social media, website, or marketing.
+            The agreement above updates before you sign.
+          </span>
+        </label>
         <div className="space-y-2">
           <Label htmlFor="signature" className="text-lg font-serif">
             Electronic Signature
