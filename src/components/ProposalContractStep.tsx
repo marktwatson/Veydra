@@ -68,27 +68,35 @@ export function ProposalContractStep({
   );
   const coverage = useCoverageGate(proposal, proposal?.wedding_id);
   useEffect(() => {
-    const territoryId = proposal?.territory_id;
-    if (!territoryId) {
-      setCompanyReady(true);
-      return;
-    }
     let active = true;
-    supabase
-      .from("portal_settings")
-      .select("company_name")
-      .eq("territory_id", territoryId)
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (!active) return;
-        if (data?.company_name) setAreaCompany(data.company_name);
-        setCompanyReady(true);
-      });
+    (async () => {
+      let territoryId = proposal?.territory_id || null;
+      if (!territoryId && proposal?.id) {
+        const { data: row } = await supabase
+          .from("proposals")
+          .select("territory_id")
+          .eq("id", proposal.id)
+          .maybeSingle();
+        territoryId = row?.territory_id || null;
+      }
+      if (!territoryId) {
+        if (active) setCompanyReady(true);
+        return;
+      }
+      const { data: rows } = await supabase
+        .from("portal_settings")
+        .select("company_name")
+        .eq("territory_id", territoryId)
+        .limit(1);
+      if (!active) return;
+      const name = rows?.[0]?.company_name;
+      if (name && name !== "Veydra") setAreaCompany(name);
+      setCompanyReady(true);
+    })();
     return () => {
       active = false;
     };
-  }, [proposal?.territory_id]);
+  }, [proposal?.id, proposal?.territory_id]);
   const contractCompany =
     areaCompany ||
     (companyName && companyName !== "Veydra" ? companyName : "");
