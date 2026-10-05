@@ -824,13 +824,14 @@ export async function sendOvantaSms(
   message: string,
   name?: string,
   force: boolean = false,
+  territoryId?: string | null,
 ) {
   const maxRetries = 3;
   let lastError: any;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const settings = await getScopedCrmCredentials({});
+      const settings = await getScopedCrmCredentials({ territoryId });
       if (!settings?.hl_api_key || !settings?.hl_location_id) {
         throw new Error("Missing Ovanta API credentials in the database.");
       }
@@ -990,6 +991,7 @@ export async function sendOvantaEmail(
   message: string,
   name?: string,
   force: boolean = false,
+  territoryId?: string | null,
 ) {
   // Safeguard: detect hardcoded Ovanta/CRM URLs in email body that should be bride portal links
   const ovantaUrlPattern = /https?:\/\/app\.ovanta\.io\/[^\s"'<>]+/gi;
@@ -1033,7 +1035,7 @@ export async function sendOvantaEmail(
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const settings = await getScopedCrmCredentials({});
+      const settings = await getScopedCrmCredentials({ territoryId });
       if (!settings?.hl_api_key || !settings?.hl_location_id) {
         throw new Error("Missing Ovanta API credentials in the database.");
       }
@@ -5492,8 +5494,9 @@ export const api = {
     message: string,
     name?: string,
     force: boolean = false,
+    territoryId?: string | null,
   ) {
-    return sendOvantaSms(email, message, name, force);
+    return sendOvantaSms(email, message, name, force, territoryId);
   },
 
   async sendOvantaEmail(
@@ -5502,8 +5505,9 @@ export const api = {
     message: string,
     name?: string,
     force: boolean = false,
+    territoryId?: string | null,
   ) {
-    return sendOvantaEmail(email, subject, message, name, force);
+    return sendOvantaEmail(email, subject, message, name, force, territoryId);
   },
 
   // CRM methods (_getCrmCustomFieldMap, _extractVenueLocation, _extractVenueName,

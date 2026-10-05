@@ -167,6 +167,7 @@ export async function requestHighlightSongs(
         msg,
         wedding.client_name,
         true,
+        wedding.territory_id,
       );
       sentAny = true;
     } catch (err: any) {
@@ -185,7 +186,13 @@ export async function requestHighlightSongs(
       portalLink,
     );
     try {
-      await api.sendOvantaSms(brideEmail!, smsMsg, wedding.client_name, true);
+      await api.sendOvantaSms(
+        brideEmail!,
+        smsMsg,
+        wedding.client_name,
+        true,
+        wedding.territory_id,
+      );
       sentAny = true;
     } catch (err: any) {
       toast({
@@ -212,6 +219,7 @@ export async function requestHighlightSongs(
         msg,
         wedding.client_name,
         true,
+        wedding.territory_id,
       );
       sentAny = true;
     } catch (err: any) {

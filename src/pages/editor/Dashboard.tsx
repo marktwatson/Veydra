@@ -97,6 +97,7 @@ import {
   Music,
 } from "lucide-react";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { requestHighlightSongs, portalLinkFor } from "@/lib/wedding-actions-handlers";
 import { Link } from "react-router-dom";
 
 const COMPANY_STYLES = [
@@ -147,6 +148,17 @@ function calculateDeadline(wedding: DbWedding) {
   const daysToAdd = isBusySeason ? 28 : 21;
   date.setDate(date.getDate() + daysToAdd);
   return date;
+}
+
+function needsHighlightSongs(wedding: any) {
+  const targets = Array.isArray(wedding?.editor_video_targets)
+    ? wedding.editor_video_targets
+    : [];
+  if (targets.length === 0) return false;
+  const songs = Array.isArray(wedding?.highlight_songs)
+    ? wedding.highlight_songs
+    : [];
+  return !songs.some((s: any) => s?.title || s?.link);
 }
 
 export default function EditorDashboard() {
@@ -736,6 +748,11 @@ export default function EditorDashboard() {
                         <div className="text-xs text-muted-foreground mb-1">
                           {formatDisplayDate(wedding.date)}
                         </div>
+                        {needsHighlightSongs(wedding) && (
+                          <Badge className="bg-amber-100 text-amber-950 hover:bg-amber-100 dark:bg-amber-950 dark:text-amber-100">
+                            Songs missing
+                          </Badge>
+                        )}
                         {(wedding.editor_photo_target ||
                           (wedding.editor_video_targets &&
                             wedding.editor_video_targets.length > 0)) && (
@@ -998,6 +1015,11 @@ export default function EditorDashboard() {
                           <Calendar className="h-3 w-3" />
                           {formatDisplayDate(wedding.date)}
                         </div>
+                        {needsHighlightSongs(wedding) && (
+                          <Badge className="mt-1 bg-amber-100 text-amber-950 hover:bg-amber-100 dark:bg-amber-950 dark:text-amber-100">
+                            Songs missing
+                          </Badge>
+                        )}
                       </div>
                       <StatusBadge
                         status={statusObj?.label || currentStatus}
@@ -1277,6 +1299,46 @@ export default function EditorDashboard() {
                     </div>
                   )}
 
+                  {needsHighlightSongs(selectedWedding) && (
+                    <div className="bg-amber-50 border border-amber-300 rounded-lg p-4 space-y-3 dark:bg-amber-950/40 dark:border-amber-800">
+                      <div className="font-semibold flex items-center gap-2 text-amber-950 dark:text-amber-100">
+                        <Music className="h-4 w-4" /> Highlight songs missing
+                      </div>
+                      <p className="text-sm text-amber-900 dark:text-amber-100">
+                        This video job has no songs yet. Request them from the
+                        couple. The message sends from{" "}
+                        {companyNameFor(selectedWedding)}, not another company.
+                      </p>
+                      <Button
+                        size="sm"
+                        onClick={async () => {
+                          if (!selectedWedding.client_email) {
+                            toast({
+                              variant: "destructive",
+                              title: "No client email",
+                              description: "This wedding has no email to send to.",
+                            });
+                            return;
+                          }
+                          const { data: areaSettings } = await supabase
+                            .from("portal_settings")
+                            .select("*")
+                            .eq("territory_id", selectedWedding.territory_id)
+                            .limit(1)
+                            .maybeSingle();
+                          await requestHighlightSongs(
+                            selectedWedding,
+                            selectedWedding.client_email,
+                            areaSettings,
+                            portalLinkFor(selectedWedding, areaSettings),
+                            toast,
+                          );
+                        }}
+                      >
+                        Request songs
+                      </Button>
+                    </div>
+                  )}
                   {(() => {
                     const songs = Array.isArray(selectedWedding.highlight_songs)
                       ? selectedWedding.highlight_songs
