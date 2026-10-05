@@ -115,6 +115,7 @@ export default function EditorInvoices() {
   // granted areas, and only after those weddings have loaded.
   const territoryKey = [
     ...weddings.map((w: any) => w.territory_id),
+    ...weddings.map((w: any) => w.editor_invoice_details?.territory_id),
     editorProfile?.territory_id,
     ...(Array.isArray(editorProfile?.territory_ids)
       ? editorProfile.territory_ids
@@ -126,14 +127,32 @@ export default function EditorInvoices() {
   const { data: editorTerritories = [] } = useQuery({
     queryKey: ["editor-territories", user?.id, territoryKey],
     queryFn: async () => {
-      const ids = new Set<string>(territoryKey.split(",").filter(Boolean));
-      if (ids.size === 0) return [];
-      const { data, error } = await supabase
-        .from("territories")
-        .select("id, name, editor_payout_stripe_key")
-        .in("id", Array.from(ids));
-      if (error) throw error;
-      return data || [];
+      const ids = Array.from(
+        new Set(territoryKey.split(",").filter(Boolean)),
+      );
+      if (ids.length === 0) return [];
+      const [{ data: settingsRows }, { data: territoryRows }] =
+        await Promise.all([
+          supabase
+            .from("portal_settings")
+            .select("territory_id, company_name")
+            .in("territory_id", ids),
+          supabase
+            .from("territories")
+            .select("id, name, editor_payout_stripe_key")
+            .in("id", ids),
+        ]);
+      return ids.map((id) => {
+        const territory = (territoryRows || []).find((t: any) => t.id === id);
+        const settings = (settingsRows || []).find(
+          (s: any) => s.territory_id === id,
+        );
+        return {
+          id,
+          name: settings?.company_name || territory?.name || "Company",
+          editor_payout_stripe_key: territory?.editor_payout_stripe_key,
+        };
+      });
     },
     enabled: !!user?.id && !isWeddingsLoading,
   });
@@ -491,8 +510,9 @@ export default function EditorInvoices() {
             <CardContent className="space-y-4">
               {editorTerritories.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  You don't have any area assignments yet. Once you're assigned
-                  to a wedding, your areas will appear here.
+                  You don't have a company on these weddings yet, so payout
+                  setup cannot tell the accounts apart. Paid history is still
+                  below.
                 </p>
               ) : (
                 <>
