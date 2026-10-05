@@ -181,6 +181,8 @@ export default function EditorInvoices() {
     wedding?.editor_invoice_details?.company_name ||
     companyByTerritory[wedding?.territory_id] ||
     "Company not set";
+
+  const myInvoices = weddings.filter(
     (w) => w.editor_id === user?.id && w.editor_invoice_status,
   );
 
