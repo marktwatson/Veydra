@@ -40,26 +40,48 @@ export function setSuperAdminViewTerritory(id: string | null): void {
   }
 }
 
+/** The user chosen by "view as", or null when this is a normal login. */
+function readImpersonatedUser(): {
+  id?: string;
+  email?: string;
+  role?: string;
+} | null {
+  try {
+    const raw = localStorage.getItem("impersonated_user");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.email && !parsed?.id) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Load the logged-in manager's row (territory_id + territory_ids) by email
- * then id. Returns null when there is no managers row.
+ * then id. While impersonating, this is the viewed user's row, not the
+ * super admin session. Returns null when there is no managers row.
  */
 async function loadManagerTerritory(): Promise<{
   territory_id: string | null;
   territory_ids: string[] | null;
 } | null> {
   try {
+    const impersonated = readImpersonatedUser();
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    const email = user?.email ?? null;
-    const id = user?.id ?? null;
+    const email = impersonated?.email || user?.email || null;
+    const id = impersonated?.id || user?.id || null;
     if (email) {
-      const { data: mgr } = await supabase
+      const { data: rows } = await supabase
         .from("managers")
-        .select("territory_id, territory_ids")
+        .select("territory_id, territory_ids, status")
         .ilike("email", email)
-        .maybeSingle();
+        .limit(5);
+      const list = rows || [];
+      const mgr =
+        list.find((row) => row.status === "active") || list[0] || null;
       if (mgr) return mgr as any;
     }
     if (id) {
@@ -86,13 +108,18 @@ async function loadManagerTerritory(): Promise<{
  * null return = unrestricted (super admin). An empty array is never returned.
  */
 export async function getAllowedTerritoryIds(): Promise<string[] | null> {
-  try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (isSuperAdminEmail(user?.email)) return null; // every area
-  } catch {
-    /* ignore */
+  const impersonated = readImpersonatedUser();
+  if (!impersonated) {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (isSuperAdminEmail(user?.email)) return null; // every area
+    } catch {
+      /* ignore */
+    }
+  } else if (impersonated.role === "super_admin") {
+    return null;
   }
   const mgr = await loadManagerTerritory();
   const ids = (mgr?.territory_ids as any) || [];
@@ -109,13 +136,18 @@ export async function getAllowedTerritoryIds(): Promise<string[] | null> {
  * super admin, or a manager whose territory_ids has more than one id.
  */
 export async function canSwitchAreas(): Promise<boolean> {
-  try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (isSuperAdminEmail(user?.email)) return true;
-  } catch {
-    /* ignore */
+  const impersonated = readImpersonatedUser();
+  if (!impersonated) {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (isSuperAdminEmail(user?.email)) return true;
+    } catch {
+      /* ignore */
+    }
+  } else if (impersonated.role === "super_admin") {
+    return true;
   }
   const allowed = await getAllowedTerritoryIds();
   return !!allowed && allowed.length > 1;
@@ -135,13 +167,17 @@ export async function canSwitchAreas(): Promise<boolean> {
  */
 export async function currentTerritoryId(): Promise<string | null> {
   try {
+    const impersonated = readImpersonatedUser();
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    const email = user?.email ?? null;
+    const email = impersonated?.email || user?.email || null;
+    const actingAsSuperAdmin = impersonated
+      ? impersonated.role === "super_admin"
+      : isSuperAdminEmail(email);
 
     // Super admin: respect the area picker. null = All Areas (no filter).
-    if (isSuperAdminEmail(email)) return getSuperAdminViewTerritory();
+    if (actingAsSuperAdmin) return getSuperAdminViewTerritory();
 
     // Manager / owner: resolve from their managers row.
     const mgr = await loadManagerTerritory();

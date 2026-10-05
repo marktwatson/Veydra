@@ -50,6 +50,15 @@ export function setActiveTerritoryId(territoryId: string): void {
  *  picker on Settings → Packages). */
 export async function isSuperAdminActive(): Promise<boolean> {
   try {
+    const raw = localStorage.getItem("impersonated_user");
+    if (raw) {
+      const impersonated = JSON.parse(raw);
+      return impersonated?.role === "super_admin";
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
     const {
       data: { user },
     } = await supabase.auth.getUser();

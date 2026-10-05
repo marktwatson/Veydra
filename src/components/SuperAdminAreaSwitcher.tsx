@@ -48,15 +48,28 @@ export function SuperAdminAreaSwitcher() {
         const {
           data: { user },
         } = await supabase.auth.getUser();
-        isSuper = isSuperAdminEmail(user?.email);
+        let impersonated: { email?: string; role?: string } | null = null;
+        try {
+          const raw = localStorage.getItem("impersonated_user");
+          if (raw) impersonated = JSON.parse(raw);
+        } catch {
+          impersonated = null;
+        }
+        const email = impersonated?.email || user?.email;
+        isSuper =
+          impersonated?.role === "super_admin" ||
+          (!impersonated && isSuperAdminEmail(email));
         if (isSuper) {
           allowedIds = null;
-        } else if (user?.email) {
-          const { data: mgr } = await supabase
+        } else if (email) {
+          const { data: rows } = await supabase
             .from("managers")
-            .select("territory_id, territory_ids")
-            .ilike("email", user.email)
-            .maybeSingle();
+            .select("territory_id, territory_ids, status")
+            .ilike("email", email)
+            .limit(5);
+          const mgr =
+            (rows || []).find((row) => row.status === "active") ||
+            (rows || [])[0];
           if (mgr) {
             homeId = (mgr.territory_id as string) || homeId;
             const ids = (mgr.territory_ids as any) || [];

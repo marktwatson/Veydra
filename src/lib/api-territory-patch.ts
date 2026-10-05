@@ -75,14 +75,25 @@ export function patchApiForTerritory(): void {
   // for an editor we return cross-area weddings via getWeddingsForEditor and
   // do NOT territory-filter their other reads either.
   (api as any).getWeddings = async () => {
-    const role = (() => {
+    const impersonated = (() => {
       try {
-        return localStorage.getItem("veydra_effective_role") || "";
+        const raw = localStorage.getItem("impersonated_user");
+        return raw ? JSON.parse(raw) : null;
       } catch {
-        return "";
+        return null;
       }
     })();
+    const role = impersonated?.role
+      || (() => {
+        try {
+          return localStorage.getItem("veydra_effective_role") || "";
+        } catch {
+          return "";
+        }
+      })();
     if (role === "editor") {
+      const editorId = impersonated?.id;
+      if (editorId) return getWeddingsForEditor(editorId);
       const {
         data: { user },
       } = await supabase.auth.getUser();
