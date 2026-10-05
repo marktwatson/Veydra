@@ -61,6 +61,7 @@ export function ProposalContractStep({
   const [resumeNonce, setResumeNonce] = useState(0);
   const [optOut, setOptOut] = useState(!!proposal?.marketing_opt_out);
   const [areaCompany, setAreaCompany] = useState("");
+  const coverage = useCoverageGate(proposal, proposal?.wedding_id);
   useEffect(() => {
     if (!proposal?.territory_id) return;
     let active = true;
