@@ -107,7 +107,8 @@ export function ProposalContractStep({
       active = false;
     };
   }, [proposal?.id, proposal?.territory_id]);
-  const contractCompany = areaCompany || companyName || "";
+  const contractCompany =
+    proposal?.company_name || areaCompany || companyName || "";
   const contractHtml = areaTemplate || proposal?.custom_contract_snapshot || "";
   const renderContract = (html: string) => {
     const rendered = applyModelRelease(html, contractCompany, optOut);
