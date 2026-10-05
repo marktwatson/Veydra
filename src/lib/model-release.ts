@@ -12,8 +12,18 @@ export function applyModelRelease(
   optedOut: boolean,
 ) {
   if (!optedOut || !html) return html;
-  const replacement = modelReleaseParagraph(companyName, true);
+  const found = html.match(/The Client grants\s+(.+?)\s+permission/i);
+  const name =
+    found?.[1] && found[1] !== "Veydra" ? found[1] : companyName;
+  const replacement = modelReleaseParagraph(name, true);
   const grant = /The Client grants[\s\S]*?promotional use\./i;
-  if (grant.test(html)) return html.replace(grant, replacement);
-  return `${html}<p><strong>Model release opt-out:</strong> ${replacement}</p>`;
+  let next = grant.test(html) ? html.replace(grant, replacement) : html;
+  next = next.replace(
+    /\(?\s*Optional:\s*Clients may request in writing to opt out prior to the wedding date\.?\s*\)?/gi,
+    "",
+  );
+  if (!grant.test(html)) {
+    next = `${next}<p><strong>Model release opt-out:</strong> ${replacement}</p>`;
+  }
+  return next;
 }

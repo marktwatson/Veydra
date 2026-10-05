@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -60,7 +60,26 @@ export function ProposalContractStep({
   const resume = useProposalResume(proposal?.id, proposal);
   const [resumeNonce, setResumeNonce] = useState(0);
   const [optOut, setOptOut] = useState(!!proposal?.marketing_opt_out);
-  const coverage = useCoverageGate(proposal, proposal?.wedding_id);
+  const [areaCompany, setAreaCompany] = useState("");
+  useEffect(() => {
+    if (!proposal?.territory_id) return;
+    let active = true;
+    supabase
+      .from("portal_settings")
+      .select("company_name")
+      .eq("territory_id", proposal.territory_id)
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (active && data?.company_name) setAreaCompany(data.company_name);
+      });
+    return () => {
+      active = false;
+    };
+  }, [proposal?.territory_id]);
+  const releaseCompany =
+    areaCompany ||
+    (companyName && companyName !== "Veydra" ? companyName : "");
 
   if (resume.state !== "fresh" && resume.state !== "signed_changed") {
     return (
@@ -165,7 +184,7 @@ export function ProposalContractStep({
                     addonsLookup: ADDONS,
                   },
                 ),
-                companyName,
+                releaseCompany || companyName,
                 optOut,
               ),
             }}
@@ -410,7 +429,7 @@ export function ProposalContractStep({
                 8. Model Release
               </h2>
               <p>
-                {modelReleaseParagraph(companyName, optOut)}
+                {modelReleaseParagraph(releaseCompany || companyName, optOut)}
                 {!optOut && (
                   <>
                     <br />
@@ -452,7 +471,7 @@ export function ProposalContractStep({
             }}
           />
           <span>
-            Opt out of model release. {companyName} will not use this wedding's
+            Opt out of model release. {releaseCompany || companyName} will not use this wedding's
             photos or video for portfolio, social media, website, or marketing.
             The agreement above updates before you sign.
           </span>
