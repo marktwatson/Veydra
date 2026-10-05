@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { currentTerritoryId } from "@/lib/current-territory";
 import {
   Card,
   CardContent,
@@ -69,9 +70,15 @@ export default function ManagerPayouts() {
     queryFn: api.getAssignments,
   });
 
+  const { data: territoryId } = useQuery({
+    queryKey: ["current-territory"],
+    queryFn: currentTerritoryId,
+  });
+
   const { data: weddings = [] } = useQuery({
-    queryKey: ["weddings"],
-    queryFn: api.getWeddings,
+    queryKey: ["weddings", territoryId],
+    queryFn: () => api.getWeddingsForTerritory(territoryId ?? null),
+    enabled: territoryId !== undefined,
   });
 
   const { data: editors = [] } = useQuery({

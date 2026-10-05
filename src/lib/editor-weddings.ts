@@ -82,3 +82,21 @@ export async function getWeddingsForEditor(editorId: string) {
         : w.highlight_songs || [],
   })) as any[];
 }
+
+/** Company name from each area's portal settings. Not the territory name. */
+export async function companyNamesByTerritory(territoryIds: string[]) {
+  const ids = [...new Set(territoryIds.filter(Boolean))];
+  if (ids.length === 0) return {} as Record<string, string>;
+  const { data, error } = await supabase
+    .from("portal_settings")
+    .select("territory_id, company_name")
+    .in("territory_id", ids);
+  if (error) throw error;
+  const map: Record<string, string> = {};
+  for (const row of data || []) {
+    if (row.territory_id && row.company_name) {
+      map[row.territory_id] = row.company_name;
+    }
+  }
+  return map;
+}

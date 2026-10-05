@@ -3,6 +3,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, DbWedding } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import {
+  companyNamesByTerritory,
+  getWeddingsForEditor,
+} from "@/lib/editor-weddings";
+import {
   Card,
   CardContent,
   CardHeader,
@@ -137,8 +141,9 @@ export default function EditorDashboard() {
   const [selectedVideos, setSelectedVideos] = useState<string[]>([]);
 
   const { data: weddings = [], isLoading } = useQuery({
-    queryKey: ["editor-weddings"],
-    queryFn: api.getWeddings,
+    queryKey: ["editor-weddings", user?.id],
+    queryFn: () => getWeddingsForEditor(user!.id),
+    enabled: !!user?.id,
   });
 
   const { data: settings } = useQuery({
@@ -152,13 +157,26 @@ export default function EditorDashboard() {
       if (!user?.id) return null;
       const { data } = await supabase
         .from("editors")
-        .select("stripe_account_id")
+        .select("stripe_account_id, territory_id, territory_ids")
         .eq("id", user.id)
-        .single();
+        .maybeSingle();
       return data;
     },
     enabled: !!user?.id,
   });
+
+  const { data: companyByTerritory = {} } = useQuery({
+    queryKey: [
+      "editor-company-names",
+      weddings.map((w) => w.territory_id).join(","),
+    ],
+    queryFn: () =>
+      companyNamesByTerritory(weddings.map((w) => w.territory_id).filter(Boolean)),
+    enabled: weddings.length > 0,
+  });
+
+  const companyNameFor = (wedding: any) =>
+    companyByTerritory[wedding?.territory_id] || "Company not set";
 
   const { data: weddingAssignments = [], isLoading: isLoadingAssignments } =
     useQuery({
@@ -273,13 +291,21 @@ export default function EditorDashboard() {
           w.status !== "cancelled" && w.status !== "Cancelled";
         const matchesStatus = statusFilter === "all" || status === statusFilter;
         const isAssignedToMe = w.editor_id === user?.id;
+        const allowed = Array.isArray(editorProfile?.territory_ids)
+          ? editorProfile.territory_ids.filter(Boolean)
+          : [];
+        const inAllowedArea =
+          allowed.length === 0 ||
+          allowed.includes(w.territory_id) ||
+          w.territory_id === editorProfile?.territory_id;
 
         if (
           !isVisible ||
           !matchesSearch ||
           !isNotCancelled ||
           !matchesStatus ||
-          !isAssignedToMe
+          !isAssignedToMe ||
+          !inAllowedArea
         )
           return false;
 
@@ -315,6 +341,7 @@ export default function EditorDashboard() {
     sortColumn,
     sortDirection,
     user?.id,
+    editorProfile,
   ]);
 
   const handleStatusChange = (id: string, newStatus: string) => {
@@ -423,6 +450,8 @@ export default function EditorDashboard() {
           return { id, label: v?.label, price: v?.price };
         }),
         videoTotal,
+        company_name: companyNameFor(invoiceWedding),
+        territory_id: invoiceWedding.territory_id || null,
       },
     };
 
@@ -591,6 +620,9 @@ export default function EditorDashboard() {
                     >
                       <TableCell>
                         <div className="font-medium">{wedding.client_name}</div>
+                        <div className="text-xs font-semibold text-primary mb-1">
+                          {companyNameFor(wedding)}
+                        </div>
                         <div className="text-xs text-muted-foreground mb-1">
                           {formatDisplayDate(wedding.date)}
                         </div>
@@ -828,6 +860,9 @@ export default function EditorDashboard() {
                         <div className="font-semibold">
                           {wedding.client_name}
                         </div>
+                        <div className="text-xs font-semibold text-primary mt-0.5">
+                          {companyNameFor(wedding)}
+                        </div>
                         <div className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
                           <Calendar className="h-3 w-3" />
                           {formatDisplayDate(wedding.date)}
@@ -989,6 +1024,9 @@ export default function EditorDashboard() {
                     <SheetTitle className="text-2xl">
                       {selectedWedding.client_name}
                     </SheetTitle>
+                    <div className="text-sm font-semibold text-primary mt-1">
+                      {companyNameFor(selectedWedding)}
+                    </div>
                     <SheetDescription className="flex items-center gap-4 mt-1">
                       <div className="flex items-center gap-1.5">
                         <Calendar className="h-4 w-4" />
@@ -1420,6 +1458,10 @@ export default function EditorDashboard() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Generate Invoice</DialogTitle>
+            <DialogDescription>
+              This invoice stays on {companyNameFor(invoiceWedding)}. It is not
+              sent to another company.
+            </DialogDescription>
           </DialogHeader>
           {invoiceWedding && (
             <form onSubmit={handleSubmitInvoice} className="space-y-6 py-4">

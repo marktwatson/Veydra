@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
-import { getWeddingsForEditor } from "@/lib/editor-weddings";
+import { getWeddingsForEditor, companyNamesByTerritory } from "@/lib/editor-weddings";
 import {
   Card,
   CardContent,
@@ -165,7 +165,22 @@ export default function EditorInvoices() {
     },
   });
 
-  const myInvoices = weddings.filter(
+  const { data: companyByTerritory = {} } = useQuery({
+    queryKey: [
+      "editor-company-names",
+      weddings.map((w: any) => w.territory_id).join(","),
+    ],
+    queryFn: () =>
+      companyNamesByTerritory(
+        weddings.map((w: any) => w.territory_id).filter(Boolean),
+      ),
+    enabled: weddings.length > 0,
+  });
+
+  const companyNameFor = (wedding: any) =>
+    wedding?.editor_invoice_details?.company_name ||
+    companyByTerritory[wedding?.territory_id] ||
+    "Company not set";
     (w) => w.editor_id === user?.id && w.editor_invoice_status,
   );
 
@@ -210,10 +225,15 @@ export default function EditorInvoices() {
                 <Receipt className="h-4 w-4 text-muted-foreground shrink-0" />
                 <span className="truncate">{wedding.client_name}</span>
               </CardTitle>
-              <CardDescription className="mt-1 flex items-center gap-2">
-                <Calendar className="h-3 w-3 shrink-0" />
-                <span className="truncate">
-                  {formatDisplayDate(wedding.date)}
+              <CardDescription className="mt-1 flex flex-col gap-1">
+                <span className="font-semibold text-primary">
+                  {companyNameFor(wedding)}
+                </span>
+                <span className="flex items-center gap-2">
+                  <Calendar className="h-3 w-3 shrink-0" />
+                  <span className="truncate">
+                    {formatDisplayDate(wedding.date)}
+                  </span>
                 </span>
               </CardDescription>
             </div>
