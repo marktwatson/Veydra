@@ -82,7 +82,7 @@ import BartendingUpsellCard from "@/components/BartendingUpsellCard";
 import BartendingModuleToggle from "@/components/BartendingModuleToggle";
 import { BartendingContractTemplateCard } from "@/components/BartendingContractTemplateCard";
 import { useBartendingModule } from "@/hooks/use-bartending-module";
-import { useAuth } from "@/contexts/AuthContext";
+import { currentTerritoryId } from "@/lib/current-territory";
 
 const getPreviewHtml = (html: string) => {
   const logoUrl =
@@ -2283,12 +2283,14 @@ export default function ManagerSettings() {
   const checkStripeStatus = async () => {
     setIsCheckingStripe(true);
     try {
+      const territoryId = await currentTerritoryId();
       const res = await fetch(`${supabaseUrl}/functions/v1/stripe-status`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${supabaseAnonKey}`,
         },
+        body: JSON.stringify({ territory_id: territoryId }),
       });
 
       if (!res.ok) {
@@ -4502,13 +4504,12 @@ export default function ManagerSettings() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <CreditCard className="h-5 w-5 text-primary" />
-                  Shared Stripe account
+                  This area's Stripe account
                 </CardTitle>
                 <CardDescription>
-                  This is the server Stripe account, from the STRIPE_SECRET_KEY
-                  environment variable. It is the same on every area. It is not
-                  the editor payout key. Editor payouts use the Editor Payout
-                  Stripe Secret card.
+                  This checks the editor payout key saved on the area you are
+                  viewing. If it still shows gosocial after the status function
+                  is deployed, the secret saved on this area is Nik's key.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">

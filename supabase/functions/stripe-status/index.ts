@@ -1,4 +1,4 @@
-const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY");
+import { createClient } from "jsr:@supabase/supabase-js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,32 +12,53 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    if (!STRIPE_SECRET_KEY) {
+    const body = await req.json().catch(() => ({}));
+    const territoryId = body?.territory_id || null;
+    let stripeKey = Deno.env.get("STRIPE_SECRET_KEY") || "";
+    let source = "shared";
+
+    if (territoryId) {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL");
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      if (supabaseUrl && serviceKey) {
+        const supabase = createClient(supabaseUrl, serviceKey);
+        const { data } = await supabase
+          .from("territories")
+          .select("name, editor_payout_stripe_key")
+          .eq("id", territoryId)
+          .maybeSingle();
+        if (data?.editor_payout_stripe_key) {
+          stripeKey = data.editor_payout_stripe_key;
+          source = "area";
+        }
+      }
+    }
+
+    if (!stripeKey) {
       return new Response(
-        JSON.stringify({ connected: false, reason: "no_key" }),
+        JSON.stringify({ connected: false, reason: "no_key", source }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const isTest = STRIPE_SECRET_KEY.startsWith("sk_test_");
-
+    const isTest = stripeKey.startsWith("sk_test_");
     const res = await fetch("https://api.stripe.com/v1/account", {
-      headers: { "Authorization": `Bearer ${STRIPE_SECRET_KEY}` },
+      headers: { "Authorization": `Bearer ${stripeKey}` },
     });
 
     if (!res.ok) {
       const errText = await res.text();
       return new Response(
-        JSON.stringify({ connected: false, reason: "invalid_key", error: errText }),
+        JSON.stringify({ connected: false, reason: "invalid_key", error: errText, source }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     const account = await res.json();
-
     return new Response(
       JSON.stringify({
         connected: true,
+        source,
         isTest,
         accountId: account.id,
         businessName: account.business_profile?.name || null,
@@ -57,3 +78,4 @@ Deno.serve(async (req: Request) => {
     );
   }
 });
+
