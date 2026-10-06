@@ -295,22 +295,32 @@ export function ReviewWeddingDialog({
         ? `${notes}\n\n--- Raw Data Backup ---\n${rawData}`
         : notes;
 
-      await api.updateWedding(wedding.id, {
-        status: "upcoming",
-        region: region.length > 0 ? region : null,
-        client_name: clientName,
-        date: date,
-        location: location,
-        notes: fullNotes,
-        total_amount: totalAmount,
-        paid_amount: paidAmount,
-        stripe_customer_id: stripeCustomerId || null,
-        package: weddingPackage,
-        addons: weddingAddons
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
-      } as any);
+      let lastError: any = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          await api.updateWedding(wedding.id, {
+            status: "upcoming",
+            region: region.length > 0 ? region : null,
+            client_name: clientName,
+            date: date,
+            location: location,
+            notes: fullNotes,
+            total_amount: totalAmount,
+            paid_amount: paidAmount,
+            stripe_customer_id: stripeCustomerId || null,
+            package: weddingPackage,
+            addons: weddingAddons
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean),
+          } as any);
+          lastError = null;
+          break;
+        } catch (err) {
+          lastError = err;
+        }
+      }
+      if (lastError) throw lastError;
     },
     onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ["weddings"] });
