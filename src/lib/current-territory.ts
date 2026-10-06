@@ -73,27 +73,36 @@ async function loadManagerTerritory(): Promise<{
     } = await supabase.auth.getUser();
     const email = impersonated?.email || user?.email || null;
     const id = impersonated?.id || user?.id || null;
-    if (email) {
-      const { data: rows } = await supabase
-        .from("managers")
-        .select("territory_id, territory_ids, status")
-        .ilike("email", email)
-        .limit(5);
-      const list = rows || [];
-      const ids = new Set<string>();
-      list.forEach((row) => {
-        if (row.territory_id) ids.add(row.territory_id);
-        const extra = (row.territory_ids as string[]) || [];
-        if (Array.isArray(extra)) extra.forEach((id) => id && ids.add(id));
-      });
-      const mgr =
-        list.find((row) => row.status === "active") || list[0] || null;
-      if (mgr) {
-        return {
-          territory_id: mgr.territory_id,
-          territory_ids: Array.from(ids),
-        };
-      }
+    const { data: rows } = await supabase
+      .from("managers")
+      .select("territory_id, territory_ids, status")
+      .or(
+        [
+          id ? `id.eq.${id}` : "",
+          email ? `email.ilike.${email}` : "",
+        ]
+          .filter(Boolean)
+          .join(","),
+      )
+      .limit(5);
+    const list = rows || [];
+    const ids = new Set<string>();
+    list.forEach((row) => {
+      if (row.territory_id) ids.add(row.territory_id);
+      const extra = (row.territory_ids as string[]) || [];
+      if (Array.isArray(extra)) extra.forEach((areaId) => areaId && ids.add(areaId));
+    });
+    const mgr =
+      list.find((row) => row.id === id && row.status === "active") ||
+      list.find((row) => row.status === "active") ||
+      list.find((row) => row.id === id) ||
+      list[0] ||
+      null;
+    if (mgr) {
+      return {
+        territory_id: mgr.territory_id,
+        territory_ids: Array.from(ids),
+      };
     }
     if (id) {
       const { data: mgr } = await supabase

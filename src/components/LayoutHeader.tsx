@@ -80,7 +80,7 @@ export function LayoutHeader({
     canSwitchAreas()
       .then((ok) => setShowSwitcher(ok))
       .catch(() => setShowSwitcher(false));
-  }, [user?.email]);
+  }, [user?.email, user?.id, role]);
 
   useEffect(() => {
     const checkChangelog = () => {
