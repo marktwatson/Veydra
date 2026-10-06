@@ -1279,7 +1279,11 @@ export function ManageWeddingSheet({
                           Video: {bookedProposal.video_features.join(", ")}
                         </p>
                       )}
-                    {Number(bookedProposal.second_shooter_hours) > 0 && (
+                    {Array.isArray(bookedProposal.addons) &&
+                      bookedProposal.addons.some((id: string) =>
+                        String(id).includes("second_shooter"),
+                      ) &&
+                      Number(bookedProposal.second_shooter_hours) > 0 && (
                       <p>
                         Second shooter: {bookedProposal.second_shooter_hours} hrs
                         {bookedProposal.second_shooter_type

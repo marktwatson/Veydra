@@ -119,7 +119,7 @@ export function ReviewWeddingDialog({
       const { data } = await supabase
         .from("proposals")
         .select(
-          "package_name, coverage_type, photo_features, video_features, custom_prices, second_shooter_hours, second_shooter_type",
+          "package_name, coverage_type, photo_features, video_features, custom_prices, second_shooter_hours, second_shooter_type, addons",
         )
         .eq("wedding_id", wedding.id)
         .order("created_at", { ascending: false })
@@ -617,7 +617,11 @@ export function ReviewWeddingDialog({
                     bookedProposal.photo_features.length > 0 && (
                       <p>Photo: {bookedProposal.photo_features.join(", ")}</p>
                     )}
-                  {Number(bookedProposal.second_shooter_hours) > 0 && (
+                  {Array.isArray(bookedProposal.addons) &&
+                    bookedProposal.addons.some((id: string) =>
+                      String(id).includes("second_shooter"),
+                    ) &&
+                    Number(bookedProposal.second_shooter_hours) > 0 && (
                     <p>
                       Second shooter: {bookedProposal.second_shooter_hours} hrs
                     </p>
