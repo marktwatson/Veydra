@@ -277,20 +277,6 @@ export function ReviewWeddingDialog({
 
   const updateWeddingMutation = useMutation({
     mutationFn: async () => {
-      for (const job of newJobs) {
-        if (!job.role) continue;
-        await createJobWithTerritory({
-          wedding_id: wedding.id,
-          role: job.role,
-          pay_type: job.pay_type,
-          pay_rate: job.pay_rate || 0,
-          hours: job.hours,
-          addons: job.addons || [],
-          status: "open",
-          requirements: "",
-        });
-      }
-
       const fullNotes = rawData
         ? `${notes}\n\n--- Raw Data Backup ---\n${rawData}`
         : notes;
@@ -321,6 +307,20 @@ export function ReviewWeddingDialog({
         }
       }
       if (lastError) throw lastError;
+
+      for (const job of newJobs) {
+        if (!job.role) continue;
+        await createJobWithTerritory({
+          wedding_id: wedding.id,
+          role: job.role,
+          pay_type: job.pay_type,
+          pay_rate: job.pay_rate || 0,
+          hours: job.hours,
+          addons: job.addons || [],
+          status: "open",
+          requirements: "",
+        });
+      }
     },
     onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ["weddings"] });
