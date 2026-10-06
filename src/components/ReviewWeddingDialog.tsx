@@ -52,10 +52,12 @@ export function ReviewWeddingDialog({
     wedding.date ? wedding.date.split("T")[0] : "",
   );
   const [location, setLocation] = useState(wedding.location);
-  const [region, setRegion] = useState(
+  const [region, setRegion] = useState<string[]>(
     Array.isArray(wedding.region)
-      ? wedding.region[0] || ""
-      : wedding.region || "",
+      ? wedding.region
+      : wedding.region
+        ? [wedding.region]
+        : [],
   );
   const [weddingPackage, setWeddingPackage] = useState("");
   const [weddingAddons, setWeddingAddons] = useState("");
@@ -295,7 +297,7 @@ export function ReviewWeddingDialog({
 
       await api.updateWedding(wedding.id, {
         status: "upcoming",
-        region: region ? [region] : null,
+        region: region.length > 0 ? region : null,
         client_name: clientName,
         date: date,
         location: location,
@@ -558,20 +560,30 @@ export function ReviewWeddingDialog({
             </div>
             <div className="space-y-1">
               <Label className="text-muted-foreground font-medium">
-                Region
+                Regions
               </Label>
-              <Select value={region || undefined} onValueChange={setRegion}>
-                <SelectTrigger className="h-9">
-                  <SelectValue placeholder="Select region" />
-                </SelectTrigger>
-                <SelectContent>
-                  {regions.map((r: string) => (
-                    <SelectItem key={r} value={r}>
+              <div className="flex flex-wrap gap-2">
+                {regions.map((r: string) => {
+                  const selected = region.includes(r);
+                  return (
+                    <Button
+                      key={r}
+                      type="button"
+                      size="sm"
+                      variant={selected ? "default" : "outline"}
+                      onClick={() =>
+                        setRegion((prev) =>
+                          prev.includes(r)
+                            ? prev.filter((item) => item !== r)
+                            : [...prev, r],
+                        )
+                      }
+                    >
                       {r}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                    </Button>
+                  );
+                })}
+              </div>
             </div>
             <div className="space-y-1">
               <Label className="text-muted-foreground font-medium">

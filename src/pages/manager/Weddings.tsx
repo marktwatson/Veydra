@@ -374,10 +374,12 @@ export function ManageWeddingSheet({
     wedding.contract_date ? wedding.contract_date.split("T")[0] : "",
   );
   const [location, setLocation] = useState(wedding.location);
-  const [region, setRegion] = useState(
+  const [region, setRegion] = useState<string[]>(
     Array.isArray(wedding.region)
-      ? wedding.region[0] || ""
-      : wedding.region || "",
+      ? wedding.region
+      : wedding.region
+        ? [wedding.region]
+        : [],
   );
   const [notes, setNotes] = useState(wedding.notes || "");
   const [weddingPackage, setWeddingPackage] = useState(
@@ -609,8 +611,10 @@ export function ManageWeddingSheet({
       setLocation(wedding.location);
       setRegion(
         Array.isArray(wedding.region)
-          ? wedding.region[0] || ""
-          : wedding.region || "",
+          ? wedding.region
+          : wedding.region
+            ? [wedding.region]
+            : [],
       );
       setNotes(wedding.notes || "");
       setWeddingPackage(
@@ -740,7 +744,7 @@ export function ManageWeddingSheet({
         partner_name: partnerName,
         date,
         location,
-        region: region ? [region] : null,
+        region: region.length > 0 ? region : null,
         notes,
         package: weddingPackage,
         addons: weddingAddons
@@ -1062,27 +1066,34 @@ export function ManageWeddingSheet({
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="region">Region</Label>
-                    <Select
-                      value={region || undefined}
-                      onValueChange={setRegion}
-                    >
-                      <SelectTrigger className="w-full h-10">
-                        <SelectValue placeholder="Select region" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {regions.map((r) => (
-                          <SelectItem key={r} value={r}>
+                    <Label htmlFor="region">Regions</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {regions.map((r) => {
+                        const selected = region.includes(r);
+                        return (
+                          <Button
+                            key={r}
+                            type="button"
+                            size="sm"
+                            variant={selected ? "default" : "outline"}
+                            onClick={() =>
+                              setRegion((prev) =>
+                                prev.includes(r)
+                                  ? prev.filter((item) => item !== r)
+                                  : [...prev, r],
+                              )
+                            }
+                          >
                             {r}
-                          </SelectItem>
-                        ))}
-                        {regions.length === 0 && (
-                          <SelectItem value="none" disabled>
-                            No regions configured
-                          </SelectItem>
-                        )}
-                      </SelectContent>
-                    </Select>
+                          </Button>
+                        );
+                      })}
+                      {regions.length === 0 && (
+                        <span className="text-xs text-muted-foreground">
+                          No regions configured
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
