@@ -518,6 +518,22 @@ export function ManageWeddingSheet({
     enabled: isOpen,
   });
 
+  const { data: bookedProposal } = useQuery({
+    queryKey: ["wedding-proposal-lines", wedding.id],
+    enabled: isOpen && !!wedding.id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("proposals")
+        .select(
+          "package_name, coverage_type, photo_features, video_features, custom_prices, second_shooter_hours, second_shooter_type, addons",
+        )
+        .eq("wedding_id", wedding.id)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      return data?.[0] || null;
+    },
+  });
+
   const { data: assignments = [], isLoading: isLoadingAssignments } = useQuery({
     queryKey: ["assignments", "wedding", wedding.id],
     queryFn: async () => {
@@ -1231,6 +1247,45 @@ export function ManageWeddingSheet({
                     />
                   </div>
                 </div>
+                {bookedProposal && (
+                  <div className="rounded-md border bg-muted/30 p-3 text-sm space-y-1">
+                    <p className="font-medium">Booked lines</p>
+                    <p>
+                      {bookedProposal.package_name || weddingPackage || "Custom"}
+                      {bookedProposal.coverage_type
+                        ? ` · ${bookedProposal.coverage_type}`
+                        : ""}
+                    </p>
+                    {Array.isArray(bookedProposal.photo_features) &&
+                      bookedProposal.photo_features.length > 0 && (
+                        <p>
+                          Photo: {bookedProposal.photo_features.join(", ")}
+                        </p>
+                      )}
+                    {Array.isArray(bookedProposal.video_features) &&
+                      bookedProposal.video_features.length > 0 && (
+                        <p>
+                          Video: {bookedProposal.video_features.join(", ")}
+                        </p>
+                      )}
+                    {Number(bookedProposal.second_shooter_hours) > 0 && (
+                      <p>
+                        Second shooter: {bookedProposal.second_shooter_hours} hrs
+                        {bookedProposal.second_shooter_type
+                          ? ` (${bookedProposal.second_shooter_type})`
+                          : ""}
+                      </p>
+                    )}
+                    {Array.isArray(bookedProposal.custom_prices?.items) &&
+                      bookedProposal.custom_prices.items.map((item: any, i: number) => (
+                        <p key={i}>
+                          {item.name || item.label || "Custom item"}
+                          {item.hours ? ` · ${item.hours} hrs` : ""}
+                          {item.price ? ` · $${item.price}` : ""}
+                        </p>
+                      ))}
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label htmlFor="notes">Internal Notes</Label>
                   <textarea
