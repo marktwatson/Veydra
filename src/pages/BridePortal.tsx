@@ -3031,18 +3031,21 @@ export default function BridePortal() {
                     <Gift className="h-4 w-4" />
                     Share Gift Link
                   </Button>
-                  <Button
-                    className="flex-1 rounded-xl h-12 gap-2 shadow-md font-medium bg-[#1a1a1a] hover:bg-[#1a1a1a]/90 text-white"
-                    onClick={handleManagePayments}
-                    disabled={isManagingPayments}
-                  >
-                    {isManagingPayments ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <CreditCard className="h-4 w-4" />
-                    )}
-                    Manage Payment Methods
-                  </Button>
+                  {wedding.ghl_invoice_url && (
+                    <Button
+                      asChild
+                      className="flex-1 rounded-xl h-12 gap-2 shadow-md font-medium bg-[#1a1a1a] hover:bg-[#1a1a1a]/90 text-white"
+                    >
+                      <a
+                        href={wedding.ghl_invoice_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <CreditCard className="h-4 w-4" />
+                        View Invoice
+                      </a>
+                    </Button>
+                  )}
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                   <div className="bg-[#c9a96e]/15 rounded-xl p-6 border border-[#c9a96e]/30 flex flex-col items-center justify-center text-center">
