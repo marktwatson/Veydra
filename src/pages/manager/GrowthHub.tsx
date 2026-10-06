@@ -211,13 +211,13 @@ export default function GrowthHub() {
     [leadsList],
   );
 
-  // Aggregates. paid_amount is already NET of refunds (synced by daily-reminders
-  // + stripe-webhook) — do NOT subtract refunded_amount again (double-counts).
+  // Both cards use the same bookings: upcoming or completed, booked in the
+  // selected range. Collected is not all-time paid_amount.
   const totalBookedValue = bookedWeddings.reduce(
     (s, w) => s + (w.total_amount || 0),
     0,
   );
-  const totalCollectedRevenue = allBookedWeddings.reduce(
+  const totalCollectedRevenue = bookedWeddings.reduce(
     (s, w: any) => s + (Number(w.paid_amount) || 0),
     0,
   );

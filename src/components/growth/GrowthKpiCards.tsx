@@ -62,7 +62,7 @@ export function GrowthKpiCards(props: KpiCardsProps) {
               <span className="font-semibold text-foreground">
                 {bookedCount}
               </span>{" "}
-              {bookedCount === 1 ? "Booked Contract" : "Booked Contracts"}
+              {bookedCount === 1 ? "Booked Contract" : "Booked Contracts"} in range
             </p>
           </CardContent>
         </Card>
@@ -85,7 +85,7 @@ export function GrowthKpiCards(props: KpiCardsProps) {
               {formatCurrency(
                 Math.max(totalBookedValue - totalCollectedRevenue, 0),
               )}{" "}
-              Outstanding
+              Outstanding on these bookings
             </p>
           </CardContent>
         </Card>
