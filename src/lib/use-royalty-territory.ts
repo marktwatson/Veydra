@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import {
   getSuperAdminViewTerritory,
   getManagerTerritoryIdRaw,
+  getAllowedTerritoryIds,
 } from "@/lib/current-territory";
 
 /**
@@ -37,7 +38,13 @@ export function useRoyaltyTerritory() {
   // Super admin: sync localStorage read (available on first render).
   const superViewId = isSuperAdmin ? getSuperAdminViewTerritory() : null;
 
-  // Owner / manager: their managers.territory_id, no fallback.
+  // Owner / manager: home area, unless the header selection is one of their
+  // assigned areas. Never an area outside that list.
+  const { data: allowedTerritoryIds } = useQuery({
+    queryKey: ["royalty-allowed-territories", user?.email],
+    queryFn: () => getAllowedTerritoryIds(),
+    enabled: !isSuperAdmin,
+  });
   const {
     data: managerTerritoryId,
     isLoading: loadingManagerTerritory,
@@ -48,9 +55,14 @@ export function useRoyaltyTerritory() {
     enabled: !isSuperAdmin,
   });
 
+  const selected = !isSuperAdmin ? getSuperAdminViewTerritory() : null;
+  const selectedAllowed =
+    !!selected && !!allowedTerritoryIds && allowedTerritoryIds.includes(selected);
   const effectiveTerritoryId = isSuperAdmin
     ? superViewId || primaryTerritory?.id || null
-    : (managerTerritoryId ?? null);
+    : selectedAllowed
+      ? selected
+      : (managerTerritoryId ?? null);
 
   return {
     isSuperAdmin,
