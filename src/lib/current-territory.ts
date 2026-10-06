@@ -198,7 +198,8 @@ export async function currentTerritoryId(): Promise<string | null> {
     if (Array.isArray(ids)) ids.forEach((t: string) => t && allowed.add(t));
     if (home) allowed.add(home);
 
-    // Saved switcher pick — only if still allowed.
+    // Selected header area wins when it is one of his assigned areas.
+    // Home territory_id is only the default, not a lock.
     const saved = getSuperAdminViewTerritory();
     if (saved && allowed.has(saved)) return saved;
 

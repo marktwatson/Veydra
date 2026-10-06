@@ -102,23 +102,17 @@ export function SuperAdminAreaSwitcher() {
         rows = [{ id: HONEYSUCKLE_TERRITORY_ID, name: "Honeysuckle" }];
       }
 
-      // 3. Default = home area (manager) or first area (super admin).
+      // 3. Keep a selected area. Do not reset it to the home area.
       const def = isSuper
         ? rows[0]?.id || HONEYSUCKLE_TERRITORY_ID
         : homeId || rows[0]?.id || HONEYSUCKLE_TERRITORY_ID;
-      setDefaultId(def);
-      setAreas(rows);
-
-      // 4. Saved pick — keep only if still in the allowed list.
       const saved = getSuperAdminViewTerritory();
       const inList = rows.some((r) => r.id === saved);
-      if (saved && inList) {
-        setValue(saved);
-      } else {
-        // Stale or missing → reset to the default and persist it.
-        if (saved && !inList) setSuperAdminViewTerritory(def);
-        setValue(def);
-      }
+      const next = saved && inList ? saved : def;
+      setDefaultId(def);
+      setAreas(rows);
+      setValue(next);
+      if (saved && !inList) setSuperAdminViewTerritory(next);
       if (cancelled) return;
     })();
     return () => {
