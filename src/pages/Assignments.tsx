@@ -19,7 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { useAuth } from "@/contexts/AuthContext";
+import { parseRegions } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AssignmentCalendar } from "@/components/AssignmentCalendar";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -42,8 +42,23 @@ export default function Assignments() {
   const currentUser = contractors.find(
     (c) => c.email?.trim().toLowerCase() === user?.email?.trim().toLowerCase(),
   );
+  const myRegions = parseRegions(currentUser?.region).map((r) =>
+    r.toLowerCase(),
+  );
+  const inMyRegion = (assignment: any) => {
+    if (myRegions.length === 0) return false;
+    if (myRegions.includes("all regions")) return true;
+    const weddingRegions = parseRegions(
+      assignment.jobs?.weddings?.region,
+    ).map((r) => r.toLowerCase());
+    if (weddingRegions.length > 0) {
+      return myRegions.some((r) => weddingRegions.includes(r));
+    }
+    const location = (assignment.jobs?.weddings?.location || "").toLowerCase();
+    return myRegions.some((r) => location.includes(r));
+  };
   const myAssignments = assignments.filter(
-    (a: any) => a.contractor_id === currentUser?.id,
+    (a: any) => a.contractor_id === currentUser?.id && inMyRegion(a),
   );
 
   const today = new Date();
