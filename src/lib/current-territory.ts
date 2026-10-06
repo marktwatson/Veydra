@@ -75,7 +75,7 @@ async function loadManagerTerritory(): Promise<{
     const id = impersonated?.id || user?.id || null;
     const { data: rows } = await supabase
       .from("managers")
-      .select("territory_id, territory_ids, status")
+      .select("id, territory_id, territory_ids, status")
       .or(
         [
           id ? `id.eq.${id}` : "",
