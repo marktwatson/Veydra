@@ -3263,20 +3263,22 @@ export default function BridePortal() {
                       </div>
                     )}
 
-                  {wedding.stripe_customer_id && (
+                  {wedding.ghl_invoice_url && (
                     <div className="pt-4 border-t mt-6">
                       <p className="text-sm text-muted-foreground mb-4">
-                        Need to update your credit card, download past invoices,
-                        or see your exact upcoming charge dates?
+                        Open the invoice from checkout to view or pay the balance.
                       </p>
                       <Button
-                        onClick={handleManagePayments}
-                        disabled={isManagingPayments}
+                        asChild
                         className="w-full sm:w-auto bg-[#1a1a1a] hover:bg-[#1a1a1a]/90 text-white"
                       >
-                        {isManagingPayments
-                          ? "Opening Portal..."
-                          : "Manage Payment Methods & Invoices"}
+                        <a
+                          href={wedding.ghl_invoice_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          View Invoice
+                        </a>
                       </Button>
                     </div>
                   )}
