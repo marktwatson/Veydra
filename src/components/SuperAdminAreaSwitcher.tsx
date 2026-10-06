@@ -10,7 +10,9 @@ import {
 import { supabase } from "@/lib/supabase";
 import { isSuperAdminEmail } from "@/lib/super-admin";
 import {
+  getAllowedTerritoryIds,
   getSuperAdminViewTerritory,
+  loadManagerTerritory,
   setSuperAdminViewTerritory,
 } from "@/lib/current-territory";
 import { HONEYSUCKLE_TERRITORY_ID } from "@/lib/territory";
@@ -61,26 +63,10 @@ export function SuperAdminAreaSwitcher() {
           (!impersonated && isSuperAdminEmail(email));
         if (isSuper) {
           allowedIds = null;
-        } else if (email) {
-          const { data: rows } = await supabase
-            .from("managers")
-            .select("territory_id, territory_ids, status")
-            .ilike("email", email)
-            .limit(5);
-          const list = rows || [];
-          const mgr =
-            list.find((row) => row.status === "active") || list[0];
-          if (mgr) {
-            homeId = (mgr.territory_id as string) || homeId;
-            const set = new Set<string>();
-            list.forEach((row) => {
-              if (row.territory_id) set.add(row.territory_id);
-              const extra = (row.territory_ids as string[]) || [];
-              if (Array.isArray(extra)) extra.forEach((id) => id && set.add(id));
-            });
-            if (homeId) set.add(homeId);
-            allowedIds = Array.from(set);
-          }
+        } else {
+          const mgr = await loadManagerTerritory();
+          homeId = (mgr?.territory_id as string) || homeId;
+          allowedIds = await getAllowedTerritoryIds();
         }
       } catch {
         /* ignore */
@@ -95,6 +81,12 @@ export function SuperAdminAreaSwitcher() {
         }
         const { data, error } = await q;
         if (!error && data) rows = data as SwitcherArea[];
+        if (allowedIds) {
+          const seen = new Set(rows.map((row) => row.id));
+          allowedIds.forEach((id) => {
+            if (!seen.has(id)) rows.push({ id, name: "Assigned area" });
+          });
+        }
       } catch {
         /* ignore */
       }

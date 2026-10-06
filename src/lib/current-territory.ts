@@ -62,7 +62,7 @@ function readImpersonatedUser(): {
  * then id. While impersonating, this is the viewed user's row, not the
  * super admin session. Returns null when there is no managers row.
  */
-async function loadManagerTerritory(): Promise<{
+export async function loadManagerTerritory(): Promise<{
   territory_id: string | null;
   territory_ids: string[] | null;
 } | null> {
