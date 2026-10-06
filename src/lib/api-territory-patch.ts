@@ -103,12 +103,20 @@ export function patchApiForTerritory(): void {
     const tid = await currentTerritoryId();
     return api.getWeddingsForTerritory(tid);
   };
-  (api as any).getContractors = () =>
-    currentTerritoryId().then((tid) => api.getContractorsForTerritory(tid));
+  (api as any).getContractors = async () => {
+    const role = readViewerRole();
+    if (role === "contractor") return api.getContractorsForTerritory(null);
+    const tid = await currentTerritoryId();
+    return api.getContractorsForTerritory(tid);
+  };
   (api as any).getJobs = () =>
     currentTerritoryId().then((tid) => fetchJobsForTerritory(tid));
-  (api as any).getAssignments = () =>
-    currentTerritoryId().then((tid) => fetchAssignmentsForTerritory(tid));
+  (api as any).getAssignments = async () => {
+    const role = readViewerRole();
+    if (role === "contractor") return fetchAssignmentsForTerritory(null);
+    const tid = await currentTerritoryId();
+    return fetchAssignmentsForTerritory(tid);
+  };
   (api as any).getApplications = () =>
     currentTerritoryId().then((tid) => fetchApplicationsForTerritory(tid));
 
@@ -124,4 +132,21 @@ export function patchApiForTerritory(): void {
 
 // Auto-patch on import so any entry point that imports api gets the scoped
 // versions without each caller needing to call patchApiForTerritory().
+function readViewerRole(): string {
+  try {
+    const raw = localStorage.getItem("impersonated_user");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.role) return parsed.role;
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    return localStorage.getItem("veydra_effective_role") || "";
+  } catch {
+    return "";
+  }
+}
+
 patchApiForTerritory();
