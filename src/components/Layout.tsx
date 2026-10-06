@@ -202,7 +202,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
         )
         .ilike("email", user.email)
         .limit(1);
-      const record = data?.[0];
+      let record = data?.[0];
+      if (!record && user.id) {
+        const { data: byId } = await supabase
+          .from("contractors")
+          .select(
+            "avatar_url, training_completed, status, bio, venmo_handle, portfolio_url, specialty",
+          )
+          .eq("id", user.id)
+          .maybeSingle();
+        record = byId || undefined;
+      }
 
       const isBartender = /bartender/i.test(record?.specialty || "");
       const isProfileIncomplete = record
