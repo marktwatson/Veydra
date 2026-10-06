@@ -27,9 +27,11 @@ export async function findManagerAccount(userId?: string, email?: string) {
       .from("managers")
       .select("*")
       .ilike("email", escapeFilterVal(email.trim()))
-      .limit(1)
-      .maybeSingle();
-    if (data) return data;
+      .limit(5);
+    const list = data || [];
+    const row =
+      list.find((item) => item.status === "active") || list[0] || null;
+    if (row) return row;
   }
 
   return null;

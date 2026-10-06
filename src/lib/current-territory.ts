@@ -80,9 +80,20 @@ async function loadManagerTerritory(): Promise<{
         .ilike("email", email)
         .limit(5);
       const list = rows || [];
+      const ids = new Set<string>();
+      list.forEach((row) => {
+        if (row.territory_id) ids.add(row.territory_id);
+        const extra = (row.territory_ids as string[]) || [];
+        if (Array.isArray(extra)) extra.forEach((id) => id && ids.add(id));
+      });
       const mgr =
         list.find((row) => row.status === "active") || list[0] || null;
-      if (mgr) return mgr as any;
+      if (mgr) {
+        return {
+          territory_id: mgr.territory_id,
+          territory_ids: Array.from(ids),
+        };
+      }
     }
     if (id) {
       const { data: mgr } = await supabase

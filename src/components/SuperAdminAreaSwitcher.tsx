@@ -67,14 +67,17 @@ export function SuperAdminAreaSwitcher() {
             .select("territory_id, territory_ids, status")
             .ilike("email", email)
             .limit(5);
+          const list = rows || [];
           const mgr =
-            (rows || []).find((row) => row.status === "active") ||
-            (rows || [])[0];
+            list.find((row) => row.status === "active") || list[0];
           if (mgr) {
             homeId = (mgr.territory_id as string) || homeId;
-            const ids = (mgr.territory_ids as any) || [];
             const set = new Set<string>();
-            if (Array.isArray(ids)) ids.forEach((t: string) => t && set.add(t));
+            list.forEach((row) => {
+              if (row.territory_id) set.add(row.territory_id);
+              const extra = (row.territory_ids as string[]) || [];
+              if (Array.isArray(extra)) extra.forEach((id) => id && set.add(id));
+            });
             if (homeId) set.add(homeId);
             allowedIds = Array.from(set);
           }
