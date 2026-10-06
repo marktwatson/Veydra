@@ -2,7 +2,7 @@ import {
   ExternalLink,
   Copy,
   CheckCircle2,
-  Trash2,
+  Archive,
   Pencil,
   CheckCircle,
   Users,
@@ -30,7 +30,8 @@ interface Props {
   onMarkBooked: (proposal: any) => void;
   onPreview: (id: string) => void;
   onReview: (proposal: any) => void;
-  onDelete: (id: string) => void;
+  onArchive: (id: string) => void;
+  onRestore: (id: string) => void;
 }
 
 /**
@@ -47,7 +48,8 @@ export function ProposalRowActions({
   onMarkBooked,
   onPreview,
   onReview,
-  onDelete,
+  onArchive,
+  onRestore,
 }: Props) {
   return (
     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
@@ -107,36 +109,38 @@ export function ProposalRowActions({
             </Button>
           </>
         )}
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-destructive hover:text-destructive hover:bg-destructive/10"
-              title="Delete"
-            >
-              <Trash2 className="w-4 h-4" />
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This action cannot be undone. This will permanently delete the
-                proposal and it will no longer be accessible via the link.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={() => onDelete(proposal.id)}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                Delete
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        {proposal.status === "archived" ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onRestore(proposal.id)}
+          >
+            Restore
+          </Button>
+        ) : (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" size="icon" title="Archive">
+                <Archive className="w-4 h-4" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Archive this proposal?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  It will be removed from your view. You can see it in the
+                  Archive tab and restore it from there. Nothing is deleted.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => onArchive(proposal.id)}>
+                  Archive
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
       </div>
     </TableCell>
   );

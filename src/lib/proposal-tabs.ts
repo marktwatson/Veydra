@@ -17,7 +17,8 @@ export type ProposalTab =
   | "booked"
   | "superseded"
   | "coverage"
-  | "expired";
+  | "expired"
+  | "archived";
 
 /** Resolve the wedding row attached to a proposal (handles upgrade fallback). */
 export function resolveWedding(p: any): any | null {
@@ -85,6 +86,7 @@ export function isExpired(p: any): boolean {
 }
 
 export function classifyProposal(p: any): ProposalTab {
+  if (p.status === "archived") return "archived";
   if (p.status === "superseded") return "superseded";
   if (isBooked(p)) return "booked";
   if (isExpired(p)) return "expired";
@@ -100,20 +102,26 @@ export function classifyProposal(p: any): ProposalTab {
 
 export function tabCounts(proposals: any[]): Record<ProposalTab, number> {
   const c: Record<ProposalTab, number> = {
-    all: proposals.filter((p) => p.status !== "superseded").length,
+    all: proposals.filter(
+      (p) => p.status !== "superseded" && p.status !== "archived",
+    ).length,
     draft: 0,
     waiting: 0,
     booked: 0,
     coverage: 0,
     expired: 0,
     superseded: 0,
+    archived: 0,
   };
   for (const p of proposals) c[classifyProposal(p)]++;
   return c;
 }
 
 export function filterByTab(proposals: any[], tab: ProposalTab): any[] {
-  if (tab === "all") return proposals.filter((p) => p.status !== "superseded");
+  if (tab === "all")
+    return proposals.filter(
+      (p) => p.status !== "superseded" && p.status !== "archived",
+    );
   return proposals.filter((p) => classifyProposal(p) === tab);
 }
 
@@ -139,7 +147,7 @@ export function methodLabel(method?: string | null): string {
 export function proposalsToReconcile(proposals: any[]): any[] {
   return proposals.filter((p) => {
     if (p.status === "accepted" || p.status === "paid") return false;
-    if (p.status === "superseded") return false;
+    if (p.status === "superseded" || p.status === "archived") return false;
     const w = resolveWedding(p);
     if (!w) {
       // No wedding — book only if proposal off-platform confirmed.
@@ -202,7 +210,7 @@ export function detectSuperseded(proposals: any[]): DedupResult {
       // Never supersede an already-booked row.
       if (isBooked(o)) continue;
       // Never supersede a row that is already "superseded".
-      if (o.status === "superseded") continue;
+      if (o.status === "superseded" || o.status === "archived") continue;
       supIds.push(o.id);
     }
     if (supIds.length) {

@@ -139,19 +139,31 @@ export default function ManagerProposals() {
     window.open(link, "_blank");
   };
 
-  const deleteProposal = async (id: string) => {
-    const { error } = await supabase.from("proposals").delete().eq("id", id);
-    if (error)
+  const setProposalStatus = async (id: string, status: string) => {
+    const { error } = await supabase
+      .from("proposals")
+      .update({ status })
+      .eq("id", id);
+    if (error) {
       toast({
         title: "Error",
-        description: "Failed to delete proposal",
+        description: "Could not update that proposal",
         variant: "destructive",
       });
-    else {
-      api.logAdminActivity("Proposal Deleted", `Deleted proposal ${id}`);
-      toast({ title: "Success", description: "Proposal deleted" });
-      refresh();
+      return;
     }
+    api.logAdminActivity(
+      status === "archived" ? "Proposal Archived" : "Proposal Restored",
+      `${status} proposal ${id}`,
+    );
+    toast({
+      title: status === "archived" ? "Archived" : "Restored",
+      description:
+        status === "archived"
+          ? "It is in the Archive tab. Nothing was deleted."
+          : "It is back in the proposal list.",
+    });
+    refresh();
   };
 
   const handleMarkAsBooked = (proposal: any) =>
@@ -271,8 +283,8 @@ export default function ManagerProposals() {
           <TabsTrigger value="expired">
             Expired ({counts.expired || 0})
           </TabsTrigger>
-          <TabsTrigger value="superseded">
-            Superseded ({counts.superseded})
+          <TabsTrigger value="archived">
+            Archive ({counts.archived || 0})
           </TabsTrigger>
         </TabsList>
       </Tabs>
@@ -292,7 +304,9 @@ export default function ManagerProposals() {
                       ? "Awaiting Coverage"
                       : activeTab === "expired"
                         ? "Expired"
-                        : "Superseded"}
+                        : activeTab === "archived"
+                          ? "Archive"
+                          : "Superseded"}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -451,7 +465,8 @@ export default function ManagerProposals() {
                           onMarkBooked={handleMarkAsBooked}
                           onPreview={(id) => openProposalPreview(id, proposals)}
                           onReview={setDetailProposal}
-                          onDelete={deleteProposal}
+                          onArchive={(id) => setProposalStatus(id, "archived")}
+                          onRestore={(id) => setProposalStatus(id, "viewed")}
                         />
                       </TableRow>
                     );

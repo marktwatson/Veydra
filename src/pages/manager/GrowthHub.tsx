@@ -192,8 +192,10 @@ export default function GrowthHub() {
 
   const filteredProposals = useMemo(
     () =>
-      (Array.isArray(proposals) ? proposals : []).filter((p) =>
-        isDateInRange(p.created_at || p.wedding_date),
+      (Array.isArray(proposals) ? proposals : []).filter(
+        (p) =>
+          p.status !== "archived" &&
+          isDateInRange(p.created_at || p.wedding_date),
       ),
     [proposals, isDateInRange],
   );
