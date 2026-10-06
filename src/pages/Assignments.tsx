@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { parseRegions } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -30,19 +31,37 @@ import { useState } from "react";
 export default function Assignments() {
   const { user } = useAuth();
 
+  const { data: currentUser, isLoading: isLoadingContractors } = useQuery({
+    queryKey: ["my-contractor", user?.email],
+    enabled: !!user?.email,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("contractors")
+        .select("id, email, region")
+        .ilike("email", user?.email || "")
+        .limit(1);
+      return data?.[0] || null;
+    },
+  });
+
   const { data: assignments = [], isLoading: isLoadingAssignments } = useQuery({
-    queryKey: ["assignments"],
-    queryFn: api.getAssignments,
+    queryKey: ["my-assignments", currentUser?.id],
+    enabled: !!currentUser?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("assignments")
+        .select(
+          `
+          *,
+          jobs!inner (id, status, role, pay_rate, hours, addons, contractor_todos, wedding_id, territory_id, weddings(client_name, date, location, region, timeline, vip_names, vendors, special_requests, questionnaire_data, questionnaire_completed, drive_link, upload_link, is_lgbtq, territory_id)),
+          contractors (first_name, last_name, email, venmo_handle, stripe_account_id)
+        `,
+        )
+        .eq("contractor_id", currentUser.id);
+      if (error) throw error;
+      return data || [];
+    },
   });
-
-  const { data: contractors = [], isLoading: isLoadingContractors } = useQuery({
-    queryKey: ["contractors"],
-    queryFn: api.getContractors,
-  });
-
-  const currentUser = contractors.find(
-    (c) => c.email?.trim().toLowerCase() === user?.email?.trim().toLowerCase(),
-  );
   const myRegions = parseRegions(currentUser?.region).map((r) =>
     r.toLowerCase(),
   );
@@ -58,9 +77,7 @@ export default function Assignments() {
     const location = (assignment.jobs?.weddings?.location || "").toLowerCase();
     return myRegions.some((r) => location.includes(r));
   };
-  const myAssignments = assignments.filter(
-    (a: any) => a.contractor_id === currentUser?.id && inMyRegion(a),
-  );
+  const myAssignments = assignments.filter((a: any) => inMyRegion(a));
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
