@@ -168,14 +168,18 @@ export default function GrowthHub() {
 
   // Raw + filtered lists
   const allBookedWeddings = Array.isArray(weddings)
-    ? weddings.filter(
-        (w) =>
-          !w.notes?.includes("[UNPAID_DRAFT]") &&
-          w.status !== "draft" &&
-          w.status !== "cancelled" &&
-          w.status !== "pending" && // pending = proposal awaiting contract/deposit, NOT booked
-          (w.status === "upcoming" || w.status === "completed"),
-      )
+    ? weddings.filter((w) => {
+        if (w.notes?.includes("[UNPAID_DRAFT]")) return false;
+        if (w.status === "draft" || w.status === "cancelled") return false;
+        const paid = Number(w.paid_amount) || 0;
+        // A payment means booked. Package total is the booked value, not the
+        // amount collected. Pending with no payment stays out.
+        return (
+          paid > 0 ||
+          w.status === "upcoming" ||
+          w.status === "completed"
+        );
+      })
     : [];
 
   const bookedWeddings = useMemo(
