@@ -84,7 +84,17 @@ export function SuperAdminAreaSwitcher() {
         if (allowedIds) {
           const seen = new Set(rows.map((row) => row.id));
           allowedIds.forEach((id) => {
-            if (!seen.has(id)) rows.push({ id, name: "Assigned area" });
+            if (!seen.has(id)) {
+              rows.push({
+                id,
+                name:
+                  id === "cc79aa88-2fcf-4d6c-8696-47c25f57e909"
+                    ? "North Carolina (Andrew)"
+                    : id === HONEYSUCKLE_TERRITORY_ID
+                      ? "Tennessee (Nik)"
+                      : "Assigned area",
+              });
+            }
           });
         }
       } catch {
