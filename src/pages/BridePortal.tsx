@@ -673,10 +673,11 @@ export default function BridePortal() {
     const baseDate =
       wedding.contract_date || firstInvoiceDate || wedding.created_at || "";
 
-    const netPaid =
+    const stripePaid =
       invoicesData && typeof invoicesData.totalPaid === "number"
         ? invoicesData.totalPaid
-        : wedding.paid_amount || 0;
+        : 0;
+    const netPaid = Math.max(stripePaid, wedding.paid_amount || 0);
 
     let schedule = generatePaymentSchedule(
       wedding.total_amount || 0,
@@ -3058,10 +3059,11 @@ export default function BridePortal() {
                     </span>
                     <span className="text-3xl font-bold text-emerald-600">
                       $
-                      {(invoicesData &&
-                      typeof invoicesData.totalPaid === "number"
-                        ? invoicesData.totalPaid
-                        : wedding.paid_amount || 0
+                      {Math.max(
+                        invoicesData && typeof invoicesData.totalPaid === "number"
+                          ? invoicesData.totalPaid
+                          : 0,
+                        wedding.paid_amount || 0,
                       ).toLocaleString()}
                     </span>
                   </div>
@@ -3074,10 +3076,13 @@ export default function BridePortal() {
                       {Math.max(
                         0,
                         (wedding.total_amount || 0) -
-                          (invoicesData &&
-                          typeof invoicesData.totalPaid === "number"
-                            ? invoicesData.totalPaid
-                            : wedding.paid_amount || 0),
+                          Math.max(
+                            invoicesData &&
+                              typeof invoicesData.totalPaid === "number"
+                              ? invoicesData.totalPaid
+                              : 0,
+                            wedding.paid_amount || 0,
+                          ),
                       ).toLocaleString()}
                     </span>
                   </div>
