@@ -253,7 +253,54 @@ export default function EditorDashboard() {
     enabled: !!user?.id,
   });
 
-  const { data: companyByTerritory = {} } = useQuery({
+  const { data: payoutGaps = [] } = useQuery({
+    queryKey: ["editor-payout-gaps", user?.id, editorProfile?.territory_id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const ids = Array.from(
+        new Set(
+          [
+            editorProfile?.territory_id,
+            ...(Array.isArray(editorProfile?.territory_ids)
+              ? editorProfile.territory_ids
+              : []),
+          ].filter(Boolean),
+        ),
+      );
+      if (ids.length === 0) return [];
+      const [{ data: settingsRows }, { data: territoryRows }, { data: accounts }] =
+        await Promise.all([
+          supabase
+            .from("portal_settings")
+            .select("territory_id, company_name")
+            .in("territory_id", ids),
+          supabase
+            .from("territories")
+            .select("id, name, editor_payout_stripe_key")
+            .in("id", ids),
+          supabase
+            .from("editor_payout_accounts")
+            .select("territory_id, stripe_account_id")
+            .eq("editor_id", user!.id)
+            .in("territory_id", ids),
+        ]);
+      return ids
+        .map((id) => {
+          const territory = (territoryRows || []).find((t: any) => t.id === id);
+          const settings = (settingsRows || []).find(
+            (s: any) => s.territory_id === id,
+          );
+          const account = (accounts || []).find((a: any) => a.territory_id === id);
+          return {
+            id,
+            name: settings?.company_name || territory?.name || "This company",
+            hasKey: !!territory?.editor_payout_stripe_key,
+            connected: !!account?.stripe_account_id,
+          };
+        })
+        .filter((area) => !area.connected);
+    },
+  });
     queryKey: [
       "editor-company-names",
       weddings.map((w) => w.territory_id).join(","),
@@ -595,17 +642,30 @@ export default function EditorDashboard() {
         </div>
       </div>
 
-      {!editorProfile?.stripe_account_id && (
+      {payoutGaps.length > 0 && (
         <Alert
           variant="destructive"
           className="bg-destructive/10 border-destructive/20 text-destructive"
         >
           <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Action Required: Connect Stripe</AlertTitle>
+          <AlertTitle>
+            Action required: connect Stripe for{" "}
+            {payoutGaps.map((area) => area.name).join(" and ")}
+          </AlertTitle>
           <AlertDescription className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-2">
             <span>
-              You must connect your Stripe account to receive payouts for your
-              invoices.
+              {payoutGaps.some((area) => !area.hasKey)
+                ? `${payoutGaps
+                    .filter((area) => !area.hasKey)
+                    .map((area) => area.name)
+                    .join(" and ")} has no editor payout key yet. The area owner needs to add that company's Stripe secret in Settings, then Integrations. `
+                : ""}
+              {payoutGaps.some((area) => area.hasKey)
+                ? `Open Invoices, then Payout Settings, choose ${payoutGaps
+                    .filter((area) => area.hasKey)
+                    .map((area) => area.name)
+                    .join(" or ")}, and connect Stripe for that company.`
+                : "Then connect Stripe for that company in Invoices, Payout Settings."}
             </span>
             <Button asChild size="sm" variant="destructive">
               <Link to="/editor/invoices">Go to Settings</Link>
