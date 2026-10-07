@@ -28,7 +28,7 @@ export function EditorPayoutStripeKeyCard() {
   const { user } = useAuth();
   const { toast } = useToast();
   const role = user?.role;
-  const allowed = role === "super_admin" || role === "owner";
+  const allowed = role === "super_admin" || role === "owner" || role === "manager";
 
   const [territoryId, setTerritoryId] = useState<string | null>(null);
   const [territoryName, setTerritoryName] = useState<string>("");
