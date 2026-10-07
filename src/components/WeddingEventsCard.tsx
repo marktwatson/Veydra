@@ -8,10 +8,10 @@ import { useToast } from "@/hooks/use-toast";
 import { createAssignmentWithTerritory } from "@/lib/child-row-territory";
 
 const EVENT_TYPES = [
-  { value: "wedding_day", label: "Wedding day" },
-  { value: "engagement", label: "Engagement session" },
-  { value: "bartending", label: "Bartending" },
-  { value: "sangeet", label: "Sangeet / other day" },
+  { value: "wedding_day", label: "Wedding day", chip: "bg-rose-50 text-rose-800 border-rose-200" },
+  { value: "engagement", label: "Engagement session", chip: "bg-amber-50 text-amber-800 border-amber-200" },
+  { value: "bartending", label: "Bartending", chip: "bg-emerald-50 text-emerald-800 border-emerald-200" },
+  { value: "sangeet", label: "Sangeet / other day", chip: "bg-violet-50 text-violet-800 border-violet-200" },
 ];
 
 function EventFile({ event, weddingId, territoryId }: any) {
@@ -113,19 +113,21 @@ function EventFile({ event, weddingId, territoryId }: any) {
       toast({ variant: "destructive", title: "Could not remove position", description: err.message }),
   });
 
-  const label =
-    EVENT_TYPES.find((t) => t.value === event.event_type)?.label || event.event_type;
+  const typeMeta = EVENT_TYPES.find((t) => t.value === event.event_type);
+  const label = typeMeta?.label || event.event_type;
 
   return (
-    <div className="rounded-2xl border bg-card p-5 space-y-5">
+    <div className="rounded-2xl border border-amber-200/80 bg-amber-50/40 p-5 space-y-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
-          <h3 className="text-lg font-semibold">{event.title || label}</h3>
+          <p className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${typeMeta?.chip || "bg-slate-50"}`}>
+            {label}
+          </p>
+          <h3 className="mt-2 text-lg font-semibold">{event.title || label}</h3>
           <p className="text-sm text-muted-foreground">{event.location || "Location not set"}</p>
         </div>
-        <div className="rounded-xl bg-muted px-3 py-2 text-right">
-          <p className="text-sm font-medium">{event.event_date || "No date"}</p>
+        <div className="rounded-xl bg-sky-50 border border-sky-200 px-3 py-2 text-right">
+          <p className="text-sm font-medium text-sky-900">{event.event_date || "No date"}</p>
           {earlyEdit && <p className="text-xs text-amber-700">Edit before wedding</p>}
         </div>
       </div>
@@ -142,7 +144,7 @@ function EventFile({ event, weddingId, territoryId }: any) {
             ? `${assignment.contractors.first_name || ""} ${assignment.contractors.last_name || ""}`.trim()
             : "Unassigned";
           return (
-            <div key={job.id} className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border px-3 py-2">
+            <div key={job.id} className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border border-emerald-200 bg-white px-3 py-2">
               <div>
                 <p className="text-sm font-medium">{job.role}</p>
                 <p className="text-sm text-muted-foreground">{name}</p>
@@ -158,7 +160,7 @@ function EventFile({ event, weddingId, territoryId }: any) {
         })}
       </div>
 
-      <div className="rounded-xl bg-muted/40 p-3 space-y-2">
+      <div className="rounded-xl border border-sky-200 bg-sky-50/70 p-3 space-y-2">
         <p className="text-sm font-medium">Add crew to this date</p>
         <div className="grid grid-cols-2 gap-2">
           <Input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Role" />
