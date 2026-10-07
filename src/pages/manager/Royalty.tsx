@@ -188,6 +188,7 @@ export default function RoyaltyManagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["royalty-periods"] });
+      queryClient.invalidateQueries({ queryKey: ["royalty-territory"] });
       toast({
         title: "Period Adjusted",
         description: "The royalty period has been updated.",
