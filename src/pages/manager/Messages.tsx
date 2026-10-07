@@ -55,7 +55,15 @@ export default function ManagerMessages() {
 
   const { data: contractors = [], isLoading: loadingContractors } = useQuery({
     queryKey: ["contractors", "messages", territoryId],
-    queryFn: () => api.getContractorsForTerritory(territoryId || null),
+    enabled: !!territoryId,
+    queryFn: async () => {
+      const rows = await api.getContractorsForTerritory(territoryId || null);
+      return rows.filter(
+        (c) =>
+          c.territory_id === territoryId &&
+          String(c.status || "").toLowerCase() === "active",
+      );
+    },
   });
 
   const { data: weddings = [], isLoading: loadingWeddings } = useQuery({
