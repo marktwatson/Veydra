@@ -301,6 +301,8 @@ export default function EditorDashboard() {
         .filter((area) => !area.connected);
     },
   });
+
+  const { data: companyByTerritory = {} } = useQuery({
     queryKey: [
       "editor-company-names",
       weddings.map((w) => w.territory_id).join(","),
