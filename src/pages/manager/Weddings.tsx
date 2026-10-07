@@ -103,6 +103,7 @@ import {
   Search,
   Wine,
 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import { WeddingEventsCard } from "@/components/WeddingEventsCard";
 import { api, DbWedding } from "@/lib/api";
 import { createJobWithTerritory } from "@/lib/create-job-territory";
