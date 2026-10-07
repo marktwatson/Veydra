@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { loadManagerTerritory } from "@/lib/current-territory";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   Card,
@@ -132,8 +133,14 @@ export default function OwnerRoyaltyDashboard() {
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["owner-territory", user?.id],
-    queryFn: () => api.getOwnerTerritory(user!.id),
+    queryKey: ["owner-territory", user?.id, user?.email],
+    queryFn: async () => {
+      const mgr = await loadManagerTerritory();
+      if (mgr?.territory_id) {
+        return api.getRoyaltyTerritory(mgr.territory_id);
+      }
+      return api.getOwnerTerritory(user!.id);
+    },
     enabled: !!user?.id,
   });
 
@@ -169,12 +176,7 @@ export default function OwnerRoyaltyDashboard() {
   });
 
   React.useEffect(() => {
-    // If we found a territory but it's not explicitly owned by this user,
-    // link them automatically.
-    if (territory && user?.id && !territory.owner_user_id) {
-      linkOwnerMutation.mutate();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return;
   }, [territory?.id, user?.id]);
 
   if (isLoading) {
