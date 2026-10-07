@@ -117,33 +117,22 @@ function EventFile({ event, weddingId, territoryId }: any) {
     EVENT_TYPES.find((t) => t.value === event.event_type)?.label || event.event_type;
 
   return (
-    <div className="rounded-xl border p-4 space-y-4">
-      <div>
-        <p className="font-semibold">{event.title || label}</p>
-        <p className="text-sm text-muted-foreground">
-          {label} · {event.event_date || "Date not set"}
-          {event.location ? ` · ${event.location}` : ""}
-        </p>
+    <div className="rounded-2xl border bg-card p-5 space-y-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+          <h3 className="text-lg font-semibold">{event.title || label}</h3>
+          <p className="text-sm text-muted-foreground">{event.location || "Location not set"}</p>
+        </div>
+        <div className="rounded-xl bg-muted px-3 py-2 text-right">
+          <p className="text-sm font-medium">{event.event_date || "No date"}</p>
+          {earlyEdit && <p className="text-xs text-amber-700">Edit before wedding</p>}
+        </div>
       </div>
+
       <div className="space-y-2">
-        <Label>What this crew needs</Label>
-        <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={earlyEdit}
-            onChange={(e) => setEarlyEdit(e.target.checked)}
-          />
-          Bride needs this edited before the wedding day
-        </label>
-        <Button type="button" size="sm" variant="outline" onClick={() => saveDetails.mutate()}>
-          Save event details
-        </Button>
-      </div>
-      <div className="space-y-2">
-        <p className="text-sm font-medium">Crew</p>
         {positions.length === 0 && (
-          <p className="text-sm text-muted-foreground">No one assigned yet.</p>
+          <p className="text-sm text-muted-foreground">No crew on this date yet.</p>
         )}
         {positions.map((job: any) => {
           const assignment = (job.assignments || []).find(
@@ -153,21 +142,24 @@ function EventFile({ event, weddingId, territoryId }: any) {
             ? `${assignment.contractors.first_name || ""} ${assignment.contractors.last_name || ""}`.trim()
             : "Unassigned";
           return (
-            <div key={job.id} className="flex items-center justify-between text-sm">
-              <span>
-                {job.role} · {event.title || "This event"} · {name} · ${job.pay_rate || 0} · {job.hours || "—"} hrs
-              </span>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => removePosition.mutate(job.id)}
-              >
-                Remove
-              </Button>
+            <div key={job.id} className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border px-3 py-2">
+              <div>
+                <p className="text-sm font-medium">{job.role}</p>
+                <p className="text-sm text-muted-foreground">{name}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm">${job.pay_rate || 0} · {job.hours || "—"} hrs</p>
+                <Button type="button" size="sm" variant="ghost" onClick={() => removePosition.mutate(job.id)}>
+                  Remove
+                </Button>
+              </div>
             </div>
           );
         })}
+      </div>
+
+      <div className="rounded-xl bg-muted/40 p-3 space-y-2">
+        <p className="text-sm font-medium">Add crew to this date</p>
         <div className="grid grid-cols-2 gap-2">
           <Input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Role" />
           <select
@@ -188,9 +180,18 @@ function EventFile({ event, weddingId, territoryId }: any) {
         <Button type="button" size="sm" onClick={() => addPosition.mutate()}>
           Add crew
         </Button>
-        <p className="text-xs text-muted-foreground">
-          Assigning here does not text the contractor yet. The wedding questionnaire stays on the wedding.
-        </p>
+      </div>
+
+      <div className="space-y-2 border-t pt-4">
+        <Label>Notes</Label>
+        <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Timing, wardrobe, location notes" />
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={earlyEdit} onChange={(e) => setEarlyEdit(e.target.checked)} />
+          Bride needs this edited before the wedding day
+        </label>
+        <Button type="button" size="sm" variant="outline" onClick={() => saveDetails.mutate()}>
+          Save notes
+        </Button>
       </div>
     </div>
   );
