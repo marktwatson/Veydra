@@ -117,7 +117,7 @@ export function CreateProposalFooter({
   const [notes, setNotes] = useState("");
 
   const missingFields =
-    !formData.clientName ||
+    formData.clientName.trim().split(/\s+/).filter(Boolean).length < 2 ||
     !formData.clientEmail ||
     !formData.clientPhone ||
     !formData.weddingDate ||

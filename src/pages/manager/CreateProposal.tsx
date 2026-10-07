@@ -329,6 +329,13 @@ export default function CreateProposal() {
                       onChange={(e) => updateForm("clientName", e.target.value)}
                       placeholder="Jane Doe"
                     />
+                    {formData.clientName.trim().split(/\s+/).filter(Boolean)
+                      .length < 2 &&
+                      formData.clientName.trim() && (
+                        <p className="text-xs text-destructive">
+                          Enter a first and last name.
+                        </p>
+                      )}
                   </div>
                   <div className="space-y-2">
                     <Label>Partner Name</Label>

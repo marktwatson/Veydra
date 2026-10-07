@@ -149,8 +149,10 @@ export default function BuildProposal() {
   const customPlanBlocked =
     formData.customPaymentPlan.enabled && !planBalance.balanced;
 
+  const hasFullClientName =
+    formData.clientName.trim().split(/\s+/).filter(Boolean).length >= 2;
   const missingFields =
-    !formData.clientName ||
+    !hasFullClientName ||
     !formData.clientEmail ||
     !formData.clientPhone ||
     !formData.weddingDate ||
@@ -383,6 +385,11 @@ export default function BuildProposal() {
                         }
                         placeholder="Jane Doe"
                       />
+                      {!hasFullClientName && formData.clientName.trim() && (
+                        <p className="text-xs text-destructive">
+                          Enter a first and last name.
+                        </p>
+                      )}
                     </div>
                     <div className="space-y-2">
                       <Label>Partner Name</Label>
