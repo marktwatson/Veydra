@@ -42,6 +42,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { geocodeAddress, calculateDistanceMiles } from "@/lib/geocoding";
 import {
@@ -59,8 +60,41 @@ export default function AssignmentDetail() {
   const { user } = useAuth();
 
   const { data: assignments = [], isLoading: isLoadingAssignments } = useQuery({
-    queryKey: ["assignments"],
-    queryFn: api.getAssignments,
+    queryKey: ["assignment-detail", id, user?.email, user?.role],
+    enabled: !!id,
+    queryFn: async () => {
+      if (user?.role === "contractor" && user.email) {
+        const { data: byEmail } = await supabase
+          .from("contractors")
+          .select("id")
+          .ilike("email", user.email)
+          .limit(1);
+        let contractorId = byEmail?.[0]?.id;
+        if (!contractorId && user.id) {
+          const { data: byId } = await supabase
+            .from("contractors")
+            .select("id")
+            .eq("id", user.id)
+            .maybeSingle();
+          contractorId = byId?.id;
+        }
+        if (!contractorId) return [];
+        const { data, error } = await supabase
+          .from("assignments")
+          .select(
+            `
+            *,
+            jobs!inner (id, status, role, pay_rate, hours, addons, contractor_todos, wedding_id, territory_id, weddings(client_name, date, location, region, timeline, vip_names, vendors, special_requests, questionnaire_data, questionnaire_completed, drive_link, upload_link, is_lgbtq, territory_id)),
+            contractors (first_name, last_name, email, venmo_handle, stripe_account_id)
+          `,
+          )
+          .eq("id", id)
+          .eq("contractor_id", contractorId);
+        if (error) throw error;
+        return data || [];
+      }
+      return api.getAssignments();
+    },
   });
 
   const { data: contractors = [], isLoading: isLoadingContractors } = useQuery({
