@@ -13,6 +13,145 @@ const EVENT_TYPES = [
   { value: "sangeet", label: "Sangeet / other day" },
 ];
 
+function EventWorkspace({ event, weddingId, territoryId }: any) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [notes, setNotes] = useState(event.notes || "");
+  const [role, setRole] = useState("Lead Photographer");
+  const [pay, setPay] = useState("");
+  const [hours, setHours] = useState("");
+
+  const { data: positions = [] } = useQuery({
+    queryKey: ["event-jobs", event.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("jobs")
+        .select("id, role, pay_rate, hours, status")
+        .eq("event_id", event.id);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const saveNotes = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from("wedding_events")
+        .update({ notes })
+        .eq("id", event.id);
+      if (error) throw error;
+    },
+    onSuccess: () => toast({ title: "Event notes saved" }),
+    onError: (err: any) =>
+      toast({
+        variant: "destructive",
+        title: "Could not save notes",
+        description: err.message,
+      }),
+  });
+
+  const addPosition = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("jobs").insert({
+        wedding_id: weddingId,
+        territory_id: territoryId || null,
+        event_id: event.id,
+        role,
+        pay_rate: Number(pay || 0),
+        hours: hours ? Number(hours) : null,
+        status: "open",
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setPay("");
+      setHours("");
+      queryClient.invalidateQueries({ queryKey: ["event-jobs", event.id] });
+      toast({ title: "Position added to this event" });
+    },
+    onError: (err: any) =>
+      toast({
+        variant: "destructive",
+        title: "Could not add position",
+        description: err.message,
+      }),
+  });
+
+  return (
+    <div className="rounded-md border p-3 space-y-3">
+      <div>
+        <p className="text-sm font-medium">
+          {EVENT_TYPES.find((t) => t.value === event.event_type)?.label ||
+            event.event_type}
+          {event.title ? ` · ${event.title}` : ""}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {event.event_date || "No date"}
+          {event.location ? ` · ${event.location}` : ""}
+        </p>
+      </div>
+      <div className="space-y-1">
+        <Label>Notes for this date</Label>
+        <Input
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Timing, wardrobe, what this crew needs"
+        />
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => saveNotes.mutate()}
+        >
+          Save notes
+        </Button>
+      </div>
+      <div className="space-y-2">
+        <p className="text-xs font-medium">Positions for this event</p>
+        {positions.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No positions yet.</p>
+        ) : (
+          positions.map((job: any) => (
+            <p key={job.id} className="text-sm">
+              {job.role} · ${job.pay_rate || 0} · {job.hours || "—"} hrs ·{" "}
+              {job.status}
+            </p>
+          ))
+        )}
+        <div className="grid grid-cols-3 gap-2">
+          <Input
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            placeholder="Role"
+          />
+          <Input
+            value={pay}
+            onChange={(e) => setPay(e.target.value)}
+            placeholder="Pay"
+          />
+          <Input
+            value={hours}
+            onChange={(e) => setHours(e.target.value)}
+            placeholder="Hours"
+          />
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => addPosition.mutate()}
+        >
+          Add position
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          This does not alert contractors yet. The questionnaire stays on the
+          wedding.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function WeddingEventsCard({
   weddingId,
   territoryId,
@@ -73,8 +212,8 @@ export function WeddingEventsCard({
       <div>
         <p className="text-sm font-medium">Events</p>
         <p className="text-xs text-muted-foreground">
-          Separate dates under this wedding. Positions still publish from the
-          wedding until this is approved.
+          Each date has its own notes and positions. Contractor alerts are not
+          on yet. The questionnaire stays on the wedding.
         </p>
       </div>
       {isLoading ? (
@@ -84,17 +223,12 @@ export function WeddingEventsCard({
       ) : (
         <div className="space-y-2">
           {events.map((event: any) => (
-            <div key={event.id} className="text-sm">
-              <span className="font-medium">
-                {EVENT_TYPES.find((t) => t.value === event.event_type)?.label ||
-                  event.event_type}
-              </span>
-              {event.title ? ` · ${event.title}` : ""}
-              <div className="text-xs text-muted-foreground">
-                {event.event_date || "No date"}
-                {event.location ? ` · ${event.location}` : ""}
-              </div>
-            </div>
+            <EventWorkspace
+              key={event.id}
+              event={event}
+              weddingId={weddingId}
+              territoryId={territoryId}
+            />
           ))}
         </div>
       )}
