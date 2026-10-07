@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { createAssignmentWithTerritory } from "@/lib/child-row-territory";
 
 const EVENT_TYPES = [
   { value: "wedding_day", label: "Wedding day" },
@@ -13,139 +14,182 @@ const EVENT_TYPES = [
   { value: "sangeet", label: "Sangeet / other day" },
 ];
 
-function EventWorkspace({ event, weddingId, territoryId }: any) {
+function EventFile({ event, weddingId, territoryId }: any) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [notes, setNotes] = useState(event.notes || "");
+  const [earlyEdit, setEarlyEdit] = useState(!!event.needs_early_edit);
   const [role, setRole] = useState("Lead Photographer");
   const [pay, setPay] = useState("");
   const [hours, setHours] = useState("");
+  const [contractorId, setContractorId] = useState("");
 
   const { data: positions = [] } = useQuery({
     queryKey: ["event-jobs", event.id],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("jobs")
-        .select("id, role, pay_rate, hours, status")
+        .select("id, role, pay_rate, hours, status, assignments(id, contractor_id, status, contractors(first_name, last_name))")
         .eq("event_id", event.id);
       if (error) throw error;
       return data || [];
     },
   });
 
-  const saveNotes = useMutation({
+  const { data: contractors = [] } = useQuery({
+    queryKey: ["event-contractors", territoryId],
+    enabled: !!territoryId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("contractors")
+        .select("id, first_name, last_name")
+        .eq("territory_id", territoryId)
+        .eq("status", "active")
+        .order("first_name");
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const saveDetails = useMutation({
     mutationFn: async () => {
       const { error } = await supabase
         .from("wedding_events")
-        .update({ notes })
+        .update({ notes, needs_early_edit: earlyEdit })
         .eq("id", event.id);
       if (error) throw error;
     },
-    onSuccess: () => toast({ title: "Event notes saved" }),
+    onSuccess: () => toast({ title: "Event details saved" }),
     onError: (err: any) =>
-      toast({
-        variant: "destructive",
-        title: "Could not save notes",
-        description: err.message,
-      }),
+      toast({ variant: "destructive", title: "Could not save event", description: err.message }),
   });
 
   const addPosition = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from("jobs").insert({
-        wedding_id: weddingId,
-        territory_id: territoryId || null,
-        event_id: event.id,
-        role,
-        pay_rate: Number(pay || 0),
-        hours: hours ? Number(hours) : null,
-        status: "open",
-      });
+      const { data: job, error } = await supabase
+        .from("jobs")
+        .insert({
+          wedding_id: weddingId,
+          territory_id: territoryId || null,
+          event_id: event.id,
+          role,
+          pay_rate: Number(pay || 0),
+          hours: hours ? Number(hours) : null,
+          status: contractorId ? "filled" : "open",
+        })
+        .select("id")
+        .single();
       if (error) throw error;
+      if (contractorId) {
+        await createAssignmentWithTerritory({
+          job_id: job.id,
+          contractor_id: contractorId,
+          status: "Upcoming",
+        });
+      }
     },
     onSuccess: () => {
       setPay("");
       setHours("");
+      setContractorId("");
       queryClient.invalidateQueries({ queryKey: ["event-jobs", event.id] });
-      toast({ title: "Position added to this event" });
+      toast({ title: "Position saved on this event" });
     },
     onError: (err: any) =>
-      toast({
-        variant: "destructive",
-        title: "Could not add position",
-        description: err.message,
-      }),
+      toast({ variant: "destructive", title: "Could not add position", description: err.message }),
   });
 
+  const removePosition = useMutation({
+    mutationFn: async (jobId: string) => {
+      await supabase.from("assignments").delete().eq("job_id", jobId);
+      const { error } = await supabase.from("jobs").delete().eq("id", jobId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["event-jobs", event.id] });
+      toast({ title: "Position removed" });
+    },
+    onError: (err: any) =>
+      toast({ variant: "destructive", title: "Could not remove position", description: err.message }),
+  });
+
+  const label =
+    EVENT_TYPES.find((t) => t.value === event.event_type)?.label || event.event_type;
+
   return (
-    <div className="rounded-md border p-3 space-y-3">
+    <div className="rounded-xl border p-4 space-y-4">
       <div>
-        <p className="text-sm font-medium">
-          {EVENT_TYPES.find((t) => t.value === event.event_type)?.label ||
-            event.event_type}
-          {event.title ? ` · ${event.title}` : ""}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {event.event_date || "No date"}
+        <p className="font-semibold">{event.title || label}</p>
+        <p className="text-sm text-muted-foreground">
+          {label} · {event.event_date || "Date not set"}
           {event.location ? ` · ${event.location}` : ""}
         </p>
       </div>
-      <div className="space-y-1">
-        <Label>Notes for this date</Label>
-        <Input
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Timing, wardrobe, what this crew needs"
-        />
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => saveNotes.mutate()}
-        >
-          Save notes
+      <div className="space-y-2">
+        <Label>What this crew needs</Label>
+        <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={earlyEdit}
+            onChange={(e) => setEarlyEdit(e.target.checked)}
+          />
+          Bride needs this edited before the wedding day
+        </label>
+        <Button type="button" size="sm" variant="outline" onClick={() => saveDetails.mutate()}>
+          Save event details
         </Button>
       </div>
       <div className="space-y-2">
-        <p className="text-xs font-medium">Positions for this event</p>
-        {positions.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No positions yet.</p>
-        ) : (
-          positions.map((job: any) => (
-            <p key={job.id} className="text-sm">
-              {job.role} · ${job.pay_rate || 0} · {job.hours || "—"} hrs ·{" "}
-              {job.status}
-            </p>
-          ))
+        <p className="text-sm font-medium">Crew</p>
+        {positions.length === 0 && (
+          <p className="text-sm text-muted-foreground">No one assigned yet.</p>
         )}
-        <div className="grid grid-cols-3 gap-2">
-          <Input
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            placeholder="Role"
-          />
-          <Input
-            value={pay}
-            onChange={(e) => setPay(e.target.value)}
-            placeholder="Pay"
-          />
-          <Input
-            value={hours}
-            onChange={(e) => setHours(e.target.value)}
-            placeholder="Hours"
-          />
+        {positions.map((job: any) => {
+          const assignment = (job.assignments || []).find(
+            (a: any) => String(a.status || "").toLowerCase() !== "cancelled",
+          );
+          const name = assignment?.contractors
+            ? `${assignment.contractors.first_name || ""} ${assignment.contractors.last_name || ""}`.trim()
+            : "Unassigned";
+          return (
+            <div key={job.id} className="flex items-center justify-between text-sm">
+              <span>
+                {job.role} · {name} · ${job.pay_rate || 0} · {job.hours || "—"} hrs
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => removePosition.mutate(job.id)}
+              >
+                Remove
+              </Button>
+            </div>
+          );
+        })}
+        <div className="grid grid-cols-2 gap-2">
+          <Input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Role" />
+          <select
+            value={contractorId}
+            onChange={(e) => setContractorId(e.target.value)}
+            className="h-10 rounded-md border bg-background px-3 text-sm"
+          >
+            <option value="">Unassigned</option>
+            {contractors.map((c: any) => (
+              <option key={c.id} value={c.id}>
+                {c.first_name} {c.last_name}
+              </option>
+            ))}
+          </select>
+          <Input value={pay} onChange={(e) => setPay(e.target.value)} placeholder="Pay" />
+          <Input value={hours} onChange={(e) => setHours(e.target.value)} placeholder="Hours" />
         </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => addPosition.mutate()}
-        >
-          Add position
+        <Button type="button" size="sm" onClick={() => addPosition.mutate()}>
+          Add crew
         </Button>
         <p className="text-xs text-muted-foreground">
-          This does not alert contractors yet. The questionnaire stays on the
-          wedding.
+          Assigning here does not text the contractor yet. The wedding questionnaire stays on the wedding.
         </p>
       </div>
     </div>
@@ -172,7 +216,7 @@ export function WeddingEventsCard({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("wedding_events")
-        .select("id, event_type, title, event_date, location, notes")
+        .select("id, event_type, title, event_date, location, notes, needs_early_edit")
         .eq("wedding_id", weddingId)
         .order("event_date", { ascending: true });
       if (error) throw error;
@@ -200,45 +244,30 @@ export function WeddingEventsCard({
       toast({ title: "Event added" });
     },
     onError: (err: any) =>
-      toast({
-        variant: "destructive",
-        title: "Could not add event",
-        description: err.message,
-      }),
+      toast({ variant: "destructive", title: "Could not add event", description: err.message }),
   });
 
   return (
-    <div className="rounded-lg border p-3 space-y-3">
-      <div>
-        <p className="text-sm font-medium">Events</p>
-        <p className="text-xs text-muted-foreground">
-          Each date has its own notes and positions. Contractor alerts are not
-          on yet. The questionnaire stays on the wedding.
-        </p>
-      </div>
+    <div className="space-y-4">
       {isLoading ? (
-        <p className="text-xs text-muted-foreground">Loading events…</p>
-      ) : events.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No extra events yet.</p>
+        <p className="text-sm text-muted-foreground">Loading events…</p>
       ) : (
-        <div className="space-y-2">
-          {events.map((event: any) => (
-            <EventWorkspace
-              key={event.id}
-              event={event}
-              weddingId={weddingId}
-              territoryId={territoryId}
-            />
-          ))}
-        </div>
+        events.map((event: any) => (
+          <EventFile
+            key={event.id}
+            event={event}
+            weddingId={weddingId}
+            territoryId={territoryId}
+          />
+        ))
       )}
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <Label>Type</Label>
+      <div className="rounded-xl border p-4 space-y-3">
+        <p className="text-sm font-medium">Add another date</p>
+        <div className="grid grid-cols-2 gap-2">
           <select
             value={eventType}
             onChange={(e) => setEventType(e.target.value)}
-            className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+            className="h-10 rounded-md border bg-background px-3 text-sm"
           >
             {EVENT_TYPES.map((type) => (
               <option key={type.value} value={type.value}>
@@ -246,35 +275,14 @@ export function WeddingEventsCard({
               </option>
             ))}
           </select>
+          <Input type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} />
         </div>
-        <div className="space-y-1">
-          <Label>Date</Label>
-          <Input
-            type="date"
-            value={eventDate}
-            onChange={(e) => setEventDate(e.target.value)}
-          />
-        </div>
+        <Input placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <Input placeholder="Location" value={location} onChange={(e) => setLocation(e.target.value)} />
+        <Button type="button" variant="outline" onClick={() => addEvent.mutate()}>
+          Add event
+        </Button>
       </div>
-      <Input
-        placeholder="Title, optional"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-      />
-      <Input
-        placeholder="Location, optional"
-        value={location}
-        onChange={(e) => setLocation(e.target.value)}
-      />
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        disabled={addEvent.isPending}
-        onClick={() => addEvent.mutate()}
-      >
-        Add event
-      </Button>
     </div>
   );
 }
