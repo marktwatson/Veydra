@@ -66,6 +66,9 @@ export default function Assignments() {
     r.toLowerCase(),
   );
   const inMyRegion = (assignment: any) => {
+    // An assignment is already the manager's decision. Do not hide it because
+    // the wedding region string does not match the contractor profile.
+    if (assignment.contractor_id === currentUser?.id) return true;
     if (myRegions.length === 0) return false;
     if (myRegions.includes("all regions")) return true;
     const weddingRegions = parseRegions(
@@ -135,6 +138,7 @@ export default function Assignments() {
         "upcoming",
         "accepted",
         "confirmed",
+        "unconfirmed",
         "action required",
         "assigned",
       ].includes(s);
@@ -159,6 +163,7 @@ export default function Assignments() {
         "upcoming",
         "accepted",
         "confirmed",
+        "unconfirmed",
         "action required",
         "assigned",
       ].includes(s);
