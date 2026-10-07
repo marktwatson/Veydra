@@ -3,7 +3,7 @@
 // saves the PushSubscription to the push_subscriptions table.
 
 import { supabase } from "@/lib/supabase";
-import { currentTerritoryId } from "@/lib/current-territory";
+import { currentTerritoryId, canSwitchAreas } from "@/lib/current-territory";
 
 const SW_PATH = "/sw-push.js";
 
@@ -116,15 +116,14 @@ export async function subscribeToPush(userId: string, userEmail?: string) {
   });
 
   const json = subscription.toJSON();
-  // Resolve the subscriber's territory so area-scoped alerts only reach
-  // devices in that area. Super admin "All Areas" → null (receives every
-  // area). Managers → their managers.territory_id. Never left blank on a
-  // new subscription.
+  // One phone has one row. Do not stamp the header area on a multi-area
+  // account, or subscribing in Tennessee replaces North Carolina.
   let territoryId: string | null = null;
   try {
-    territoryId = await currentTerritoryId();
+    const multiArea = await canSwitchAreas();
+    territoryId = multiArea ? null : await currentTerritoryId();
   } catch {
-    /* ignore — leave null (super admin all-areas) */
+    territoryId = null;
   }
   // Save to DB (upsert by endpoint so re-subscribing doesn't duplicate).
   const { error } = await supabase.from("push_subscriptions").upsert(
