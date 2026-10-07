@@ -103,7 +103,7 @@ import {
   Search,
   Wine,
 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { WeddingEventsCard } from "@/components/WeddingEventsCard";
 import { api, DbWedding } from "@/lib/api";
 import { createJobWithTerritory } from "@/lib/create-job-territory";
 import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
@@ -1054,6 +1054,11 @@ export function ManageWeddingSheet({
                     </select>
                   </div>
                 </div>
+
+                <WeddingEventsCard
+                  weddingId={wedding.id}
+                  territoryId={wedding.territory_id}
+                />
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
