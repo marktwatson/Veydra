@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { applyRoyaltyPayback } from "@/lib/royalty-payback";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   Card,
@@ -182,6 +183,7 @@ export default function RoyaltyManagement() {
           adjustReason,
           user?.email || "unknown",
         );
+        await applyRoyaltyPayback(adjustingPeriod.id);
       }
     },
     onSuccess: () => {
@@ -412,7 +414,8 @@ export default function RoyaltyManagement() {
 
   const remainingBalance = Number(territory.remaining_balance || 0);
   const purchasePrice = Number(territory.purchase_price || 0);
-  const paidOff = purchasePrice - remainingBalance;
+  const paidOff =
+    purchasePrice > 0 ? Math.max(0, purchasePrice - remainingBalance) : 0;
   const progressPct =
     purchasePrice > 0
       ? Math.min(100, Math.round((paidOff / purchasePrice) * 100))
@@ -590,7 +593,9 @@ export default function RoyaltyManagement() {
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">
-                ${paidOff.toLocaleString()} paid off
+                {purchasePrice > 0
+                  ? `$${paidOff.toLocaleString()} paid off`
+                  : "Purchase price not set"}
               </span>
               <span className="font-semibold">{progressPct}%</span>
             </div>
