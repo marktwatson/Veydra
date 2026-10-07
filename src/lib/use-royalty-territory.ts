@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
 import {
+  currentTerritoryId,
   getSuperAdminViewTerritory,
   getManagerTerritoryIdRaw,
   getAllowedTerritoryIds,
@@ -65,16 +66,23 @@ export function useRoyaltyTerritory() {
   })();
   const impersonatingOwner =
     !!impersonated && impersonated.role !== "super_admin";
+  const { data: impersonatedTerritoryId } = useQuery({
+    queryKey: ["royalty-impersonated-territory", impersonated?.email],
+    queryFn: () => currentTerritoryId(),
+    enabled: impersonatingOwner,
+  });
   const selected = !isSuperAdmin && !impersonatingOwner
     ? getSuperAdminViewTerritory()
     : null;
   const selectedAllowed =
     !!selected && !!allowedTerritoryIds && allowedTerritoryIds.includes(selected);
-  const effectiveTerritoryId = isSuperAdmin
-    ? superViewId || primaryTerritory?.id || null
-    : selectedAllowed
-      ? selected
-      : (managerTerritoryId ?? null);
+  const effectiveTerritoryId = impersonatingOwner
+    ? impersonatedTerritoryId || managerTerritoryId || null
+    : isSuperAdmin
+      ? superViewId || primaryTerritory?.id || null
+      : selectedAllowed
+        ? selected
+        : (managerTerritoryId ?? null);
 
   return {
     isSuperAdmin,
