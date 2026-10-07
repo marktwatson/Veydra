@@ -982,7 +982,7 @@ export function ManageWeddingSheet({
           </Button>
         )}
       </SheetTrigger>
-      <SheetContent className="w-[400px] sm:w-[540px] overflow-y-auto">
+      <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
         <SheetHeader>
           <SheetTitle>Manage Wedding</SheetTitle>
           <SheetDescription>
@@ -991,8 +991,9 @@ export function ManageWeddingSheet({
         </SheetHeader>
         <form onSubmit={handleSave} className="py-6 space-y-6">
           <Tabs defaultValue="details" className="w-full">
-            <TabsList className="w-full grid grid-cols-3">
+            <TabsList className="w-full grid grid-cols-4">
               <TabsTrigger value="details">Details</TabsTrigger>
+              <TabsTrigger value="events">Events</TabsTrigger>
               <TabsTrigger value="questionnaire">Questionnaire</TabsTrigger>
               <TabsTrigger value="jobs">Positions</TabsTrigger>
             </TabsList>
@@ -1055,11 +1056,6 @@ export function ManageWeddingSheet({
                     </select>
                   </div>
                 </div>
-
-                <WeddingEventsCard
-                  weddingId={wedding.id}
-                  territoryId={wedding.territory_id}
-                />
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -1699,6 +1695,13 @@ export function ManageWeddingSheet({
                   )}
                 </div>
               </div>
+            </TabsContent>
+
+            <TabsContent value="events" className="mt-4">
+              <WeddingEventsCard
+                weddingId={wedding.id}
+                territoryId={wedding.territory_id}
+              />
             </TabsContent>
 
             <TabsContent value="questionnaire" className="space-y-4 mt-4">
