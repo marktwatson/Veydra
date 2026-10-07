@@ -55,7 +55,19 @@ export function useRoyaltyTerritory() {
     enabled: !isSuperAdmin,
   });
 
-  const selected = !isSuperAdmin ? getSuperAdminViewTerritory() : null;
+  const impersonated = (() => {
+    try {
+      const raw = localStorage.getItem("impersonated_user");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  })();
+  const impersonatingOwner =
+    !!impersonated && impersonated.role !== "super_admin";
+  const selected = !isSuperAdmin && !impersonatingOwner
+    ? getSuperAdminViewTerritory()
+    : null;
   const selectedAllowed =
     !!selected && !!allowedTerritoryIds && allowedTerritoryIds.includes(selected);
   const effectiveTerritoryId = isSuperAdmin

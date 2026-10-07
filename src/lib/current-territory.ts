@@ -72,7 +72,7 @@ export async function loadManagerTerritory(): Promise<{
       data: { user },
     } = await supabase.auth.getUser();
     const email = impersonated?.email || user?.email || null;
-    const id = impersonated?.id || user?.id || null;
+    const id = impersonated?.id || (impersonated ? null : user?.id) || null;
     const { data: rows } = await supabase
       .from("managers")
       .select("id, territory_id, territory_ids, status")
