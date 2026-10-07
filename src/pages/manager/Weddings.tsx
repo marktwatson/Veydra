@@ -564,7 +564,8 @@ export function ManageWeddingSheet({
       !isLoadingAssignments
     ) {
       if (initialJobs && initialJobs.length > 0) {
-        const jobsWithAssignments = initialJobs.map((job) => {
+        const weddingDayJobs = initialJobs.filter((job) => !job.event_id);
+        const jobsWithAssignments = weddingDayJobs.map((job) => {
           const assignment = assignments.find((a) => {
             if (a.job_id !== job.id) return false;
             const s = String(a.status || "")

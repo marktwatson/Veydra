@@ -155,7 +155,7 @@ function EventFile({ event, weddingId, territoryId }: any) {
           return (
             <div key={job.id} className="flex items-center justify-between text-sm">
               <span>
-                {job.role} · {name} · ${job.pay_rate || 0} · {job.hours || "—"} hrs
+                {job.role} · {event.title || "This event"} · {name} · ${job.pay_rate || 0} · {job.hours || "—"} hrs
               </span>
               <Button
                 type="button"
