@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { currentTerritoryId } from "@/lib/current-territory";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -47,14 +48,19 @@ export default function ManagerMessages() {
   );
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
 
+  const { data: territoryId } = useQuery({
+    queryKey: ["message-territory"],
+    queryFn: () => currentTerritoryId(),
+  });
+
   const { data: contractors = [], isLoading: loadingContractors } = useQuery({
-    queryKey: ["contractors"],
-    queryFn: api.getContractors,
+    queryKey: ["contractors", "messages", territoryId],
+    queryFn: () => api.getContractorsForTerritory(territoryId || null),
   });
 
   const { data: weddings = [], isLoading: loadingWeddings } = useQuery({
-    queryKey: ["weddings"],
-    queryFn: api.getWeddings,
+    queryKey: ["weddings", "messages", territoryId],
+    queryFn: () => api.getWeddingsForTerritory(territoryId || null),
   });
 
   const { data: messages = [], isLoading: loadingMessages } = useQuery({
@@ -281,8 +287,8 @@ export default function ManagerMessages() {
       queryClient.invalidateQueries({ queryKey: ["messages", "manager"] });
       toast.success("Message sent — recipient notified via SMS & email");
     },
-    onError: () => {
-      toast.error("Failed to send message");
+    onError: (err: any) => {
+      toast.error(err?.message || "Failed to send message");
     },
   });
 
