@@ -342,16 +342,17 @@ Deno.serve(async (req) => {
       }
       let roleQuery = db
         .from("managers")
-        .select("id, role, territory_id")
+        .select("id, role, territory_id, territory_ids")
         .in("role", roles);
-      if (reqTerritoryId) {
-        // Include managers in this territory OR super_admins (all areas).
-        roleQuery = roleQuery.or(
-          `territory_id.eq.${reqTerritoryId},role.eq.super_admin`,
-        );
-      }
       const { data: roleManagers } = await roleQuery;
       const roleIds = (roleManagers || [])
+        .filter((m: any) => {
+          if (!reqTerritoryId) return true;
+          if (m.role === "super_admin") return true;
+          if (m.territory_id === reqTerritoryId) return true;
+          const extra = Array.isArray(m.territory_ids) ? m.territory_ids : [];
+          return extra.includes(reqTerritoryId);
+        })
         .map((m: any) => m.id)
         .filter(Boolean);
       recipientIds = [...new Set([...recipientIds, ...roleIds])];
@@ -405,20 +406,14 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Load subscriptions for the recipients. When a territory_id was
-    // provided, only deliver to subscriptions stamped with that territory —
-    // a subscription with a null territory_id must NOT receive area alerts
-    // (it predates per-area scoping or belongs to a super-admin all-areas
-    // device). The "test" action (single user) ignores the territory filter
-    // so the Profile "Send Test" button still works for super admins.
-    let subQuery = db
+    // The recipient list is already limited to this area. Deliver to that
+    // person's phones even if the phone was subscribed before an area was
+    // stamped, or stamped to a different assigned area. A test still sends
+    // to the logged-in user only.
+    const { data: subscriptions } = await db
       .from("push_subscriptions")
-      .select("endpoint, p256dh_key, auth_key, user_id")
+      .select("endpoint, p256dh_key, auth_key, user_id, territory_id")
       .in("user_id", finalRecipients);
-    if (action !== "test" && reqTerritoryId) {
-      subQuery = subQuery.eq("territory_id", reqTerritoryId);
-    }
-    const { data: subscriptions } = await subQuery;
 
     if (!subscriptions || subscriptions.length === 0) {
       return new Response(
