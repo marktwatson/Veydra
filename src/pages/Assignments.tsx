@@ -48,16 +48,27 @@ export default function Assignments() {
     queryKey: ["my-assignments", currentUser?.id],
     enabled: !!currentUser?.id,
     queryFn: async () => {
+      let contractorId = currentUser?.id;
+      try {
+        const raw = localStorage.getItem("impersonated_user");
+        const impersonated = raw ? JSON.parse(raw) : null;
+        if (impersonated?.role === "contractor" && impersonated.id) {
+          contractorId = impersonated.id;
+        }
+      } catch {
+        /* use the email match */
+      }
+      if (!contractorId) return [];
       const { data, error } = await supabase
         .from("assignments")
         .select(
           `
           *,
-          jobs!inner (id, status, role, pay_rate, hours, addons, contractor_todos, wedding_id, territory_id, weddings(client_name, date, location, region, timeline, vip_names, vendors, special_requests, questionnaire_data, questionnaire_completed, drive_link, upload_link, is_lgbtq, territory_id)),
+          jobs (id, status, role, pay_rate, hours, addons, contractor_todos, wedding_id, territory_id, weddings(client_name, date, location, region, timeline, vip_names, vendors, special_requests, questionnaire_data, questionnaire_completed, drive_link, upload_link, is_lgbtq, territory_id)),
           contractors (first_name, last_name, email, venmo_handle, stripe_account_id)
         `,
         )
-        .eq("contractor_id", currentUser.id);
+        .eq("contractor_id", contractorId);
       if (error) throw error;
       return data || [];
     },
