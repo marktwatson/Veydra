@@ -278,30 +278,16 @@ export default function BridePortal() {
     queryKey: ["bride-team-dates", id],
     enabled: !!id,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("jobs")
-        .select("id, role, event_id, assignments(contractor_id)")
-        .eq("wedding_id", id);
+      const { data, error } = await supabase.rpc("get_public_wedding_team_dates", {
+        p_wedding_id: id,
+      });
       if (error) return [];
-      const eventIds = (data || []).map((job: any) => job.event_id).filter(Boolean);
-      let titles: Record<string, string> = {};
-      if (eventIds.length) {
-        const { data: events } = await supabase
-          .from("wedding_events")
-          .select("id, title, event_type")
-          .in("id", eventIds);
-        titles = Object.fromEntries((events || []).map((event: any) => [event.id, event.title || event.event_type || "Extra date"]));
-      }
-      return (data || []).map((job: any) => ({ ...job, eventTitle: job.event_id ? titles[job.event_id] || "Extra date" : "" }));
+      return data || [];
     },
   });
-  const dateLabel = (member: any) => {
-    const matches = teamDates.filter((job: any) =>
-      (job.assignments || []).some((a: any) => a.contractor_id === member.contractor?.id),
-    );
-    const eventJob = matches.find((job: any) => job.event_id);
-    if (eventJob) return eventJob.eventTitle;
-    return "Wedding day";
+  const groupFor = (member: any) => {
+    const match = teamDates.find((row: any) => row.contractor_id === member.contractor?.id);
+    return match?.event_title || "Wedding day";
   };
 
   const { data: messages = [] } = useQuery({
@@ -2155,14 +2141,7 @@ export default function BridePortal() {
                     </CardHeader>
                     <CardContent className="pt-4 pb-4 px-4 space-y-4">
                       {["Wedding day", ...portalEvents.map((event: any) => event.title || event.event_type || "Extra date")].map((group) => {
-                        const members = teamMembers.filter((member) => {
-                          const matches = teamDates.filter((job: any) =>
-                            (job.assignments || []).some((a: any) => a.contractor_id === member.contractor?.id),
-                          );
-                          const eventJob = matches.find((job: any) => job.event_id);
-                          const label = eventJob ? eventJob.eventTitle : matches.length ? "Wedding day" : "Wedding day";
-                          return label === group;
-                        });
+                        const members = teamMembers.filter((member) => groupFor(member) === group);
                         if (members.length === 0) return null;
                         return (
                           <div key={group} className="space-y-2">
