@@ -126,7 +126,16 @@ function PortalEventDates({ weddingId }: { weddingId: string }) {
             <p className="text-sm font-medium text-[#1a1a1a]/60 uppercase tracking-wider">
               {event.event_type === "bartending" ? "Bartending" : event.event_type === "sangeet" ? "Other day" : "Engagement"}
             </p>
-            <p className="text-lg font-semibold text-[#1a1a1a]">{event.event_date || "Date not set"}</p>
+            <p className="text-lg font-semibold text-[#1a1a1a]">
+              {event.event_date
+                ? new Date(`${event.event_date}T12:00:00`).toLocaleDateString("en-US", {
+                    weekday: "long",
+                    year: "numeric",
+                    month: "long",
+                    day: "numeric",
+                  })
+                : "Date not set"}
+            </p>
             <p className="text-sm text-[#1a1a1a]/70">{event.title || "Extra date"}{event.venue ? ` · ${event.venue}` : ""}</p>
           </div>
         </div>
@@ -1766,7 +1775,13 @@ export default function BridePortal() {
     ...portalEvents.map((event: any) => ({
       id: event.id,
       label: event.event_type === "bartending" ? "Bartending" : event.event_type === "sangeet" ? "Other day" : "Engagement",
-      description: event.event_date || "Date not set",
+      description: event.event_date
+        ? new Date(`${event.event_date}T12:00:00`).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })
+        : "Date not set",
       icon: Calendar,
       isCompleted: false,
     })),
