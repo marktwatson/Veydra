@@ -63,20 +63,15 @@ export default function AssignmentDetail() {
     queryKey: ["assignment-detail", id, user?.email, user?.role],
     enabled: !!id,
     queryFn: async () => {
-      if (user?.role === "contractor" && user.email) {
-        const { data: byEmail } = await supabase
-          .from("contractors")
-          .select("id")
-          .ilike("email", user.email)
-          .limit(1);
-        let contractorId = byEmail?.[0]?.id;
-        if (!contractorId && user.id) {
-          const { data: byId } = await supabase
+      if (user?.role === "contractor" && (user.email || user.id)) {
+        let contractorId = user.id || null;
+        if (!contractorId && user.email) {
+          const { data: byEmail } = await supabase
             .from("contractors")
             .select("id")
-            .eq("id", user.id)
-            .maybeSingle();
-          contractorId = byId?.id;
+            .ilike("email", user.email)
+            .limit(1);
+          contractorId = byEmail?.[0]?.id || null;
         }
         if (!contractorId) return [];
         const { data, error } = await supabase
@@ -84,7 +79,7 @@ export default function AssignmentDetail() {
           .select(
             `
             *,
-            jobs!inner (id, status, role, pay_rate, hours, addons, contractor_todos, wedding_id, territory_id, weddings(client_name, date, location, region, timeline, vip_names, vendors, special_requests, questionnaire_data, questionnaire_completed, drive_link, upload_link, is_lgbtq, territory_id)),
+            jobs (id, status, role, pay_rate, hours, addons, contractor_todos, wedding_id, territory_id, event_id, weddings(client_name, date, location, region, timeline, vip_names, vendors, special_requests, questionnaire_data, questionnaire_completed, drive_link, upload_link, is_lgbtq, territory_id)),
             contractors (first_name, last_name, email, venmo_handle, stripe_account_id)
           `,
           )
@@ -110,6 +105,20 @@ export default function AssignmentDetail() {
   const assignment = assignments.find((a: any) => a.id === id);
   const job = assignment?.jobs;
   const wedding = job?.weddings;
+  const { data: eventRow } = useQuery({
+    queryKey: ["assignment-event", job?.event_id],
+    enabled: !!job?.event_id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("wedding_events")
+        .select("title, event_type, event_date, location")
+        .eq("id", job.event_id)
+        .maybeSingle();
+      return data;
+    },
+  });
+  const eventDate = eventRow?.event_date || wedding?.date;
+  const eventLocation = eventRow?.location || wedding?.location;
   const currentUser = contractors.find(
     (c) => c.email?.trim().toLowerCase() === user?.email?.trim().toLowerCase(),
   );
@@ -215,13 +224,27 @@ export default function AssignmentDetail() {
     );
   }
 
-  if (!assignment || !wedding || assignment.contractor_id !== currentUser?.id) {
+  if (!assignment || assignment.contractor_id !== (user?.role === "contractor" ? user.id : currentUser?.id)) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <h2 className="text-2xl font-bold mb-2">Assignment Not Found</h2>
         <p className="text-muted-foreground mb-6">
           This assignment does not exist or you do not have permission to view
           it.
+        </p>
+        <Button asChild variant="outline">
+          <Link to="/assignments">Return to Assignments</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  if (!wedding) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <h2 className="text-2xl font-bold mb-2">Wedding details unavailable</h2>
+        <p className="text-muted-foreground mb-6">
+          You are assigned, but the wedding record could not be loaded.
         </p>
         <Button asChild variant="outline">
           <Link to="/assignments">Return to Assignments</Link>
@@ -411,7 +434,8 @@ export default function AssignmentDetail() {
           </h1>
           <div className="flex flex-wrap items-center gap-3 text-muted-foreground">
             <span className="font-medium text-foreground">
-              {formatDisplayDate(wedding.date)}
+              {formatDisplayDate(eventDate)}
+              {eventRow?.title ? ` · ${eventRow.title}` : ""}
             </span>
             <span>•</span>
             {wedding.is_lgbtq && (
