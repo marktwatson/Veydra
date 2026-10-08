@@ -100,6 +100,94 @@ const getSafeDate = (dateStr: string | null) => {
   return tzDate;
 };
 
+function PortalEventDates({ weddingId }: { weddingId: string }) {
+  const { data: events = [] } = useQuery({
+    queryKey: ["bride-events", weddingId],
+    enabled: !!weddingId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("wedding_events")
+        .select("id, title, event_type, event_date, venue")
+        .eq("wedding_id", weddingId)
+        .order("event_date");
+      if (error) return [];
+      return data || [];
+    },
+  });
+  if (!events.length) return null;
+  return (
+    <>
+      {events.map((event: any) => (
+        <div key={event.id} className="flex items-center gap-4 bg-amber-50 p-4 rounded-xl border border-amber-200">
+          <div>
+            <p className="text-sm font-medium text-[#1a1a1a]/60 uppercase tracking-wider">
+              {event.event_type === "bartending" ? "Bartending" : event.event_type === "sangeet" ? "Other day" : "Engagement"}
+            </p>
+            <p className="text-lg font-semibold text-[#1a1a1a]">{event.title || event.event_date}</p>
+            <p className="text-sm text-[#1a1a1a]/70">{event.event_date}{event.venue ? ` · ${event.venue}` : ""}</p>
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function BrideEventPage({ event }: { event: any }) {
+  const { toast } = useToast();
+  const [rows, setRows] = useState<{ time: string; moment: string }[]>(
+    event.timeline_notes ? event.timeline_notes.split("\n").filter(Boolean).map((line: string) => {
+      const [time, ...rest] = line.split(" ");
+      return { time: time || "", moment: rest.join(" ") };
+    }) : [{ time: "", moment: "" }],
+  );
+  const [place, setPlace] = useState(event.venue || "");
+  const [people, setPeople] = useState("");
+  const [notes, setNotes] = useState(event.day_questions || "");
+  const save = async () => {
+    const timeline = rows.filter((r) => r.time || r.moment).map((r) => `${r.time} ${r.moment}`.trim()).join("\n");
+    const { error } = await supabase
+      .from("wedding_events")
+      .update({ timeline_notes: timeline, day_questions: notes, venue: place })
+      .eq("id", event.id);
+    if (error) toast({ variant: "destructive", title: "Could not save this date", description: error.message });
+    else toast({ title: "Saved for this date" });
+  };
+  const prompt = event.event_type === "bartending"
+    ? "Guest count, bar start and end, and who is providing alcohol"
+    : event.event_type === "sangeet"
+      ? "Key moments, outfits, and where the crew should be"
+      : "Outfits, how many people, indoor or outdoor, and must-have shots";
+  return (
+    <Card className="rounded-2xl border-[#c9a96e]/30 bg-white">
+      <CardHeader>
+        <CardTitle>{event.title || event.event_type}</CardTitle>
+        <CardDescription>{event.event_date}. This page is only for this date.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Input value={place} onChange={(e) => setPlace(e.target.value)} placeholder="Venue or address" />
+        {rows.map((row, index) => (
+          <div key={index} className="flex gap-2">
+            <Input type="time" value={row.time} onChange={(e) => {
+              const next = [...rows];
+              next[index] = { ...row, time: e.target.value };
+              setRows(next);
+            }} />
+            <Input value={row.moment} placeholder="Moment" onChange={(e) => {
+              const next = [...rows];
+              next[index] = { ...row, moment: e.target.value };
+              setRows(next);
+            }} />
+          </div>
+        ))}
+        <Button type="button" variant="outline" onClick={() => setRows([...rows, { time: "", moment: "" }])}>Add time</Button>
+        <Input value={people} onChange={(e) => setPeople(e.target.value)} placeholder="How many people" />
+        <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={prompt} />
+        <Button type="button" variant="outline" onClick={save}>Save this date</Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 function BrideEventPages({ weddingId }: { weddingId: string }) {
   const { toast } = useToast();
   const { data: events = [] } = useQuery({
@@ -124,36 +212,7 @@ function BrideEventPages({ weddingId }: { weddingId: string }) {
   );
 }
 
-function BrideEventPage({ event }: { event: any }) {
-  const { toast } = useToast();
-  const [timeline, setTimeline] = useState(event.timeline_notes || "");
-  const [questions, setQuestions] = useState(event.day_questions || "");
-  const save = async () => {
-    const { error } = await supabase
-      .from("wedding_events")
-      .update({ timeline_notes: timeline, day_questions: questions })
-      .eq("id", event.id);
-    if (error) toast({ variant: "destructive", title: "Could not save this date", description: error.message });
-    else toast({ title: "Saved for this date" });
-  };
-  return (
-    <Card className="rounded-2xl border-[#c9a96e]/30 bg-white">
-      <CardHeader>
-        <CardTitle>{event.title || event.event_type}</CardTitle>
-        <CardDescription>
-          {event.event_date} {event.venue ? `· ${event.venue}` : ""}. This is only for this date's team.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <Input value={timeline} onChange={(e) => setTimeline(e.target.value)} placeholder="Timeline for this date" />
-        <Input value={questions} onChange={(e) => setQuestions(e.target.value)} placeholder="Anything this crew needs to know" />
-        <Button type="button" variant="outline" onClick={save}>Save this date</Button>
-      </CardContent>
-    </Card>
-  );
-}
-
-export default function BridePortal() {
+function BrideEventPages({ weddingId }: { weddingId: string }) {
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
 
@@ -1964,6 +2023,7 @@ export default function BridePortal() {
                         </p>
                       </div>
                     </div>
+                    <PortalEventDates weddingId={id || ""} />
                     <div className="flex items-center gap-4 bg-[#faf7f2] p-4 rounded-xl border border-[#c9a96e]/20">
                       <div className="bg-[#c9a96e]/30 p-3 rounded-full">
                         <Clock className="h-6 w-6 text-[#1a1a1a]" />
