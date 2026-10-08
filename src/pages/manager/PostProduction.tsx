@@ -125,6 +125,36 @@ export default function PostProductionTable() {
     queryFn: api.getWeddings,
   });
 
+  const { data: earlyEvents = [] } = useQuery({
+    queryKey: ["post-production-events", weddings.map((w) => w.id).join(",")],
+    enabled: weddings.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("wedding_events")
+        .select("id, title, event_type, event_date, edit_status, wedding_id, weddings(client_name, date, editor_id)")
+        .eq("needs_early_edit", true)
+        .in("wedding_id", weddings.map((w) => w.id));
+      if (error) return [];
+      return data || [];
+    },
+  });
+
+  const markEventEdit = useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: string }) => {
+      const { error } = await supabase
+        .from("wedding_events")
+        .update({ edit_status: status })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["post-production-events"] });
+      toast({ title: "Event edit updated" });
+    },
+    onError: (err: any) =>
+      toast({ variant: "destructive", title: "Could not update the event", description: err.message }),
+  });
+
   const { data: settings } = useQuery({
     queryKey: ["portal-settings"],
     queryFn: api.getPortalSettings,
@@ -470,6 +500,53 @@ export default function PostProductionTable() {
           </Select>
         </div>
       </div>
+
+      {earlyEvents.length > 0 && (
+        <div className="rounded-md border bg-card">
+          <div className="border-b px-4 py-3">
+            <h2 className="font-semibold">Edit before the wedding</h2>
+            <p className="text-sm text-muted-foreground">These dates are separate from the wedding edit.</p>
+          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Event date</TableHead>
+                <TableHead>Project</TableHead>
+                <TableHead>Due before</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {earlyEvents.map((event: any) => (
+                <TableRow key={event.id}>
+                  <TableCell>{event.event_date ? formatDisplayDate(event.event_date) : "No date"}</TableCell>
+                  <TableCell className="font-semibold">
+                    {event.weddings?.client_name || "Wedding"} · {event.title || event.event_type}
+                  </TableCell>
+                  <TableCell>{event.weddings?.date ? formatDisplayDate(event.weddings.date) : "Wedding day"}</TableCell>
+                  <TableCell>
+                    <Select
+                      value={event.edit_status || "awaiting_raw_media"}
+                      onValueChange={(status) => markEventEdit.mutate({ id: event.id, status })}
+                    >
+                      <SelectTrigger className="h-8 w-[180px] text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {STATUS_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
       <div className="rounded-md border bg-card">
         <Table>
