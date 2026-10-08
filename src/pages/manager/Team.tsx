@@ -46,6 +46,10 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useNavigate } from "react-router-dom";
+import {
+  applyHomeAreaOnLogin,
+  stashViewArea,
+} from "@/lib/current-territory";
 
 interface TerritoryLite {
   id: string;
@@ -313,16 +317,26 @@ export default function ManagerTeam() {
     }
   };
 
-  const handleImpersonate = (manager: any) => {
+  const handleImpersonate = async (manager: any) => {
     let targetRole = manager.role || "manager";
     if (targetRole === "super_admin") targetRole = "super_admin";
     if (targetRole === "owner_readonly") targetRole = "owner_readonly";
+    const opensAnArea =
+      targetRole === "manager" ||
+      targetRole === "owner" ||
+      targetRole === "owner_readonly";
+    if (opensAnArea) stashViewArea();
     impersonate({
       id: manager.id,
       name: manager.name,
       email: manager.email,
       role: targetRole as any,
     });
+    if (opensAnArea) {
+      await applyHomeAreaOnLogin();
+      window.location.href = "/manager";
+      return;
+    }
     if (targetRole === "editor") navigate("/editor");
     else navigate("/manager");
     toast({

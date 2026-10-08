@@ -13,6 +13,8 @@ import {
   getAllowedTerritoryIds,
   getSuperAdminViewTerritory,
   loadManagerTerritory,
+  resolveHomeTerritoryId,
+  saveHomeTerritory,
   setSuperAdminViewTerritory,
 } from "@/lib/current-territory";
 import { HONEYSUCKLE_TERRITORY_ID } from "@/lib/territory";
@@ -37,6 +39,8 @@ interface SwitcherArea {
 export function SuperAdminAreaSwitcher() {
   const [areas, setAreas] = useState<SwitcherArea[]>([]);
   const [value, setValue] = useState<string>("");
+  const [homeId, setHomeId] = useState<string | null>(null);
+  const [isImpersonating, setIsImpersonating] = useState(false);
   const [defaultId, setDefaultId] = useState<string>(HONEYSUCKLE_TERRITORY_ID);
 
   useEffect(() => {
@@ -104,16 +108,25 @@ export function SuperAdminAreaSwitcher() {
         rows = [{ id: HONEYSUCKLE_TERRITORY_ID, name: "Honeysuckle" }];
       }
 
-      // 3. Keep a selected area. Do not reset it to the home area.
-      const def = isSuper
-        ? rows[0]?.id || HONEYSUCKLE_TERRITORY_ID
-        : homeId || rows[0]?.id || HONEYSUCKLE_TERRITORY_ID;
+      // 3. Keep the area chosen this session. A fresh login already saved the home area.
+      const home = await resolveHomeTerritoryId();
+      const def =
+        (home && rows.some((row) => row.id === home) && home) ||
+        (isSuper
+          ? rows[0]?.id || HONEYSUCKLE_TERRITORY_ID
+          : homeId || rows[0]?.id || HONEYSUCKLE_TERRITORY_ID);
       const saved = getSuperAdminViewTerritory();
       const inList = rows.some((r) => r.id === saved);
       const next = saved && inList ? saved : def;
       setDefaultId(def);
+      setHomeId(home);
       setAreas(rows);
       setValue(next);
+      try {
+        setIsImpersonating(!!localStorage.getItem("impersonated_user"));
+      } catch {
+        setIsImpersonating(false);
+      }
       // The dropdown already shows one area. Save it so the lists use that
       // area on this load instead of every area.
       if (!saved || !inList) setSuperAdminViewTerritory(next);
@@ -146,6 +159,18 @@ export function SuperAdminAreaSwitcher() {
           ))}
         </SelectContent>
       </Select>
+      {!isImpersonating && value && (
+        <button
+          type="button"
+          className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+          onClick={async () => {
+            await saveHomeTerritory(value);
+            setHomeId(value);
+          }}
+        >
+          {homeId === value ? "Home" : "Set as home"}
+        </button>
+      )}
     </div>
   );
 }
