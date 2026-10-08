@@ -212,7 +212,7 @@ function BrideEventPages({ weddingId }: { weddingId: string }) {
   );
 }
 
-function BrideEventPages({ weddingId }: { weddingId: string }) {
+export default function BridePortal() {
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
 
