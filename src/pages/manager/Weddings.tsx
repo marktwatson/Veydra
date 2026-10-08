@@ -143,7 +143,7 @@ import { useBartendingModule } from "@/hooks/use-bartending-module";
 import { ChangePendingBadge } from "@/components/ChangePendingBadge";
 import { WeddingActionsMenu } from "@/components/WeddingActionsMenu";
 import { OnDeckTab } from "@/components/OnDeckTab";
-import { ReviewWeddingDialog } from "@/components/ReviewWeddingDialog";
+import { WeddingChecklist } from "@/components/WeddingChecklist";
 import { VIDEO_PRICING, PACKAGES, ADDONS } from "@/lib/wedding-constants";
 import {
   OffPlatformBadge,
@@ -1007,11 +1007,12 @@ export function ManageWeddingSheet({
         </SheetHeader>
         <form onSubmit={handleSave} className="py-6 space-y-6">
           <Tabs defaultValue="details" className="w-full">
-            <TabsList className="w-full grid grid-cols-4">
-              <TabsTrigger value="details">Details</TabsTrigger>
-              <TabsTrigger value="events">Events</TabsTrigger>
-              <TabsTrigger value="questionnaire">Questionnaire</TabsTrigger>
-              <TabsTrigger value="jobs">Positions</TabsTrigger>
+            <TabsList className="w-full grid grid-cols-5">
+              <TabsTrigger value="details" className="text-xs">Details</TabsTrigger>
+              <TabsTrigger value="events" className="text-xs">Events</TabsTrigger>
+              <TabsTrigger value="checklist" className="text-xs">Checklist</TabsTrigger>
+              <TabsTrigger value="questionnaire" className="text-xs">Questionnaire</TabsTrigger>
+              <TabsTrigger value="jobs" className="text-xs">Positions</TabsTrigger>
             </TabsList>
 
             <TabsContent value="details" className="space-y-4 mt-4">
@@ -1718,6 +1719,10 @@ export function ManageWeddingSheet({
                 weddingId={wedding.id}
                 territoryId={wedding.territory_id}
               />
+            </TabsContent>
+
+            <TabsContent value="checklist" className="mt-4">
+              <WeddingChecklist wedding={wedding} />
             </TabsContent>
 
             <TabsContent value="questionnaire" className="space-y-4 mt-4">
