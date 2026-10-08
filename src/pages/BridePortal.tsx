@@ -100,6 +100,59 @@ const getSafeDate = (dateStr: string | null) => {
   return tzDate;
 };
 
+function BrideEventPages({ weddingId }: { weddingId: string }) {
+  const { toast } = useToast();
+  const { data: events = [] } = useQuery({
+    queryKey: ["bride-events", weddingId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("wedding_events")
+        .select("id, title, event_type, event_date, venue, address, timeline_notes, day_questions")
+        .eq("wedding_id", weddingId)
+        .order("event_date");
+      if (error) return [];
+      return data || [];
+    },
+  });
+  if (events.length === 0) return null;
+  return (
+    <div className="space-y-4">
+      {events.map((event: any) => (
+        <BrideEventPage key={event.id} event={event} />
+      ))}
+    </div>
+  );
+}
+
+function BrideEventPage({ event }: { event: any }) {
+  const { toast } = useToast();
+  const [timeline, setTimeline] = useState(event.timeline_notes || "");
+  const [questions, setQuestions] = useState(event.day_questions || "");
+  const save = async () => {
+    const { error } = await supabase
+      .from("wedding_events")
+      .update({ timeline_notes: timeline, day_questions: questions })
+      .eq("id", event.id);
+    if (error) toast({ variant: "destructive", title: "Could not save this date", description: error.message });
+    else toast({ title: "Saved for this date" });
+  };
+  return (
+    <Card className="rounded-2xl border-[#c9a96e]/30 bg-white">
+      <CardHeader>
+        <CardTitle>{event.title || event.event_type}</CardTitle>
+        <CardDescription>
+          {event.event_date} {event.venue ? `· ${event.venue}` : ""}. This is only for this date's team.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Input value={timeline} onChange={(e) => setTimeline(e.target.value)} placeholder="Timeline for this date" />
+        <Input value={questions} onChange={(e) => setQuestions(e.target.value)} placeholder="Anything this crew needs to know" />
+        <Button type="button" variant="outline" onClick={save}>Save this date</Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function BridePortal() {
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
@@ -1454,6 +1507,10 @@ export default function BridePortal() {
                 </Button>
               </CardContent>
             </Card>
+          )}
+
+          {currentStep === 5 && id && (
+            <BrideEventPages weddingId={id} />
           )}
 
           {currentStep === 6 && (
