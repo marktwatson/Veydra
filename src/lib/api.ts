@@ -1205,6 +1205,79 @@ export async function sendAdminNotification(
   return results;
 }
 
+function questionnaireHasAnswers(data: any): boolean {
+  if (!data) return false;
+  if (typeof data === "string") {
+    try {
+      data = JSON.parse(data);
+    } catch {
+      return data.trim().length > 0;
+    }
+  }
+  if (typeof data !== "object") return false;
+  const walk = (value: any): boolean => {
+    if (typeof value === "string") return value.trim().length > 0;
+    if (Array.isArray(value)) return value.some(walk);
+    if (value && typeof value === "object")
+      return Object.values(value).some(walk);
+    return false;
+  };
+  return walk(data);
+}
+
+function isPlaceholderTimeline(timeline: any): boolean {
+  let rows = timeline;
+  if (typeof rows === "string") {
+    try {
+      rows = JSON.parse(rows);
+    } catch {
+      return false;
+    }
+  }
+  if (!Array.isArray(rows) || rows.length !== 1) return false;
+  return /photographer arrives/i.test(String(rows[0]?.event || ""));
+}
+
+async function keepSavedQuestionnaire(
+  id: string,
+  payload: Record<string, any>,
+) {
+  const touchesQuestionnaire = Object.prototype.hasOwnProperty.call(
+    payload,
+    "questionnaire_data",
+  );
+  const touchesTimeline = Object.prototype.hasOwnProperty.call(
+    payload,
+    "timeline",
+  );
+  if (!touchesQuestionnaire && !touchesTimeline) return payload;
+
+  const { data: current } = await supabase
+    .from("weddings")
+    .select("questionnaire_data, timeline")
+    .eq("id", id)
+    .maybeSingle();
+  if (!current) return payload;
+
+  if (
+    touchesQuestionnaire &&
+    !questionnaireHasAnswers(payload.questionnaire_data) &&
+    questionnaireHasAnswers(current.questionnaire_data) &&
+    payload.questionnaire_completed !== false
+  ) {
+    delete payload.questionnaire_data;
+  }
+  if (
+    touchesTimeline &&
+    isPlaceholderTimeline(payload.timeline) &&
+    current.timeline &&
+    !isPlaceholderTimeline(current.timeline)
+  ) {
+    delete payload.timeline;
+  }
+  return payload;
+}
+
 export const api = {
   sendAdminNotification,
   async syncContractorCRM(contractorId: string) {
@@ -3118,9 +3191,11 @@ export const api = {
       .eq("id", id)
       .single();
 
+    const payload = await keepSavedQuestionnaire(id, { ...updates });
+
     const { data, error } = await supabase
       .from("weddings")
-      .update(updates)
+      .update(payload)
       .eq("id", id)
       .select()
       .single();
@@ -4043,15 +4118,12 @@ export const api = {
   },
 
   async submitWeddingQuestionnaire(id: string, updates: Partial<DbWedding>) {
-    // Note: ensure RLS allows UPDATE on weddings by ID without auth
-    const payload = { ...updates, questionnaire_completed: true };
+    const payload = await keepSavedQuestionnaire(id, {
+      ...updates,
+      questionnaire_completed: true,
+    });
     if (payload.timeline && typeof payload.timeline !== "string")
       payload.timeline = JSON.stringify(payload.timeline) as any;
-    if (
-      payload.questionnaire_data &&
-      typeof payload.questionnaire_data !== "string"
-    )
-      payload.questionnaire_data = JSON.stringify(payload.questionnaire_data);
 
     const { data, error } = await supabase
       .from("weddings")
@@ -4068,14 +4140,9 @@ export const api = {
     id: string,
     updates: Partial<DbWedding>,
   ) {
-    const payload = { ...updates };
+    const payload = await keepSavedQuestionnaire(id, { ...updates });
     if (payload.timeline && typeof payload.timeline !== "string")
       payload.timeline = JSON.stringify(payload.timeline) as any;
-    if (
-      payload.questionnaire_data &&
-      typeof payload.questionnaire_data !== "string"
-    )
-      payload.questionnaire_data = JSON.stringify(payload.questionnaire_data);
 
     const { data, error } = await supabase
       .from("weddings")
