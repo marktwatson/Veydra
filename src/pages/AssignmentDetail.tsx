@@ -79,7 +79,7 @@ export default function AssignmentDetail() {
           .select(
             `
             *,
-            jobs (id, status, role, pay_rate, hours, addons, contractor_todos, wedding_id, territory_id, event_id, weddings(client_name, date, location, region, timeline, vip_names, vendors, special_requests, questionnaire_data, questionnaire_completed, drive_link, upload_link, is_lgbtq, territory_id)),
+            jobs (id, status, role, pay_rate, hours, addons, contractor_todos, wedding_id, territory_id, weddings(client_name, date, location, region, timeline, vip_names, vendors, special_requests, questionnaire_data, questionnaire_completed, drive_link, upload_link, is_lgbtq, territory_id)),
             contractors (first_name, last_name, email, venmo_handle, stripe_account_id)
           `,
           )
@@ -105,20 +105,6 @@ export default function AssignmentDetail() {
   const assignment = assignments.find((a: any) => a.id === id);
   const job = assignment?.jobs;
   const wedding = job?.weddings;
-  const { data: eventRow } = useQuery({
-    queryKey: ["assignment-event", job?.event_id],
-    enabled: !!job?.event_id,
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("wedding_events")
-        .select("title, event_type, event_date, location")
-        .eq("id", job.event_id)
-        .maybeSingle();
-      return data;
-    },
-  });
-  const eventDate = eventRow?.event_date || wedding?.date;
-  const eventLocation = eventRow?.location || wedding?.location;
   const currentUser = contractors.find(
     (c) => c.email?.trim().toLowerCase() === user?.email?.trim().toLowerCase(),
   );
@@ -438,8 +424,7 @@ export default function AssignmentDetail() {
           </h1>
           <div className="flex flex-wrap items-center gap-3 text-muted-foreground">
             <span className="font-medium text-foreground">
-              {formatDisplayDate(eventDate)}
-              {eventRow?.title ? ` · ${eventRow.title}` : ""}
+              {formatDisplayDate(wedding.date)}
             </span>
             <span>•</span>
             {wedding.is_lgbtq && (
