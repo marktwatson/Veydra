@@ -7,7 +7,8 @@ alter table public.wedding_events
   add column if not exists edit_status text,
   add column if not exists editor_id uuid,
   add column if not exists edit_due_date date,
-  add column if not exists drive_link text;
+  add column if not exists drive_link text,
+  add column if not exists edit_details jsonb;
 
 drop policy if exists wedding_events_public_read on public.wedding_events;
 create policy wedding_events_public_read

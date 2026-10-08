@@ -132,7 +132,7 @@ export default function PostProductionTable() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("wedding_events")
-        .select("id, title, event_type, event_date, edit_status, edit_due_date, editor_id, drive_link, wedding_id, weddings(client_name, date)")
+        .select("id, title, event_type, event_date, edit_status, edit_due_date, editor_id, drive_link, edit_details, wedding_id, weddings(client_name, date)")
         .eq("needs_early_edit", true)
         .in("wedding_id", weddings.map((w) => w.id));
       if (error) return [];
@@ -582,7 +582,20 @@ export default function PostProductionTable() {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button size="sm" variant="outline" onClick={() => setEventDraft(event)}>
+                    <Button size="sm" variant="outline" onClick={() => {
+                      const details = event.edit_details && typeof event.edit_details === "object" ? event.edit_details : {};
+                      setEventDraft({
+                        ...event,
+                        upload_link: details.upload_link || "",
+                        vimeo_link: details.vimeo_link || "",
+                        youtube_link: details.youtube_link || "",
+                        gallery_link: details.gallery_link || "",
+                        editing_notes: details.editing_notes || "",
+                        revisions_notes: details.revisions_notes || "",
+                        photo_count: details.photo_count || "",
+                        video_targets: Array.isArray(details.video_targets) ? details.video_targets : [],
+                      });
+                    }}>
                       Edit
                     </Button>
                   </TableCell>
@@ -594,28 +607,144 @@ export default function PostProductionTable() {
       )}
 
       <Dialog open={!!eventDraft} onOpenChange={(open) => !open && setEventDraft(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{eventDraft?.title || "This date"}</DialogTitle>
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
+          <DialogHeader className="px-6 py-4 border-b bg-muted/20 shrink-0">
+            <DialogTitle>Edit Media & Links</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
-            <p className="text-sm font-medium">Raw media link</p>
-            <Input
-              value={eventDraft?.drive_link || ""}
-              onChange={(e) => setEventDraft({ ...eventDraft, drive_link: e.target.value })}
-            />
-            <Button
-              onClick={() => {
+          {eventDraft && (
+            <form
+              className="flex flex-col flex-1 min-h-0 overflow-hidden"
+              onSubmit={(e) => {
+                e.preventDefault();
                 markEventEdit.mutate({
                   id: eventDraft.id,
-                  updates: { drive_link: eventDraft.drive_link || null },
+                  updates: {
+                    drive_link: eventDraft.drive_link || null,
+                    edit_due_date: eventDraft.edit_due_date || null,
+                    edit_details: {
+                      upload_link: eventDraft.upload_link,
+                      vimeo_link: eventDraft.vimeo_link,
+                      youtube_link: eventDraft.youtube_link,
+                      gallery_link: eventDraft.gallery_link,
+                      editing_notes: eventDraft.editing_notes,
+                      revisions_notes: eventDraft.revisions_notes,
+                      photo_count: eventDraft.photo_count,
+                      video_targets: eventDraft.video_targets,
+                    },
+                  },
                 });
                 setEventDraft(null);
               }}
             >
-              Save
-            </Button>
-          </div>
+              <div className="flex-1 overflow-y-auto p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="space-y-4">
+                    <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wider">Media Links</h3>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Raw Media Link (Drive/Dropbox)</label>
+                      <Input value={eventDraft.drive_link || ""} onChange={(e) => setEventDraft({ ...eventDraft, drive_link: e.target.value })} placeholder="https://..." />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Final Delivery Upload Folder</label>
+                      <Input value={eventDraft.upload_link || ""} onChange={(e) => setEventDraft({ ...eventDraft, upload_link: e.target.value })} placeholder="https://drive.google.com/..." />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Vimeo Link</label>
+                      <Input value={eventDraft.vimeo_link || ""} onChange={(e) => setEventDraft({ ...eventDraft, vimeo_link: e.target.value })} placeholder="https://vimeo.com/..." />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">YouTube Link</label>
+                      <Input value={eventDraft.youtube_link || ""} onChange={(e) => setEventDraft({ ...eventDraft, youtube_link: e.target.value })} placeholder="https://youtube.com/..." />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Final Gallery Link</label>
+                      <Input value={eventDraft.gallery_link || ""} onChange={(e) => setEventDraft({ ...eventDraft, gallery_link: e.target.value })} placeholder="https://..." />
+                    </div>
+                  </div>
+                  <div className="space-y-4">
+                    <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wider">Notes & Deadlines</h3>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Editor Due Date</label>
+                      <Input type="date" value={eventDraft.edit_due_date || ""} onChange={(e) => setEventDraft({ ...eventDraft, edit_due_date: e.target.value })} />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Editor Notes / Instructions</label>
+                      <Textarea value={eventDraft.editing_notes || ""} onChange={(e) => setEventDraft({ ...eventDraft, editing_notes: e.target.value })} placeholder="Specific editing instructions..." className="min-h-[120px]" />
+                    </div>
+                    <div className="space-y-2 rounded-lg border border-red-100 bg-red-50/50 p-4">
+                      <label className="text-sm font-medium text-red-700">Revisions Feedback</label>
+                      <Textarea value={eventDraft.revisions_notes || ""} onChange={(e) => setEventDraft({ ...eventDraft, revisions_notes: e.target.value })} placeholder="Feedback and revision requests for the editor..." className="min-h-[120px]" />
+                    </div>
+                    <div className="space-y-2 border-t pt-4">
+                      <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wider">Editor Targets</h3>
+                      <label className="text-sm font-medium">Target Photo Count</label>
+                      <Input type="number" value={eventDraft.photo_count || ""} onChange={(e) => setEventDraft({ ...eventDraft, photo_count: e.target.value })} placeholder="e.g. 500" />
+                      <div className="flex items-center justify-between pt-2">
+                        <label className="text-sm font-medium">Target Videos</label>
+                        <Button type="button" variant="outline" size="sm" onClick={() => setEventDraft({ ...eventDraft, video_targets: [...(eventDraft.video_targets || []), videoPricing[0]?.id || "highlight"] })}>
+                          Add Video
+                        </Button>
+                      </div>
+                      {(eventDraft.video_targets || []).length === 0 ? (
+                        <p className="text-sm italic text-muted-foreground">No videos targeted.</p>
+                      ) : (
+                        eventDraft.video_targets.map((vidId: string, index: number) => (
+                          <div key={index} className="flex gap-2">
+                            <Select value={vidId} onValueChange={(val) => {
+                              const next = [...eventDraft.video_targets];
+                              next[index] = val;
+                              setEventDraft({ ...eventDraft, video_targets: next });
+                            }}>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {videoPricing.map((video) => (
+                                  <SelectItem key={video.id} value={video.id}>{video.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Button type="button" variant="ghost" onClick={() => setEventDraft({ ...eventDraft, video_targets: eventDraft.video_targets.filter((_: string, i: number) => i !== index) })}>
+                              Remove
+                            </Button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="px-6 py-4 border-t bg-muted/20 flex justify-between gap-3">
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={() => {
+                    markEventEdit.mutate({
+                      id: eventDraft.id,
+                      updates: {
+                        edit_status: "revisions_requested",
+                        edit_details: {
+                          upload_link: eventDraft.upload_link,
+                          vimeo_link: eventDraft.vimeo_link,
+                          youtube_link: eventDraft.youtube_link,
+                          gallery_link: eventDraft.gallery_link,
+                          editing_notes: eventDraft.editing_notes,
+                          revisions_notes: eventDraft.revisions_notes,
+                          photo_count: eventDraft.photo_count,
+                          video_targets: eventDraft.video_targets,
+                        },
+                      },
+                    });
+                    setEventDraft(null);
+                  }}
+                >
+                  Send for Revisions
+                </Button>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" onClick={() => setEventDraft(null)}>Cancel</Button>
+                  <Button type="submit">Save Changes</Button>
+                </div>
+              </div>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
 
