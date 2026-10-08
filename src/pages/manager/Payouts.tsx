@@ -113,6 +113,29 @@ export default function ManagerPayouts() {
     enabled: territoryId !== undefined,
   });
 
+  const { data: eventEditorInvoices = [] } = useQuery({
+    queryKey: ["event-editor-invoices"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("wedding_events")
+        .select("id, title, event_date, editor_id, edit_details, weddings(client_name)")
+        .eq("needs_early_edit", true);
+      if (error) return [];
+      return (data || [])
+        .filter((event: any) => event.edit_details?.invoice_status)
+        .map((event: any) => ({
+          id: event.id,
+          _event: true,
+          date: event.event_date,
+          editor_id: event.editor_id,
+          client_name: `${event.weddings?.client_name || "Wedding"} · ${event.title || "Event"}`,
+          editor_invoice_status: event.edit_details.invoice_status,
+          editor_payout_amount: event.edit_details.invoice_amount,
+          editor_invoice_details: event.edit_details.invoice,
+        }));
+    },
+  });
+
   const { data: editors = [] } = useQuery({
     queryKey: ["editors"],
     queryFn: api.getEditors,
@@ -130,6 +153,26 @@ export default function ManagerPayouts() {
 
   const deleteEditorInvoiceMutation = useMutation({
     mutationFn: async (id: string) => {
+      const { data: event } = await supabase
+        .from("wedding_events")
+        .select("id, edit_details")
+        .eq("id", id)
+        .maybeSingle();
+      if (event?.edit_details?.invoice_status) {
+        const { error } = await supabase
+          .from("wedding_events")
+          .update({
+            edit_details: {
+              ...event.edit_details,
+              invoice_status: null,
+              invoice_amount: null,
+              invoice: null,
+            },
+          })
+          .eq("id", id);
+        if (error) throw error;
+        return;
+      }
       await api.updateWedding(id, {
         editor_invoice_status: null,
         editor_payout_amount: null,
@@ -138,6 +181,7 @@ export default function ManagerPayouts() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["weddings"] });
+      queryClient.invalidateQueries({ queryKey: ["event-editor-invoices"] });
       toast({ title: "Editor Invoice Deleted" });
     },
   });
@@ -269,6 +313,33 @@ export default function ManagerPayouts() {
 
   const approveEditorPayoutMutation = useMutation({
     mutationFn: async (id: string) => {
+      const { data: event } = await supabase
+        .from("wedding_events")
+        .select("id, title, editor_id, edit_details, weddings(client_name)")
+        .eq("id", id)
+        .maybeSingle();
+      if (event?.edit_details?.invoice_status) {
+        const editor = editors.find((e) => e.id === event.editor_id);
+        if (!editor) throw new Error("Editor not found");
+        const amount = event.edit_details.invoice_amount || 0;
+        const name = `${event.weddings?.client_name || "Wedding"} · ${event.title || "Event"}`;
+        if (paymentMethod === "Stripe") {
+          const stripeAccountId = editor.stripe_account_id;
+          if (!stripeAccountId) {
+            throw new Error("Editor does not have a connected Stripe account. Please select another payment method.");
+          }
+          if (amount > 0) {
+            await api.processStripePayout(amount, stripeAccountId, `Payout for ${name} - Editing`, idempotencyKey);
+          }
+        }
+        const { error } = await supabase
+          .from("wedding_events")
+          .update({ edit_details: { ...event.edit_details, invoice_status: "paid" } })
+          .eq("id", id);
+        if (error) throw error;
+        return;
+      }
+
       const wedding = weddings.find((w: any) => w.id === id);
       if (!wedding) throw new Error("Wedding not found");
 
@@ -313,6 +384,7 @@ export default function ManagerPayouts() {
     onSuccess: (_, id) => {
       setPaidIds((prev) => new Set(prev).add(id));
       queryClient.invalidateQueries({ queryKey: ["weddings"] });
+      queryClient.invalidateQueries({ queryKey: ["event-editor-invoices"] });
       toast({
         title: "Editor Payout Approved",
         description:
@@ -335,7 +407,10 @@ export default function ManagerPayouts() {
     (a: any) => a.status === "Completed" || a.status === "Payment Received",
   );
 
-  const editorInvoices = weddings.filter((w) => w.editor_invoice_status);
+  const editorInvoices = [
+    ...weddings.filter((w) => w.editor_invoice_status),
+    ...eventEditorInvoices,
+  ];
   const pendingEditorInvoices = editorInvoices.filter(
     (w) =>
       w.editor_invoice_status === "pending" ||

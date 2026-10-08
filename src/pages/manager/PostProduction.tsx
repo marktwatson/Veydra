@@ -911,11 +911,27 @@ export default function PostProductionTable() {
                           </Badge>
                         )}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right space-y-2">
                         <Button variant="outline" size="sm" className="w-full" onClick={() => openEventEditor(event)}>
                           <Link2 className="h-4 w-4 mr-1" />
                           Edit
                         </Button>
+                        {event.edit_details?.invoice_status === "pending" && (
+                          <Button
+                            size="sm"
+                            className="w-full"
+                            onClick={() =>
+                              markEventEdit.mutate({
+                                id: event.id,
+                                updates: {
+                                  edit_details: { ...event.edit_details, invoice_status: "approved" },
+                                },
+                              })
+                            }
+                          >
+                            Approve invoice
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   );

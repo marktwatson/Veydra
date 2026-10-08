@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 import { formatDisplayDate } from "@/lib/utils";
 import {
   Card,
@@ -139,6 +140,18 @@ export default function ManagerAccounting() {
   const { data: assignments = [], isLoading: isLoadingAssignments } = useQuery({
     queryKey: ["assignments"],
     queryFn: api.getAssignments,
+  });
+
+  const { data: paidEventEdits = [] } = useQuery({
+    queryKey: ["accounting-event-edits"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("wedding_events")
+        .select("id, title, event_date, edit_details, weddings(client_name)")
+        .eq("needs_early_edit", true);
+      if (error) return [];
+      return (data || []).filter((event: any) => event.edit_details?.invoice_status === "paid");
+    },
   });
 
   const { data: settings, isLoading: isLoadingSettings } = useQuery({
@@ -411,6 +424,20 @@ export default function ManagerAccounting() {
           client: w.client_name,
           date: dateStr ? formatDisplayDate(dateStr) : "N/A",
           amount: amount,
+        });
+      }
+    });
+
+    paidEventEdits.forEach((event: any) => {
+      const amount = Number(event.edit_details?.invoice_amount) || 0;
+      const dateStr = event.event_date;
+      if (amount > 0 && isInPeriod(dateStr)) {
+        editorCogs += amount;
+        editorRows.push({
+          id: event.id,
+          client: `${event.weddings?.client_name || "Wedding"} · ${event.title || "Event"}`,
+          date: dateStr ? formatDisplayDate(dateStr) : "N/A",
+          amount,
         });
       }
     });
@@ -701,6 +728,7 @@ export default function ManagerAccounting() {
     };
   }, [
     weddings,
+    paidEventEdits,
     assignments,
     settings,
     fbCampaigns,

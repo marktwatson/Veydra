@@ -23,6 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { geocodeAddress, calculateDistanceMiles } from "@/lib/geocoding";
 import { formatDisplayDate } from "@/lib/utils";
@@ -46,6 +47,25 @@ export default function Opportunities() {
     queryKey: ["contractor-open-jobs", currentUser?.territory_id],
     queryFn: () => fetchOpenJobsForTerritory(currentUser!.territory_id!),
     enabled: !!currentUser?.territory_id,
+  });
+
+  const { data: eventByJob = {} } = useQuery({
+    queryKey: ["open-job-events", jobs.map((job: any) => job.event_id).filter(Boolean).join(",")],
+    enabled: jobs.some((job: any) => job.event_id),
+    queryFn: async () => {
+      const ids = jobs.map((job: any) => job.event_id).filter(Boolean);
+      const { data, error } = await supabase
+        .from("wedding_events")
+        .select("id, title, event_date, venue, address, location")
+        .in("id", ids);
+      if (error) return {};
+      const byEvent = Object.fromEntries((data || []).map((event: any) => [event.id, event]));
+      const byJob: Record<string, any> = {};
+      jobs.forEach((job: any) => {
+        if (job.event_id && byEvent[job.event_id]) byJob[job.id] = byEvent[job.event_id];
+      });
+      return byJob;
+    },
   });
 
   const { data: assignments = [], isLoading: isLoadingAssignments } = useQuery({
@@ -85,7 +105,22 @@ export default function Opportunities() {
     myActiveAssignments.map((a: any) => a.jobs?.weddings?.date).filter(Boolean),
   );
 
-  const visiblePositions = jobs
+  const listedJobs = jobs.map((job: any) => {
+    const event = eventByJob[job.id];
+    if (!event) return job;
+    const place = [event.venue, event.address, event.location].filter(Boolean).join(", ");
+    return {
+      ...job,
+      weddings: {
+        ...job.weddings,
+        date: event.event_date || job.weddings?.date,
+        location: place || "Location not set",
+        client_name: `${job.weddings?.client_name || "Wedding"} · ${event.title || "Extra date"}`,
+      },
+    };
+  });
+
+  const visiblePositions = listedJobs
     .filter((p) =>
       contractorCanSeeJob(p, currentUser, {
         filterRegion,
@@ -131,7 +166,7 @@ export default function Opportunities() {
       if (!homeCoords) return;
 
       const newDistances: Record<string, number> = {};
-      for (const job of jobs) {
+      for (const job of listedJobs) {
         if (job.weddings?.location) {
           const jobCoords = await geocodeAddress(job.weddings.location);
           if (jobCoords) {
@@ -148,7 +183,7 @@ export default function Opportunities() {
     return () => {
       isMounted = false;
     };
-  }, [currentUser?.address, jobs]);
+  }, [currentUser?.address, jobs, eventByJob]);
 
   if (
     isLoadingJobs ||
