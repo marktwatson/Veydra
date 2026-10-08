@@ -3,7 +3,8 @@ alter table public.wedding_events
   add column if not exists address text,
   add column if not exists timeline_notes text,
   add column if not exists day_questions text,
-  add column if not exists needs_early_edit boolean default false;
+  add column if not exists needs_early_edit boolean default false,
+  add column if not exists edit_status text;
 
 drop policy if exists wedding_events_public_read on public.wedding_events;
 create policy wedding_events_public_read

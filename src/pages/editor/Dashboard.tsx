@@ -234,6 +234,35 @@ export default function EditorDashboard() {
     enabled: !!user?.id,
   });
 
+  const { data: earlyEdits = [] } = useQuery({
+    queryKey: ["editor-early-events", user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("wedding_events")
+        .select("id, title, event_type, event_date, edit_status, wedding_id, weddings(client_name, date, editor_id)")
+        .eq("needs_early_edit", true);
+      if (error) return [];
+      return (data || []).filter((event: any) => event.weddings?.editor_id === user!.id);
+    },
+  });
+
+  const markEarlyEdit = useMutation({
+    mutationFn: async (eventId: string) => {
+      const { error } = await supabase
+        .from("wedding_events")
+        .update({ edit_status: "delivered" })
+        .eq("id", eventId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["editor-early-events", user?.id] });
+      toast({ title: "Marked delivered" });
+    },
+    onError: (err: any) =>
+      toast({ variant: "destructive", title: "Could not update this edit", description: err.message }),
+  });
+
   const { data: settings } = useQuery({
     queryKey: ["portal-settings"],
     queryFn: api.getPortalSettings,
@@ -674,6 +703,29 @@ export default function EditorDashboard() {
             </Button>
           </AlertDescription>
         </Alert>
+      )}
+
+      {earlyEdits.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-lg font-semibold">Edit before the wedding</h2>
+          {earlyEdits.map((event: any) => (
+            <div key={event.id} className="rounded-xl border border-amber-300 bg-amber-50 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <p className="font-medium">{event.weddings?.client_name || "Wedding"} · {event.title || event.event_type}</p>
+                <p className="text-sm text-muted-foreground">
+                  Event {event.event_date || "date not set"} · due before the wedding on {event.weddings?.date || "the wedding day"}
+                </p>
+              </div>
+              {event.edit_status === "delivered" ? (
+                <Badge>Delivered</Badge>
+              ) : (
+                <Button size="sm" onClick={() => markEarlyEdit.mutate(event.id)}>
+                  Mark delivered
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
       )}
 
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
