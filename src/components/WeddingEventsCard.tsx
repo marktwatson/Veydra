@@ -8,10 +8,10 @@ import { useToast } from "@/hooks/use-toast";
 import { createAssignmentWithTerritory } from "@/lib/child-row-territory";
 
 const EVENT_TYPES = [
-  { value: "wedding_day", label: "Wedding day", chip: "bg-rose-50 text-rose-800 border-rose-200" },
-  { value: "engagement", label: "Engagement session", chip: "bg-amber-50 text-amber-800 border-amber-200" },
-  { value: "bartending", label: "Bartending", chip: "bg-emerald-50 text-emerald-800 border-emerald-200" },
-  { value: "sangeet", label: "Sangeet / other day", chip: "bg-violet-50 text-violet-800 border-violet-200" },
+  { value: "wedding_day", label: "Wedding day", chip: "bg-rose-100 text-rose-800", card: "border-l-rose-500 bg-rose-50" },
+  { value: "engagement", label: "Engagement session", chip: "bg-amber-100 text-amber-900", card: "border-l-amber-500 bg-amber-50" },
+  { value: "bartending", label: "Bartending", chip: "bg-emerald-100 text-emerald-900", card: "border-l-emerald-500 bg-emerald-50" },
+  { value: "sangeet", label: "Sangeet / other day", chip: "bg-violet-100 text-violet-900", card: "border-l-violet-500 bg-violet-50" },
 ];
 
 function EventFile({ event, weddingId, territoryId }: any) {
@@ -117,7 +117,7 @@ function EventFile({ event, weddingId, territoryId }: any) {
   const label = typeMeta?.label || event.event_type;
 
   return (
-    <div className="rounded-2xl border border-amber-200/80 bg-amber-50/40 p-5 space-y-5">
+    <div className={`rounded-2xl border border-l-8 p-5 space-y-5 ${typeMeta?.card || "border-l-slate-400 bg-slate-50"}`}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${typeMeta?.chip || "bg-slate-50"}`}>
@@ -126,8 +126,9 @@ function EventFile({ event, weddingId, territoryId }: any) {
           <h3 className="mt-2 text-lg font-semibold">{event.title || label}</h3>
           <p className="text-sm text-muted-foreground">{event.location || "Location not set"}</p>
         </div>
-        <div className="rounded-xl bg-sky-50 border border-sky-200 px-3 py-2 text-right">
-          <p className="text-sm font-medium text-sky-900">{event.event_date || "No date"}</p>
+        <div className="rounded-xl bg-sky-100 border border-sky-300 px-3 py-2 text-right">
+          <p className="text-xs font-medium text-sky-700">Date</p>
+          <p className="text-sm font-semibold text-sky-950">{event.event_date || "No date"}</p>
           {earlyEdit && <p className="text-xs text-amber-700">Edit before wedding</p>}
         </div>
       </div>
@@ -144,7 +145,7 @@ function EventFile({ event, weddingId, territoryId }: any) {
             ? `${assignment.contractors.first_name || ""} ${assignment.contractors.last_name || ""}`.trim()
             : "Unassigned";
           return (
-            <div key={job.id} className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border border-emerald-200 bg-white px-3 py-2">
+            <div key={job.id} className={`grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border px-3 py-2 ${name === "Unassigned" ? "border-orange-300 bg-orange-50" : "border-emerald-300 bg-emerald-50"}`}>
               <div>
                 <p className="text-sm font-medium">{job.role}</p>
                 <p className="text-sm text-muted-foreground">{name}</p>
