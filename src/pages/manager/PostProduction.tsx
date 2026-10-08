@@ -153,6 +153,21 @@ export default function PostProductionTable() {
       toast({ variant: "destructive", title: "Could not update the event", description: err.message }),
   });
 
+  const openEventEditor = (event: any) => {
+    const details = event.edit_details && typeof event.edit_details === "object" ? event.edit_details : {};
+    setEventDraft({
+      ...event,
+      upload_link: details.upload_link || "",
+      vimeo_link: details.vimeo_link || "",
+      youtube_link: details.youtube_link || "",
+      gallery_link: details.gallery_link || "",
+      editing_notes: details.editing_notes || "",
+      revisions_notes: details.revisions_notes || "",
+      photo_count: details.photo_count || "",
+      video_targets: Array.isArray(details.video_targets) ? details.video_targets : [],
+    });
+  };
+
   const { data: settings } = useQuery({
     queryKey: ["portal-settings"],
     queryFn: api.getPortalSettings,
@@ -499,113 +514,6 @@ export default function PostProductionTable() {
         </div>
       </div>
 
-      {earlyEvents.length > 0 && (
-        <div className="rounded-md border bg-card">
-          <div className="border-b px-4 py-3">
-            <h2 className="font-semibold">Edit before the wedding</h2>
-            <p className="text-sm text-muted-foreground">These dates are separate from the wedding edit.</p>
-          </div>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Event date</TableHead>
-                <TableHead>Project</TableHead>
-                <TableHead>Deadline</TableHead>
-                <TableHead>Editor</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Links</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {earlyEvents.map((event: any) => (
-                <TableRow key={event.id}>
-                  <TableCell>{event.event_date ? formatDisplayDate(event.event_date) : "No date"}</TableCell>
-                  <TableCell className="font-semibold">
-                    {event.weddings?.client_name || "Wedding"} · {event.title || event.event_type}
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      type="date"
-                      className="h-8 w-[150px]"
-                      value={event.edit_due_date || event.weddings?.date?.split("T")[0] || ""}
-                      onChange={(e) => markEventEdit.mutate({ id: event.id, updates: { edit_due_date: e.target.value || null } })}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Select
-                      value={event.editor_id || "unassigned"}
-                      onValueChange={(val) =>
-                        markEventEdit.mutate({
-                          id: event.id,
-                          updates: { editor_id: val === "unassigned" ? null : val },
-                        })
-                      }
-                    >
-                      <SelectTrigger className="h-8 w-[140px] text-xs">
-                        <SelectValue placeholder="Unassigned" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="unassigned">Unassigned</SelectItem>
-                        {editors.map((editor) => (
-                          <SelectItem key={editor.id} value={editor.id}>
-                            {editor.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                  <TableCell>
-                    <Select
-                      value={event.edit_status || "awaiting_raw_media"}
-                      onValueChange={(status) => markEventEdit.mutate({ id: event.id, updates: { edit_status: status } })}
-                    >
-                      <SelectTrigger className="h-8 w-[180px] text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {STATUS_OPTIONS.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                  <TableCell>
-                    {event.drive_link ? (
-                      <Badge variant="secondary" className="cursor-pointer" onClick={() => window.open(event.drive_link, "_blank")}>
-                        Raw Media
-                      </Badge>
-                    ) : (
-                      <span className="text-sm text-muted-foreground">Missing raw</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button size="sm" variant="outline" onClick={() => {
-                      const details = event.edit_details && typeof event.edit_details === "object" ? event.edit_details : {};
-                      setEventDraft({
-                        ...event,
-                        upload_link: details.upload_link || "",
-                        vimeo_link: details.vimeo_link || "",
-                        youtube_link: details.youtube_link || "",
-                        gallery_link: details.gallery_link || "",
-                        editing_notes: details.editing_notes || "",
-                        revisions_notes: details.revisions_notes || "",
-                        photo_count: details.photo_count || "",
-                        video_targets: Array.isArray(details.video_targets) ? details.video_targets : [],
-                      });
-                    }}>
-                      Edit
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-
       <Dialog open={!!eventDraft} onOpenChange={(open) => !open && setEventDraft(null)}>
         <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
           <DialogHeader className="px-6 py-4 border-b bg-muted/20 shrink-0">
@@ -883,7 +791,7 @@ export default function PostProductionTable() {
                   <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
                 </TableCell>
               </TableRow>
-            ) : paginatedWeddings.length === 0 ? (
+            ) : paginatedWeddings.length === 0 && earlyEvents.length === 0 ? (
               <TableRow>
                 <TableCell
                   colSpan={7}
@@ -893,7 +801,104 @@ export default function PostProductionTable() {
                 </TableCell>
               </TableRow>
             ) : (
-              paginatedWeddings.map((wedding) => {
+              <>
+              {earlyEvents.map((event: any) => {
+                const currentStatus = event.edit_status || "awaiting_raw_media";
+                const due = event.edit_due_date || event.weddings?.date;
+                return (
+                  <TableRow key={event.id}>
+                    <TableCell className="font-medium whitespace-nowrap">
+                      {event.event_date ? formatDisplayDate(event.event_date) : "No date"}
+                    </TableCell>
+                    <TableCell className="font-semibold">
+                      {event.weddings?.client_name || "Wedding"} · {event.title || event.event_type}
+                    </TableCell>
+                    <TableCell>
+                      <div className="text-sm font-medium flex items-center gap-1.5 text-muted-foreground">
+                        <Clock className="h-3.5 w-3.5" />
+                        {due ? formatDisplayDate(due) : "No deadline"}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        value={event.editor_id || "unassigned"}
+                        onValueChange={(val) =>
+                          markEventEdit.mutate({
+                            id: event.id,
+                            updates: { editor_id: val === "unassigned" ? null : val },
+                          })
+                        }
+                      >
+                        <SelectTrigger className="h-8 text-xs font-medium w-[140px] whitespace-nowrap">
+                          <SelectValue placeholder="Unassigned" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="unassigned" className="text-muted-foreground italic">
+                            Unassigned
+                          </SelectItem>
+                          {editors.map((editor) => (
+                            <SelectItem key={editor.id} value={editor.id}>
+                              {editor.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        value={currentStatus}
+                        onValueChange={(status) => markEventEdit.mutate({ id: event.id, updates: { edit_status: status } })}
+                      >
+                        <SelectTrigger className="h-8 text-xs font-medium w-[160px] whitespace-nowrap">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {STATUS_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`h-2 w-2 rounded-full ${
+                                    opt.value === "delivered"
+                                      ? "bg-emerald-500"
+                                      : opt.value === "awaiting_raw_media" || opt.value === "revisions_requested"
+                                        ? "bg-red-500"
+                                        : "bg-blue-500"
+                                  }`}
+                                />
+                                {opt.label}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex gap-2 items-center flex-wrap">
+                        {event.drive_link ? (
+                          <Badge
+                            variant="secondary"
+                            className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 gap-1 cursor-pointer"
+                            onClick={() => window.open(event.drive_link, "_blank")}
+                          >
+                            <HardDrive className="h-3 w-3" /> Raw Media
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="opacity-50 gap-1">
+                            <HardDrive className="h-3 w-3" /> Missing Raw
+                          </Badge>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="outline" size="sm" className="w-full" onClick={() => openEventEditor(event)}>
+                        <Link2 className="h-4 w-4 mr-1" />
+                        Edit
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+              {paginatedWeddings.map((wedding) => {
                 const currentStatus =
                   wedding.editing_status || "awaiting_raw_media";
                 const deadline = calculateDeadline(wedding);
@@ -1076,7 +1081,8 @@ export default function PostProductionTable() {
                     </TableCell>
                   </TableRow>
                 );
-              })
+              })}
+              </>
             )}
           </TableBody>
         </Table>
