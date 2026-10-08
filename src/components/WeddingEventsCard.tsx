@@ -23,6 +23,7 @@ function EventFile({ event, weddingId, territoryId }: any) {
   const [venue, setVenue] = useState(event.venue || "");
   const [address, setAddress] = useState(event.address || event.location || "");
   const [eventDate, setEventDate] = useState(event.event_date || "");
+  const [earlyEdit, setEarlyEdit] = useState(!!event.needs_early_edit);
   const [role, setRole] = useState("Lead Photographer");
   const [pay, setPay] = useState("");
   const [hours, setHours] = useState("");
