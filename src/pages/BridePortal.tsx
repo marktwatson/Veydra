@@ -118,13 +118,16 @@ function PortalEventDates({ weddingId }: { weddingId: string }) {
   return (
     <>
       {events.map((event: any) => (
-        <div key={event.id} className="flex items-center gap-4 bg-amber-50 p-4 rounded-xl border border-amber-200">
+        <div key={event.id} className="flex items-center gap-4 bg-[#faf7f2] p-4 rounded-xl border border-[#c9a96e]/20">
+          <div className="bg-amber-100 p-3 rounded-full">
+            <Calendar className="h-6 w-6 text-[#1a1a1a]" />
+          </div>
           <div>
             <p className="text-sm font-medium text-[#1a1a1a]/60 uppercase tracking-wider">
               {event.event_type === "bartending" ? "Bartending" : event.event_type === "sangeet" ? "Other day" : "Engagement"}
             </p>
-            <p className="text-lg font-semibold text-[#1a1a1a]">{event.title || event.event_date}</p>
-            <p className="text-sm text-[#1a1a1a]/70">{event.event_date}{event.venue ? ` · ${event.venue}` : ""}</p>
+            <p className="text-lg font-semibold text-[#1a1a1a]">{event.event_date || "Date not set"}</p>
+            <p className="text-sm text-[#1a1a1a]/70">{event.title || "Extra date"}{event.venue ? ` · ${event.venue}` : ""}</p>
           </div>
         </div>
       ))}
@@ -256,6 +259,20 @@ export default function BridePortal() {
     null,
   );
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
+
+  const { data: portalEvents = [] } = useQuery({
+    queryKey: ["bride-events", id],
+    enabled: !!id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("wedding_events")
+        .select("id, title, event_type, event_date, venue")
+        .eq("wedding_id", id)
+        .order("event_date");
+      if (error) return [];
+      return data || [];
+    },
+  });
 
   const { data: messages = [] } = useQuery({
     queryKey: ["messages", id],
@@ -1730,6 +1747,13 @@ export default function BridePortal() {
       icon: FileText,
       isCompleted: !!wedding.questionnaire_completed,
     },
+    ...portalEvents.map((event: any) => ({
+      id: event.id,
+      label: event.event_type === "bartending" ? "Bartending" : event.event_type === "sangeet" ? "Other day" : "Engagement",
+      description: event.event_date || "Date not set",
+      icon: Calendar,
+      isCompleted: false,
+    })),
     {
       id: "wedding",
       label: "Wedding Day",
