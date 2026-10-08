@@ -1091,7 +1091,7 @@ export default function PostProductionTable() {
                     </TableCell>
                   </TableRow>
                 );
-              })}
+              })
             )}
           </TableBody>
         </Table>
