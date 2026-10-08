@@ -310,8 +310,38 @@ export default function PostProductionTable() {
     sortDirection,
   ]);
 
-  const totalPages = Math.ceil(filteredWeddings.length / itemsPerPage);
-  const paginatedWeddings = filteredWeddings.slice(
+  const sortedRows = useMemo(() => {
+    const events = earlyEvents.map((event: any) => ({
+      ...event,
+      _event: true,
+      date: event.event_date,
+      client_name: `${event.weddings?.client_name || "Wedding"} · ${event.title || event.event_type || "Event"}`,
+      editing_status: event.edit_status,
+    }));
+    const rows = [...filteredWeddings, ...events];
+    rows.sort((a: any, b: any) => {
+      const value = (row: any) => {
+        if (sortColumn === "client") return (row.client_name || "").toLowerCase();
+        if (sortColumn === "deadline") {
+          return row._event
+            ? new Date(row.edit_due_date || row.weddings?.date || row.event_date || 0).getTime()
+            : calculateDeadline(row).getTime();
+        }
+        if (sortColumn === "status") return row.editing_status || "awaiting_raw_media";
+        if (sortColumn === "editor") return row.editor_id || "unassigned";
+        return new Date(row.date || 0).getTime();
+      };
+      const valA = value(a);
+      const valB = value(b);
+      if (valA < valB) return sortDirection === "asc" ? -1 : 1;
+      if (valA > valB) return sortDirection === "asc" ? 1 : -1;
+      return 0;
+    });
+    return rows;
+  }, [filteredWeddings, earlyEvents, sortColumn, sortDirection]);
+
+  const totalPages = Math.ceil(sortedRows.length / itemsPerPage);
+  const paginatedWeddings = sortedRows.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage,
   );
@@ -791,7 +821,7 @@ export default function PostProductionTable() {
                   <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
                 </TableCell>
               </TableRow>
-            ) : paginatedWeddings.length === 0 && earlyEvents.length === 0 ? (
+            ) : paginatedWeddings.length === 0 ? (
               <TableRow>
                 <TableCell
                   colSpan={7}
@@ -801,85 +831,67 @@ export default function PostProductionTable() {
                 </TableCell>
               </TableRow>
             ) : (
-              <>
-              {earlyEvents.map((event: any) => {
-                const currentStatus = event.edit_status || "awaiting_raw_media";
-                const due = event.edit_due_date || event.weddings?.date;
-                return (
-                  <TableRow key={event.id}>
-                    <TableCell className="font-medium whitespace-nowrap">
-                      {event.event_date ? formatDisplayDate(event.event_date) : "No date"}
-                    </TableCell>
-                    <TableCell className="font-semibold">
-                      {event.weddings?.client_name || "Wedding"} · {event.title || event.event_type}
-                    </TableCell>
-                    <TableCell>
-                      <div className="text-sm font-medium flex items-center gap-1.5 text-muted-foreground">
-                        <Clock className="h-3.5 w-3.5" />
-                        {due ? formatDisplayDate(due) : "No deadline"}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Select
-                        value={event.editor_id || "unassigned"}
-                        onValueChange={(val) =>
-                          markEventEdit.mutate({
-                            id: event.id,
-                            updates: { editor_id: val === "unassigned" ? null : val },
-                          })
-                        }
-                      >
-                        <SelectTrigger className="h-8 text-xs font-medium w-[140px] whitespace-nowrap">
-                          <SelectValue placeholder="Unassigned" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="unassigned" className="text-muted-foreground italic">
-                            Unassigned
-                          </SelectItem>
-                          {editors.map((editor) => (
-                            <SelectItem key={editor.id} value={editor.id}>
-                              {editor.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
-                    <TableCell>
-                      <Select
-                        value={currentStatus}
-                        onValueChange={(status) => markEventEdit.mutate({ id: event.id, updates: { edit_status: status } })}
-                      >
-                        <SelectTrigger className="h-8 text-xs font-medium w-[160px] whitespace-nowrap">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {STATUS_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className={`h-2 w-2 rounded-full ${
-                                    opt.value === "delivered"
-                                      ? "bg-emerald-500"
-                                      : opt.value === "awaiting_raw_media" || opt.value === "revisions_requested"
-                                        ? "bg-red-500"
-                                        : "bg-blue-500"
-                                  }`}
-                                />
-                                {opt.label}
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-2 items-center flex-wrap">
+              paginatedWeddings.map((wedding) => {
+                if ((wedding as any)._event) {
+                  const event = wedding as any;
+                  const currentStatus = event.edit_status || "awaiting_raw_media";
+                  const due = event.edit_due_date || event.weddings?.date;
+                  return (
+                    <TableRow key={event.id}>
+                      <TableCell className="font-medium whitespace-nowrap">
+                        {event.event_date ? formatDisplayDate(event.event_date) : "No date"}
+                      </TableCell>
+                      <TableCell className="font-semibold">{event.client_name}</TableCell>
+                      <TableCell>
+                        <div className="text-sm font-medium flex items-center gap-1.5 text-muted-foreground">
+                          <Clock className="h-3.5 w-3.5" />
+                          {due ? formatDisplayDate(due) : "No deadline"}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Select
+                          value={event.editor_id || "unassigned"}
+                          onValueChange={(val) =>
+                            markEventEdit.mutate({
+                              id: event.id,
+                              updates: { editor_id: val === "unassigned" ? null : val },
+                            })
+                          }
+                        >
+                          <SelectTrigger className="h-8 text-xs font-medium w-[140px] whitespace-nowrap">
+                            <SelectValue placeholder="Unassigned" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="unassigned" className="text-muted-foreground italic">Unassigned</SelectItem>
+                            {editors.map((editor) => (
+                              <SelectItem key={editor.id} value={editor.id}>{editor.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell>
+                        <Select
+                          value={currentStatus}
+                          onValueChange={(status) => markEventEdit.mutate({ id: event.id, updates: { edit_status: status } })}
+                        >
+                          <SelectTrigger className="h-8 text-xs font-medium w-[160px] whitespace-nowrap">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {STATUS_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                <div className="flex items-center gap-2">
+                                  <span className={`h-2 w-2 rounded-full ${opt.value === "delivered" ? "bg-emerald-500" : opt.value === "awaiting_raw_media" || opt.value === "revisions_requested" ? "bg-red-500" : "bg-blue-500"}`} />
+                                  {opt.label}
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell>
                         {event.drive_link ? (
-                          <Badge
-                            variant="secondary"
-                            className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 gap-1 cursor-pointer"
-                            onClick={() => window.open(event.drive_link, "_blank")}
-                          >
+                          <Badge variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200 gap-1 cursor-pointer" onClick={() => window.open(event.drive_link, "_blank")}>
                             <HardDrive className="h-3 w-3" /> Raw Media
                           </Badge>
                         ) : (
@@ -887,18 +899,16 @@ export default function PostProductionTable() {
                             <HardDrive className="h-3 w-3" /> Missing Raw
                           </Badge>
                         )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="outline" size="sm" className="w-full" onClick={() => openEventEditor(event)}>
-                        <Link2 className="h-4 w-4 mr-1" />
-                        Edit
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-              {paginatedWeddings.map((wedding) => {
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="outline" size="sm" className="w-full" onClick={() => openEventEditor(event)}>
+                          <Link2 className="h-4 w-4 mr-1" />
+                          Edit
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                }
                 const currentStatus =
                   wedding.editing_status || "awaiting_raw_media";
                 const deadline = calculateDeadline(wedding);
@@ -1082,7 +1092,6 @@ export default function PostProductionTable() {
                   </TableRow>
                 );
               })}
-              </>
             )}
           </TableBody>
         </Table>
