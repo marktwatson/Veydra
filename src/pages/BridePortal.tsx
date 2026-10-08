@@ -144,8 +144,19 @@ function PortalEventDates({ weddingId }: { weddingId: string }) {
   );
 }
 
+function readEventAnswers(raw: string) {
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") return parsed;
+  } catch {
+    /* older rows are plain text */
+  }
+  return { notes: raw || "" };
+}
+
 function BrideEventPage({ event }: { event: any }) {
   const { toast } = useToast();
+  const saved = readEventAnswers(event.day_questions || "");
   const [rows, setRows] = useState<{ time: string; moment: string }[]>(
     event.timeline_notes ? event.timeline_notes.split("\n").filter(Boolean).map((line: string) => {
       const [time, ...rest] = line.split(" ");
@@ -153,28 +164,39 @@ function BrideEventPage({ event }: { event: any }) {
     }) : [{ time: "", moment: "" }],
   );
   const [place, setPlace] = useState(event.venue || "");
-  const [people, setPeople] = useState("");
-  const [notes, setNotes] = useState(event.day_questions || "");
+  const [people, setPeople] = useState(saved.people || "");
+  const [outfits, setOutfits] = useState(saved.outfits || "");
+  const [setting, setSetting] = useState(saved.setting || "");
+  const [mustHaves, setMustHaves] = useState(saved.mustHaves || "");
+  const [guestCount, setGuestCount] = useState(saved.guestCount || "");
+  const [barStart, setBarStart] = useState(saved.barStart || "");
+  const [barEnd, setBarEnd] = useState(saved.barEnd || "");
+  const [alcohol, setAlcohol] = useState(saved.alcohol || "");
+  const [moments, setMoments] = useState(saved.moments || saved.notes || "");
   const save = async () => {
     const timeline = rows.filter((r) => r.time || r.moment).map((r) => `${r.time} ${r.moment}`.trim()).join("\n");
-    const answers = [`People: ${people}`, notes].filter(Boolean).join("\n");
+    const answers = event.event_type === "bartending"
+      ? { guestCount, barStart, barEnd, alcohol }
+      : event.event_type === "sangeet"
+        ? { moments, outfits }
+        : { people, outfits, setting, mustHaves };
     const { error } = await supabase
       .from("wedding_events")
-      .update({ timeline_notes: timeline, day_questions: answers, venue: place })
+      .update({ timeline_notes: timeline, day_questions: JSON.stringify(answers), venue: place })
       .eq("id", event.id);
     if (error) toast({ variant: "destructive", title: "Could not save this date", description: error.message });
     else toast({ title: "Saved for this date" });
   };
-  const prompt = event.event_type === "bartending"
-    ? "Guest count, bar start and end, and who is providing alcohol"
-    : event.event_type === "sangeet"
-      ? "Key moments, outfits, and where the crew should be"
-      : "Outfits, how many people, indoor or outdoor, and must-have shots";
   return (
     <Card className="rounded-2xl border-[#c9a96e]/30 bg-white">
       <CardHeader>
         <CardTitle>{event.title || event.event_type}</CardTitle>
-        <CardDescription>{event.event_date}. This page is only for this date.</CardDescription>
+        <CardDescription>
+          {event.event_date
+            ? new Date(`${event.event_date}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
+            : "Date not set"}
+          . This page is only for this date.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <Input value={place} onChange={(e) => setPlace(e.target.value)} placeholder="Venue or address" />
@@ -193,8 +215,26 @@ function BrideEventPage({ event }: { event: any }) {
           </div>
         ))}
         <Button type="button" variant="outline" onClick={() => setRows([...rows, { time: "", moment: "" }])}>Add time</Button>
-        <Input value={people} onChange={(e) => setPeople(e.target.value)} placeholder="How many people" />
-        <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={prompt} />
+        {event.event_type === "bartending" ? (
+          <>
+            <Input value={guestCount} onChange={(e) => setGuestCount(e.target.value)} placeholder="Guest count" />
+            <Input type="time" value={barStart} onChange={(e) => setBarStart(e.target.value)} />
+            <Input type="time" value={barEnd} onChange={(e) => setBarEnd(e.target.value)} />
+            <Input value={alcohol} onChange={(e) => setAlcohol(e.target.value)} placeholder="Who is providing alcohol" />
+          </>
+        ) : event.event_type === "sangeet" ? (
+          <>
+            <Input value={moments} onChange={(e) => setMoments(e.target.value)} placeholder="Key moments" />
+            <Input value={outfits} onChange={(e) => setOutfits(e.target.value)} placeholder="Outfits and where the crew should be" />
+          </>
+        ) : (
+          <>
+            <Input value={people} onChange={(e) => setPeople(e.target.value)} placeholder="How many people" />
+            <Input value={outfits} onChange={(e) => setOutfits(e.target.value)} placeholder="Outfits" />
+            <Input value={setting} onChange={(e) => setSetting(e.target.value)} placeholder="Indoor or outdoor" />
+            <Input value={mustHaves} onChange={(e) => setMustHaves(e.target.value)} placeholder="Must-have shots" />
+          </>
+        )}
         <Button type="button" variant="outline" onClick={save}>Save this date</Button>
       </CardContent>
     </Card>

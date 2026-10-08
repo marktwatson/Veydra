@@ -22,7 +22,7 @@ function EventFile({ event, weddingId, territoryId }: any) {
   const [questions, setQuestions] = useState(event.day_questions || "");
   const [venue, setVenue] = useState(event.venue || "");
   const [address, setAddress] = useState(event.address || event.location || "");
-  const [earlyEdit, setEarlyEdit] = useState(!!event.needs_early_edit);
+  const [eventDate, setEventDate] = useState(event.event_date || "");
   const [role, setRole] = useState("Lead Photographer");
   const [pay, setPay] = useState("");
   const [hours, setHours] = useState("");
@@ -67,6 +67,7 @@ function EventFile({ event, weddingId, territoryId }: any) {
           location: address,
           timeline_notes: timeline,
           day_questions: questions,
+          event_date: eventDate || null,
         })
         .eq("id", event.id);
       if (error) throw error;
@@ -111,6 +112,24 @@ function EventFile({ event, weddingId, territoryId }: any) {
       toast({ variant: "destructive", title: "Could not add position", description: err.message }),
   });
 
+  const removeEvent = useMutation({
+    mutationFn: async () => {
+      const { data: jobs } = await supabase.from("jobs").select("id").eq("event_id", event.id);
+      for (const job of jobs || []) {
+        await supabase.from("assignments").delete().eq("job_id", job.id);
+        await supabase.from("jobs").delete().eq("id", job.id);
+      }
+      const { error } = await supabase.from("wedding_events").delete().eq("id", event.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["wedding-events", weddingId] });
+      toast({ title: "Event removed" });
+    },
+    onError: (err: any) =>
+      toast({ variant: "destructive", title: "Could not remove event", description: err.message }),
+  });
+
   const removePosition = useMutation({
     mutationFn: async (jobId: string) => {
       await supabase.from("assignments").delete().eq("job_id", jobId);
@@ -138,9 +157,9 @@ function EventFile({ event, weddingId, territoryId }: any) {
           <h3 className="mt-2 text-lg font-semibold">{event.title || label}</h3>
           <p className="text-sm text-muted-foreground">{event.location || "Location not set"}</p>
         </div>
-        <div className="rounded-xl bg-sky-100 border border-sky-300 px-3 py-2 text-right">
+        <div className="rounded-xl bg-sky-100 border border-sky-300 px-3 py-2 text-right space-y-1">
           <p className="text-xs font-medium text-sky-700">Date</p>
-          <p className="text-sm font-semibold text-sky-950">{event.event_date || "No date"}</p>
+          <Input type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} />
           {earlyEdit && <p className="text-xs text-amber-700">Edit before wedding</p>}
         </div>
       </div>
@@ -211,7 +230,10 @@ function EventFile({ event, weddingId, territoryId }: any) {
           Bride needs this edited before the wedding day
         </label>
         <Button type="button" size="sm" variant="outline" onClick={() => saveDetails.mutate()}>
-          Save notes
+          Save this date
+        </Button>
+        <Button type="button" size="sm" variant="ghost" onClick={() => removeEvent.mutate()}>
+          Remove this date
         </Button>
       </div>
     </div>

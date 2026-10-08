@@ -118,6 +118,7 @@ export default function AssignmentDetail() {
       return data;
     },
   });
+  const workDate = eventDay?.event_date || wedding?.date;
   const currentUser = contractors.find(
     (c) => c.email?.trim().toLowerCase() === user?.email?.trim().toLowerCase(),
   );
@@ -290,9 +291,9 @@ export default function AssignmentDetail() {
   } = wedding;
 
   const showUploadInstructions =
-    wedding.date &&
+    workDate &&
     (() => {
-      const datePart = wedding.date.split("T")[0];
+      const datePart = workDate.split("T")[0];
       const [year, month, day] = datePart.split("-").map(Number);
       const weddingDate = new Date(year, month - 1, day);
       return new Date().getTime() >= weddingDate.getTime();
@@ -305,12 +306,12 @@ export default function AssignmentDetail() {
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto w-full overflow-hidden sm:overflow-visible">
-      {wedding.date &&
+      {workDate &&
         assignment.status !== "Cancelled" &&
         !assignment.attendance_confirmed &&
         !attendanceConfirmed &&
         (() => {
-          const datePart = wedding.date.split("T")[0];
+          const datePart = workDate.split("T")[0];
           const [year, month, day] = datePart.split("-").map(Number);
           const weddingDate = new Date(year, month - 1, day);
           const today = new Date();
