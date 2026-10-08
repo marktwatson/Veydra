@@ -115,6 +115,7 @@ export default function PostProductionTable() {
     "save",
   );
   const [eventDraft, setEventDraft] = useState<any>(null);
+  const [reviewWedding, setReviewWedding] = useState<DbWedding | null>(null);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
 
   const [photoTarget, setPhotoTarget] = useState<number>(0);
