@@ -149,19 +149,16 @@ function EventFile({ event, weddingId, territoryId }: any) {
   const label = typeMeta?.label || event.event_type;
 
   return (
-    <div className={`rounded-2xl border border-l-8 p-5 space-y-5 ${typeMeta?.card || "border-l-slate-400 bg-slate-50"}`}>
-      <div className="flex items-start justify-between gap-3">
+    <div className="rounded-2xl border border-[#c9a96e]/30 bg-white p-5 space-y-5">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <p className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${typeMeta?.chip || "bg-slate-50"}`}>
-            {label}
-          </p>
-          <h3 className="mt-2 text-lg font-semibold">{event.title || label}</h3>
-          <p className="text-sm text-muted-foreground">{event.location || "Location not set"}</p>
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
+          <h3 className="mt-1 text-lg font-semibold">{event.title || label}</h3>
+          <p className="text-sm text-muted-foreground">{venue || address || "Location not set"}</p>
         </div>
-        <div className="rounded-xl bg-sky-100 border border-sky-300 px-3 py-2 text-right space-y-1">
-          <p className="text-xs font-medium text-sky-700">Date</p>
+        <div className="w-40 space-y-1">
+          <Label>Date</Label>
           <Input type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} />
-          {earlyEdit && <p className="text-xs text-amber-700">Edit before wedding</p>}
         </div>
       </div>
 
@@ -177,7 +174,7 @@ function EventFile({ event, weddingId, territoryId }: any) {
             ? `${assignment.contractors.first_name || ""} ${assignment.contractors.last_name || ""}`.trim()
             : "Unassigned";
           return (
-            <div key={job.id} className={`grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border px-3 py-2 ${name === "Unassigned" ? "border-orange-300 bg-orange-50" : "border-emerald-300 bg-emerald-50"}`}>
+            <div key={job.id} className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border border-[#c9a96e]/20 bg-[#faf7f2] px-3 py-2">
               <div>
                 <p className="text-sm font-medium">{job.role}</p>
                 <p className="text-sm text-muted-foreground">{name}</p>
@@ -193,8 +190,8 @@ function EventFile({ event, weddingId, territoryId }: any) {
         })}
       </div>
 
-      <div className="rounded-xl border border-sky-200 bg-sky-50/70 p-3 space-y-2">
-        <p className="text-sm font-medium">Add crew to this date</p>
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Add crew</p>
         <div className="grid grid-cols-2 gap-2">
           <Input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Role" />
           <select
@@ -217,25 +214,35 @@ function EventFile({ event, weddingId, territoryId }: any) {
         </Button>
       </div>
 
-      <div className="space-y-2 border-t pt-4">
-        <Label>Venue and address</Label>
-        <Input value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="Venue name" />
-        <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Street, city, state" />
-        <Label>This date only</Label>
-        <Input value={timeline} onChange={(e) => setTimeline(e.target.value)} placeholder="Timeline, one line per moment" />
-        <Input value={questions} onChange={(e) => setQuestions(e.target.value)} placeholder="Questions for this day's crew" />
-        <Label>Notes</Label>
-        <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Timing, wardrobe, location notes" />
+      <div className="grid gap-3 border-t border-[#c9a96e]/20 pt-4">
+        <div className="space-y-2">
+          <Label>Venue</Label>
+          <Input value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="Venue name" />
+        </div>
+        <div className="space-y-2">
+          <Label>Address</Label>
+          <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Street, city, state" />
+        </div>
+        <div className="space-y-2">
+          <Label>Timeline</Label>
+          <Input value={timeline} onChange={(e) => setTimeline(e.target.value)} placeholder="One line per moment" />
+        </div>
+        <div className="space-y-2">
+          <Label>Notes</Label>
+          <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Wardrobe, timing, anything else" />
+        </div>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={earlyEdit} onChange={(e) => setEarlyEdit(e.target.checked)} />
           Bride needs this edited before the wedding day
         </label>
-        <Button type="button" size="sm" variant="outline" onClick={() => saveDetails.mutate()}>
-          Save this date
-        </Button>
-        <Button type="button" size="sm" variant="ghost" onClick={() => removeEvent.mutate()}>
-          Remove this date
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button type="button" size="sm" onClick={() => saveDetails.mutate()}>
+            Save this date
+          </Button>
+          <Button type="button" size="sm" variant="ghost" onClick={() => removeEvent.mutate()}>
+            Remove this date
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -306,7 +313,7 @@ export function WeddingEventsCard({
           />
         ))
       )}
-      <div className="rounded-xl border p-4 space-y-3">
+      <div className="rounded-2xl border border-[#c9a96e]/30 bg-white p-4 space-y-3">
         <p className="text-sm font-medium">Add another date</p>
         <div className="grid grid-cols-2 gap-2">
           <select
