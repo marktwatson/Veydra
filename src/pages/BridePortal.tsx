@@ -345,6 +345,31 @@ export default function BridePortal() {
     enabled: !!id,
   });
 
+  const noticeKey = id ? `bride_message_notice:${id}` : "";
+  const [hiddenNoticeIds, setHiddenNoticeIds] = useState<string[]>([]);
+  useEffect(() => {
+    if (!noticeKey) return;
+    try {
+      const raw = localStorage.getItem(noticeKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      setHiddenNoticeIds(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      setHiddenNoticeIds([]);
+    }
+  }, [noticeKey]);
+
+  const unreadForBride = messages.filter(
+    (m) => m.receiver_id === id && !m.read && !hiddenNoticeIds.includes(m.id),
+  );
+  const noticeMessage = unreadForBride[unreadForBride.length - 1];
+  const hideMessageNotice = () => {
+    const next = Array.from(
+      new Set([...hiddenNoticeIds, ...unreadForBride.map((m) => m.id)]),
+    );
+    setHiddenNoticeIds(next);
+    if (noticeKey) localStorage.setItem(noticeKey, JSON.stringify(next));
+  };
+
   useEffect(() => {
     if (!id) return;
 
@@ -3690,6 +3715,48 @@ export default function BridePortal() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog
+        open={!!noticeMessage && !contactModalOpen}
+        onOpenChange={(open) => {
+          if (!open) hideMessageNotice();
+        }}
+      >
+        <DialogContent className="sm:max-w-[420px] rounded-[2rem] border-[#c9a96e]/40 bg-white">
+          <DialogHeader>
+            <DialogTitle
+              className="text-2xl text-[#1a1a1a]"
+              style={{ fontFamily: "'DM Serif Display', serif" }}
+            >
+              New message from {companyName}
+            </DialogTitle>
+            <DialogDescription className="text-base text-[#1a1a1a]/70">
+              {unreadForBride.length > 1
+                ? `You have ${unreadForBride.length} unread messages.`
+                : "You have a new message waiting."}
+            </DialogDescription>
+          </DialogHeader>
+          {noticeMessage?.content && (
+            <p className="text-sm text-[#1a1a1a] bg-[#f7f3ee] rounded-xl px-4 py-3">
+              {noticeMessage.content.split("\n")[0].slice(0, 180)}
+            </p>
+          )}
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button type="button" variant="outline" onClick={hideMessageNotice}>
+              Not now
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                hideMessageNotice();
+                setContactModalOpen(true);
+              }}
+            >
+              Read it
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={contactModalOpen} onOpenChange={setContactModalOpen}>
         <DialogContent className="sm:max-w-[500px] h-[85vh] sm:h-[80vh] flex flex-col p-0 gap-0 overflow-hidden rounded-[2rem] border-[#c9a96e]/40 shadow-2xl bg-white">
