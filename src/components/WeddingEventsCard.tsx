@@ -17,6 +17,7 @@ const EVENT_TYPES = [
 function EventFile({ event, weddingId, territoryId }: any) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [notes, setNotes] = useState(event.notes || "");
   const [timeline, setTimeline] = useState(event.timeline_notes || "");
   const [questions, setQuestions] = useState(event.day_questions || "");
   const [venue, setVenue] = useState(event.venue || "");
