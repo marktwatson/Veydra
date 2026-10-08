@@ -2150,38 +2150,42 @@ export default function BridePortal() {
                         Your Team
                       </CardTitle>
                       <CardDescription className="text-[#1a1a1a]/60">
-                        Assigned to capture your big day.
+                        Grouped by the date they are working.
                       </CardDescription>
                     </CardHeader>
-                    <CardContent className="pt-4 pb-4 px-4 space-y-3">
-                      {teamMembers.map((member, i) => (
-                        <div
-                          key={i}
-                          className="flex items-center gap-3 p-3 border border-[#c9a96e]/20 rounded-xl bg-[#faf7f2] hover:shadow-md hover:border-[#1a1a1a]/30 hover:-translate-y-0.5 transition-all duration-300 group cursor-pointer"
-                          onClick={() =>
-                            setSelectedContractor(member.contractor)
-                          }
-                        >
-                          <Avatar className="h-10 w-10 border group-hover:border-[#1a1a1a]/50 transition-colors">
-                            <AvatarImage
-                              src={member.contractor.avatar_url || ""}
-                            />
-                            <AvatarFallback className="bg-[#c9a96e]/30 text-[#1a1a1a] text-xs group-hover:bg-[#1a1a1a] group-hover:text-white transition-colors">
-                              {member.contractor.first_name?.[0]}
-                              {member.contractor.last_name?.[0]}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <p className="font-semibold text-[#1a1a1a] text-sm group-hover:text-[#1a1a1a] transition-colors">
-                              {member.contractor.first_name}{" "}
-                              {member.contractor.last_name}
-                            </p>
-                            <p className="text-xs text-[#1a1a1a]/60 capitalize">
-                              {member.role.replace("_", " ")} · {dateLabel(member)}
-                            </p>
+                    <CardContent className="pt-4 pb-4 px-4 space-y-4">
+                      {["Wedding day", ...portalEvents.map((event: any) => event.title || event.event_type || "Extra date")].map((group) => {
+                        const members = teamMembers.filter((member) => {
+                          const matches = teamDates.filter((job: any) =>
+                            (job.assignments || []).some((a: any) => a.contractor_id === member.contractor?.id),
+                          );
+                          const eventJob = matches.find((job: any) => job.event_id);
+                          const label = eventJob ? eventJob.eventTitle : matches.length ? "Wedding day" : "Wedding day";
+                          return label === group;
+                        });
+                        if (members.length === 0) return null;
+                        return (
+                          <div key={group} className="space-y-2">
+                            <p className="text-xs font-medium uppercase tracking-wider text-[#1a1a1a]/50">{group}</p>
+                            {members.map((member, i) => (
+                              <div
+                                key={`${group}-${i}`}
+                                className="flex items-center gap-3 p-3 border border-[#c9a96e]/20 rounded-xl bg-[#faf7f2]"
+                                onClick={() => setSelectedContractor(member.contractor)}
+                              >
+                                <Avatar className="h-10 w-10 border">
+                                  <AvatarImage src={member.contractor.avatar_url || ""} />
+                                  <AvatarFallback>{member.contractor.first_name?.[0]}{member.contractor.last_name?.[0]}</AvatarFallback>
+                                </Avatar>
+                                <div>
+                                  <p className="font-semibold text-[#1a1a1a] text-sm">{member.contractor.first_name} {member.contractor.last_name}</p>
+                                  <p className="text-xs text-[#1a1a1a]/60 capitalize">{member.role.replace("_", " ")}</p>
+                                </div>
+                              </div>
+                            ))}
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </CardContent>
                   </Card>
                 ) : (
