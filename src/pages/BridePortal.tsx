@@ -724,11 +724,15 @@ export default function BridePortal() {
     if (!id) return;
     try {
       setIsSaving(true);
+      const timelineRows = timelineEvents.map((e) => ({
+        ...e,
+        time: formatTime(e.time),
+      }));
+      const placeholderTimeline =
+        timelineRows.length === 1 &&
+        /photographer arrives/i.test(timelineRows[0].event || "");
       await api.saveWeddingQuestionnaireProgress(id, {
-        timeline: timelineEvents.map((e) => ({
-          ...e,
-          time: formatTime(e.time),
-        })) as any,
+        ...(placeholderTimeline ? {} : { timeline: timelineRows as any }),
         vip_names: vipNames,
         vendors,
         special_requests: specialRequests,
