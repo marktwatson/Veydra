@@ -10,8 +10,39 @@ type Item = {
   done: boolean;
   manual?: boolean;
   hint: string;
+  phase?: "after";
 };
 
+function questionnaireIsFilled(raw: any): boolean {
+  let data = raw;
+  if (typeof data === "string") {
+    try {
+      data = JSON.parse(data);
+    } catch {
+      return false;
+    }
+  }
+  if (!data || typeof data !== "object") return false;
+  const contact = data.contact_info || {};
+  const photo = data.photo_video || {};
+  const style = data.style_vibe || {};
+  return [
+    contact.bride_full_name,
+    contact.groom_full_name,
+    contact.full_name,
+    photo.must_have_photos,
+    photo.must_have_video_moments,
+    style.wedding_theme,
+  ].some((value) => String(value || "").trim().length > 0);
+}
+
+function weddingDayPassed(dateValue: any): boolean {
+  if (!dateValue) return false;
+  const day = String(dateValue).split("T")[0];
+  const today = new Date();
+  const stamp = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  return day <= stamp;
+}
 function hasText(value: any): boolean {
   if (!value) return false;
   if (typeof value === "string") {
@@ -110,7 +141,7 @@ export function WeddingChecklist({ wedding }: { wedding: any }) {
   const songs = Array.isArray(wedding?.highlight_songs)
     ? wedding.highlight_songs.length > 0
     : hasText(wedding?.highlight_songs);
-  const questionnaire = hasText(wedding?.questionnaire_data);
+  const questionnaire = questionnaireIsFilled(wedding?.questionnaire_data);
   const contractSigned =
     /sign|complete/i.test(String(wedding?.contract_status || "")) ||
     !!wedding?.contract_date ||
@@ -194,22 +225,25 @@ export function WeddingChecklist({ wedding }: { wedding: any }) {
           label: "Raw media is linked",
           done: !!(wedding?.drive_link || wedding?.upload_link),
           hint: "Add the drive or upload link on this wedding.",
+          phase: "after",
         },
-        { id: "editor", label: "Editor is assigned", done: !!wedding?.editor_id, hint: "Assign an editor in Post Production." },
-        { id: "due", label: "Edit due date is set", done: !!wedding?.editor_due_date, hint: "Set the editor due date in Post Production." },
+        { id: "editor", label: "Editor is assigned", done: !!wedding?.editor_id, hint: "Assign an editor in Post Production.", phase: "after" },
+        { id: "due", label: "Edit due date is set", done: !!wedding?.editor_due_date, hint: "Set the editor due date in Post Production.", phase: "after" },
         {
           id: "delivery",
           label: "Gallery or film link is in",
           done: !!(wedding?.gallery_link || wedding?.vimeo_link || wedding?.youtube_link),
           hint: "Add the gallery, Vimeo, or YouTube link when the edit is delivered.",
+          phase: "after",
         },
         {
           id: "editor-invoice",
           label: "Editor invoice sent",
           done: /sent|paid|invoic/i.test(String(wedding?.editor_invoice_status || "")),
           hint: "The editor sends the invoice from their pipeline after the edit is delivered.",
+          phase: "after",
         },
-        { id: "balance", label: "Balance is paid", done: paidFull, hint: "The remaining balance has to be recorded on the wedding." },
+        { id: "balance", label: "Balance is paid", done: paidFull, hint: "The remaining balance has to be recorded on the wedding.", phase: "after" },
       ],
     },
   ];
@@ -266,7 +300,11 @@ export function WeddingChecklist({ wedding }: { wedding: any }) {
   }
 
   const all = groups.flatMap((group) => group.items);
-  const doneCount = all.filter((item) => item.done).length;
+  const ready = all.filter((item) => item.phase !== "after");
+  const after = all.filter((item) => item.phase === "after");
+  const readyDone = ready.filter((item) => item.done).length;
+  const afterDone = after.filter((item) => item.done).length;
+  const showAfter = weddingDayPassed(wedding?.date);
 
   const toggle = async (id: string, next: boolean) => {
     const manager_checklist = { ...saved, [id]: next };
@@ -291,7 +329,8 @@ export function WeddingChecklist({ wedding }: { wedding: any }) {
     <div className="space-y-4">
       <div className="flex items-baseline justify-between">
         <p className="text-sm font-medium">
-          {doneCount} of {all.length}
+          {readyDone} of {ready.length} ready for the day
+          {showAfter ? ` · ${afterDone} of ${after.length} after` : ""}
         </p>
         <p className="text-xs text-muted-foreground">Locked rows follow the wedding</p>
       </div>
@@ -300,6 +339,7 @@ export function WeddingChecklist({ wedding }: { wedding: any }) {
           <div key={group.title} className="space-y-2">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {group.title}
+              {group.title === "After the day" && !showAfter ? " · counted after the wedding" : ""}
             </p>
             <div className="rounded-lg border divide-y">
               {group.items.map((item) => (
