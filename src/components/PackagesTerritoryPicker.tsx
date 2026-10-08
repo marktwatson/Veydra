@@ -14,6 +14,7 @@ import {
   loadTerritoriesForPicker,
 } from "@/lib/active-territory";
 import { HONEYSUCKLE_TERRITORY_ID } from "@/lib/territory";
+import { setSuperAdminViewTerritory } from "@/lib/current-territory";
 
 /**
  * Territory picker shown on Settings → Packages for super admins only.
@@ -84,6 +85,7 @@ export function PackagesTerritoryPicker({
 
   const handleChange = (id: string) => {
     setActiveTerritoryId(id);
+    setSuperAdminViewTerritory(id);
     setActiveId(id);
     // Reload so the Packages tab re-fetches with the new active territory.
     window.location.reload();

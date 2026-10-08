@@ -104,6 +104,7 @@ import {
   Wine,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { WeddingEventsCard } from "@/components/WeddingEventsCard";
 import { api, DbWedding } from "@/lib/api";
 import { createJobWithTerritory } from "@/lib/create-job-territory";
 import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
@@ -353,6 +354,17 @@ function ImportWeddingsDialog() {
 
 // ReviewWeddingDialog extracted to src/components/ReviewWeddingDialog.tsx
 
+function questionnaireHasAnswers(data: any): boolean {
+  if (!data || typeof data !== "object") return false;
+  const walk = (value: any): boolean => {
+    if (typeof value === "string") return value.trim().length > 0;
+    if (Array.isArray(value)) return value.some(walk);
+    if (value && typeof value === "object") return Object.values(value).some(walk);
+    return false;
+  };
+  return walk(data);
+}
+
 export function ManageWeddingSheet({
   wedding,
   trigger,
@@ -563,7 +575,8 @@ export function ManageWeddingSheet({
       !isLoadingAssignments
     ) {
       if (initialJobs && initialJobs.length > 0) {
-        const jobsWithAssignments = initialJobs.map((job) => {
+        const weddingDayJobs = initialJobs.filter((job) => !job.event_id);
+        const jobsWithAssignments = weddingDayJobs.map((job) => {
           const assignment = assignments.find((a) => {
             if (a.job_id !== job.id) return false;
             const s = String(a.status || "")
@@ -767,7 +780,11 @@ export function ManageWeddingSheet({
         vip_names: vipNames,
         vendors,
         special_requests: specialRequests,
-        questionnaire_data: questionnaireData,
+        questionnaire_data: questionnaireHasAnswers(questionnaireData)
+          ? questionnaireData
+          : questionnaireHasAnswers(wedding.questionnaire_data)
+            ? wedding.questionnaire_data
+            : questionnaireData,
         status,
         stripe_customer_id: stripeCustomerId || null,
         stripe_subscription_id: stripeSubscriptionId || null,
@@ -981,7 +998,7 @@ export function ManageWeddingSheet({
           </Button>
         )}
       </SheetTrigger>
-      <SheetContent className="w-[400px] sm:w-[540px] overflow-y-auto">
+      <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
         <SheetHeader>
           <SheetTitle>Manage Wedding</SheetTitle>
           <SheetDescription>
@@ -990,8 +1007,9 @@ export function ManageWeddingSheet({
         </SheetHeader>
         <form onSubmit={handleSave} className="py-6 space-y-6">
           <Tabs defaultValue="details" className="w-full">
-            <TabsList className="w-full grid grid-cols-3">
+            <TabsList className="w-full grid grid-cols-4">
               <TabsTrigger value="details">Details</TabsTrigger>
+              <TabsTrigger value="events">Events</TabsTrigger>
               <TabsTrigger value="questionnaire">Questionnaire</TabsTrigger>
               <TabsTrigger value="jobs">Positions</TabsTrigger>
             </TabsList>
@@ -1693,6 +1711,13 @@ export function ManageWeddingSheet({
                   )}
                 </div>
               </div>
+            </TabsContent>
+
+            <TabsContent value="events" className="mt-4">
+              <WeddingEventsCard
+                weddingId={wedding.id}
+                territoryId={wedding.territory_id}
+              />
             </TabsContent>
 
             <TabsContent value="questionnaire" className="space-y-4 mt-4">
@@ -3060,10 +3085,13 @@ export default function ManagerWeddings() {
   const regions = Array.isArray(settings?.regions) ? settings.regions : [];
 
   const [territoryId, setTerritoryId] = useState<string | null>(null);
+  const [territoryReady, setTerritoryReady] = useState(false);
   useEffect(() => {
     let active = true;
     currentTerritoryId().then((id) => {
-      if (active) setTerritoryId(id);
+      if (!active) return;
+      setTerritoryId(id);
+      setTerritoryReady(true);
     });
     return () => {
       active = false;
@@ -3073,6 +3101,7 @@ export default function ManagerWeddings() {
   const { data: weddings = [], isLoading } = useQuery({
     queryKey: ["weddings", territoryId],
     queryFn: () => api.getWeddingsForTerritory(territoryId),
+    enabled: territoryReady,
   });
 
   const { data: jobs = [] } = useQuery({

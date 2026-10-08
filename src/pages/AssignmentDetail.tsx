@@ -79,7 +79,7 @@ export default function AssignmentDetail() {
           .select(
             `
             *,
-            jobs (id, status, role, pay_rate, hours, addons, contractor_todos, wedding_id, territory_id, weddings(client_name, date, location, region, timeline, vip_names, vendors, special_requests, questionnaire_data, questionnaire_completed, drive_link, upload_link, is_lgbtq, territory_id)),
+            jobs (id, status, role, pay_rate, hours, addons, contractor_todos, wedding_id, territory_id, event_id, weddings(client_name, date, location, region, timeline, vip_names, vendors, special_requests, questionnaire_data, questionnaire_completed, drive_link, upload_link, is_lgbtq, territory_id)),
             contractors (first_name, last_name, email, venmo_handle, stripe_account_id)
           `,
           )
@@ -105,6 +105,24 @@ export default function AssignmentDetail() {
   const assignment = assignments.find((a: any) => a.id === id);
   const job = assignment?.jobs;
   const wedding = job?.weddings;
+  const { data: eventDay } = useQuery({
+    queryKey: ["assignment-event-day", job?.event_id],
+    enabled: !!job?.event_id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("wedding_events")
+        .select("title, event_type, event_date, venue, address, location, timeline_notes, day_questions")
+        .eq("id", job.event_id)
+        .maybeSingle();
+      if (error) return null;
+      return data;
+    },
+  });
+  const workDate = eventDay?.event_date || wedding?.date;
+  const eventPlace = eventDay
+    ? [eventDay.venue, eventDay.address, eventDay.location].filter(Boolean).join(", ")
+    : "";
+  const displayLocation = eventDay ? eventPlace || "Location not set" : wedding?.location || "TBD";
   const currentUser = contractors.find(
     (c) => c.email?.trim().toLowerCase() === user?.email?.trim().toLowerCase(),
   );
@@ -112,14 +130,15 @@ export default function AssignmentDetail() {
   const [distance, setDistance] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!currentUser?.address || !wedding?.location) return;
+    const placeForDistance = eventDay ? eventPlace : wedding?.location;
+    if (!currentUser?.address || !placeForDistance) return;
 
     let isMounted = true;
     const calculateDistance = async () => {
       const homeCoords = await geocodeAddress(currentUser.address!);
       if (!homeCoords) return;
 
-      const jobCoords = await geocodeAddress(wedding.location);
+      const jobCoords = await geocodeAddress(placeForDistance);
       if (jobCoords && isMounted) {
         setDistance(calculateDistanceMiles(homeCoords, jobCoords));
       }
@@ -128,7 +147,7 @@ export default function AssignmentDetail() {
     return () => {
       isMounted = false;
     };
-  }, [currentUser?.address, wedding?.location]);
+  }, [currentUser?.address, wedding?.location, eventDay, eventPlace]);
 
   const [attendanceConfirmed, setAttendanceConfirmed] = useState(false);
   const [fileCount, setFileCount] = useState("");
@@ -278,9 +297,9 @@ export default function AssignmentDetail() {
   } = wedding;
 
   const showUploadInstructions =
-    wedding.date &&
+    workDate &&
     (() => {
-      const datePart = wedding.date.split("T")[0];
+      const datePart = workDate.split("T")[0];
       const [year, month, day] = datePart.split("-").map(Number);
       const weddingDate = new Date(year, month - 1, day);
       return new Date().getTime() >= weddingDate.getTime();
@@ -293,12 +312,12 @@ export default function AssignmentDetail() {
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto w-full overflow-hidden sm:overflow-visible">
-      {wedding.date &&
+      {workDate &&
         assignment.status !== "Cancelled" &&
         !assignment.attendance_confirmed &&
         !attendanceConfirmed &&
         (() => {
-          const datePart = wedding.date.split("T")[0];
+          const datePart = workDate.split("T")[0];
           const [year, month, day] = datePart.split("-").map(Number);
           const weddingDate = new Date(year, month - 1, day);
           const today = new Date();
@@ -425,7 +444,7 @@ export default function AssignmentDetail() {
           </h1>
           <div className="flex flex-wrap items-center gap-3 text-muted-foreground">
             <span className="font-medium text-foreground">
-              {formatDisplayDate(wedding.date)}
+              {formatDisplayDate(workDate)}
             </span>
             <span>•</span>
             {wedding.is_lgbtq && (
@@ -443,10 +462,10 @@ export default function AssignmentDetail() {
             <StatusBadge
               status={(() => {
                 const status = assignment.status || "Upcoming";
-                if (status.toLowerCase() === "upcoming" && wedding.date) {
+                if (status.toLowerCase() === "upcoming" && workDate) {
                   const today = new Date();
                   today.setHours(0, 0, 0, 0);
-                  const datePart = wedding.date.split("T")[0];
+                  const datePart = workDate.split("T")[0];
                   const [year, month, day] = datePart.split("-").map(Number);
                   const wDate = new Date(year, month - 1, day);
                   if (wDate.getTime() === today.getTime()) return "Today";
@@ -460,7 +479,22 @@ export default function AssignmentDetail() {
         <div className="flex items-center gap-2">
           <Button variant="outline" asChild>
             <a
-              href={generateGoogleCalendarUrl(assignment)}
+              href={generateGoogleCalendarUrl(
+                eventDay
+                  ? {
+                      ...assignment,
+                      jobs: {
+                        ...assignment.jobs,
+                        weddings: {
+                          ...assignment.jobs.weddings,
+                          date: eventDay.event_date,
+                          location: eventPlace,
+                          client_name: `${wedding.client_name} · ${eventDay.title || "Event"}`,
+                        },
+                      },
+                    }
+                  : assignment,
+              )}
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -860,6 +894,57 @@ export default function AssignmentDetail() {
             </Card>
           )}
 
+          {eventDay && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{eventDay.title || "This date"}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <p>
+                  {eventDay.event_date ? formatDisplayDate(eventDay.event_date) : "Date not set"}
+                  {eventPlace ? ` · ${eventPlace}` : ""}
+                </p>
+                <p className="whitespace-pre-wrap">
+                  {eventDay.timeline_notes || "No timeline for this date yet."}
+                </p>
+                {(() => {
+                  let parsed: any = null;
+                  try {
+                    parsed = JSON.parse(eventDay.day_questions || "");
+                  } catch {
+                    parsed = null;
+                  }
+                  if (parsed && typeof parsed === "object") {
+                    const rows = [
+                      ["Who is coming", parsed.people],
+                      ["Outfits", parsed.outfits],
+                      ["Setting", parsed.setting],
+                      ["Must-have shots", parsed.mustHaves],
+                      ["Guest count", parsed.guestCount],
+                      ["Bar start", parsed.barStart],
+                      ["Bar end", parsed.barEnd],
+                      ["Alcohol", parsed.alcohol],
+                      ["Moments", parsed.moments],
+                      ["Notes", parsed.notes],
+                    ].filter(([, value]) => value);
+                    if (rows.length === 0) return null;
+                    return rows.map(([label, value]) => (
+                      <p key={label}>
+                        <span className="text-muted-foreground">{label}</span>
+                        <br />
+                        {value}
+                      </p>
+                    ));
+                  }
+                  return eventDay.day_questions ? (
+                    <p className="whitespace-pre-wrap">{eventDay.day_questions}</p>
+                  ) : null;
+                })()}
+              </CardContent>
+            </Card>
+          )}
+
+          {!eventDay && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -908,8 +993,9 @@ export default function AssignmentDetail() {
               )}
             </CardContent>
           </Card>
+          )}
 
-          {(vip_names || vendors || special_requests) && (
+          {!eventDay && (vip_names || vendors || special_requests) && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -950,7 +1036,7 @@ export default function AssignmentDetail() {
             </Card>
           )}
 
-          {wedding.questionnaire_data && (
+          {!eventDay && wedding.questionnaire_data && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -1235,7 +1321,7 @@ export default function AssignmentDetail() {
                     Location
                   </p>
                   <p className="font-medium break-words">
-                    {wedding.location || "TBD"}
+                    {displayLocation}
                   </p>
                 </div>
               </div>

@@ -6,7 +6,9 @@ import { HONEYSUCKLE_TERRITORY_ID } from "./territory";
  * localStorage key holding the user's chosen "view area" for the main manager
  * lists (Weddings, Proposals, Contractors, Payment Audit).
  *
- *  - Super admin: any territory id, or absent → All Areas (no filter).
+ *  - Super admin: the picked view area. If nothing is saved yet, the first
+ *    area in the picker (same order as the header) is saved and used.
+ *    It does not load every area.
  *  - Multi-area manager (territory_ids has > 1 id): one of their allowed ids.
  *    Absent → their home territory_id.
  *
@@ -15,6 +17,8 @@ import { HONEYSUCKLE_TERRITORY_ID } from "./territory";
  */
 export const SUPER_ADMIN_VIEW_KEY = "veydra_view_territory_id";
 export const ALL_AREAS_VALUE = "all";
+const HOME_TERRITORY_KEY = "veydra_home_territory_id";
+const VIEW_BEFORE_IMPERSONATE = "veydra_view_before_impersonate";
 
 /** Read the saved view territory (null = All Areas for super admin / default for others). Sync. */
 export function getSuperAdminViewTerritory(): string | null {
@@ -37,6 +41,96 @@ export function setSuperAdminViewTerritory(id: string | null): void {
     }
   } catch {
     /* ignore */
+  }
+}
+
+function homeStorageKey(email: string | null | undefined): string | null {
+  const clean = email?.trim().toLowerCase();
+  return clean ? `${HOME_TERRITORY_KEY}:${clean}` : null;
+}
+
+/** Remember which area should open the next time this person signs in. */
+export async function saveHomeTerritory(id: string): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const key = homeStorageKey(user?.email);
+  if (key) localStorage.setItem(key, id);
+  await supabase.auth.updateUser({ data: { home_territory_id: id } }).catch(() => {});
+}
+
+/**
+ * The area a person should land on at login.
+ * Managers use their managers.territory_id unless they have marked another
+ * assigned area as home. Super admin uses the area they marked, if any.
+ * While impersonating, this is the viewed person's row, not the super admin's.
+ */
+export async function resolveHomeTerritoryId(): Promise<string | null> {
+  const impersonated = readImpersonatedUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const email = impersonated?.email || user?.email || null;
+  const isSuper = impersonated
+    ? impersonated.role === "super_admin"
+    : isSuperAdminEmail(email);
+
+  if (impersonated && impersonated.role !== "super_admin") {
+    const mgr = await loadManagerTerritory();
+    return (mgr?.territory_id as string) || null;
+  }
+
+  const key = homeStorageKey(email);
+  const marked = key ? localStorage.getItem(key) : null;
+  const fromAccount = !impersonated
+    ? (user?.user_metadata?.home_territory_id as string | undefined)
+    : null;
+
+  if (isSuper) return marked || fromAccount || null;
+
+  const mgr = await loadManagerTerritory();
+  const allowed = new Set<string>();
+  const ids = (mgr?.territory_ids as string[]) || [];
+  if (Array.isArray(ids)) ids.forEach((areaId) => areaId && allowed.add(areaId));
+  if (mgr?.territory_id) allowed.add(mgr.territory_id);
+  const chosen = marked || fromAccount || null;
+  if (chosen && allowed.has(chosen)) return chosen;
+  return (mgr?.territory_id as string) || null;
+}
+
+/** On a real sign-in, open the home area instead of the last area they viewed. */
+export async function applyHomeAreaOnLogin(): Promise<void> {
+  const home = await resolveHomeTerritoryId();
+  if (home) setSuperAdminViewTerritory(home);
+}
+
+export function stashViewArea(): void {
+  const current = getSuperAdminViewTerritory();
+  if (current) localStorage.setItem(VIEW_BEFORE_IMPERSONATE, current);
+}
+
+export function restoreViewArea(): void {
+  try {
+    const stashed = localStorage.getItem(VIEW_BEFORE_IMPERSONATE);
+    if (stashed) setSuperAdminViewTerritory(stashed);
+    localStorage.removeItem(VIEW_BEFORE_IMPERSONATE);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** The first area in the header picker. Used when a super admin has not chosen one yet. */
+async function firstPickerTerritoryId(): Promise<string | null> {
+  try {
+    const { data, error } = await supabase
+      .from("territories")
+      .select("id")
+      .order("name")
+      .limit(1);
+    if (error) return null;
+    return data?.[0]?.id || null;
+  } catch {
+    return null;
   }
 }
 
@@ -176,8 +270,8 @@ export async function canSwitchAreas(): Promise<boolean> {
 /**
  * The territory the current logged-in user is scoped to.
  *
- *  - Super admin → the picked view area, or null meaning "All Areas"
- *    (manager list fetches must NOT filter).
+ *  - Super admin → the picked view area. Nothing saved yet becomes the
+ *    first area in the picker, and that choice is saved. Never null.
  *  - Multi-area manager → the saved switcher value if it is still in their
  *    allowed list, else their home territory_id. Never null.
  *  - Single-area manager → their territory_id (or Honeysuckle fallback).
@@ -196,8 +290,15 @@ export async function currentTerritoryId(): Promise<string | null> {
       ? impersonated.role === "super_admin"
       : isSuperAdminEmail(email);
 
-    // Super admin: respect the area picker. null = All Areas (no filter).
-    if (actingAsSuperAdmin) return getSuperAdminViewTerritory();
+    // Super admin: the header shows one area. Use that area. Do not treat
+    // a missing choice as every area, or the first numbers are a mix.
+    if (actingAsSuperAdmin) {
+      const saved = getSuperAdminViewTerritory();
+      if (saved) return saved;
+      const fallback = (await firstPickerTerritoryId()) || HONEYSUCKLE_TERRITORY_ID;
+      setSuperAdminViewTerritory(fallback);
+      return fallback;
+    }
 
     // Manager / owner: resolve from their managers row.
     const mgr = await loadManagerTerritory();

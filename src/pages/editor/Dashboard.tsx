@@ -225,6 +225,7 @@ export default function EditorDashboard() {
     Record<string, { rating: number; feedback: string }>
   >({});
   const [invoiceWedding, setInvoiceWedding] = useState<DbWedding | null>(null);
+  const [invoiceEvent, setInvoiceEvent] = useState<any>(null);
   const [photoCount, setPhotoCount] = useState<number>(0);
   const [selectedVideos, setSelectedVideos] = useState<string[]>([]);
 
@@ -232,6 +233,37 @@ export default function EditorDashboard() {
     queryKey: ["editor-weddings", user?.id],
     queryFn: () => getWeddingsForEditor(user!.id),
     enabled: !!user?.id,
+  });
+
+  const { data: earlyEdits = [] } = useQuery({
+    queryKey: ["editor-early-events", user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("wedding_events")
+        .select("id, title, event_type, event_date, edit_status, edit_due_date, editor_id, edit_details, wedding_id, weddings(client_name, date, editor_id, territory_id)")
+        .eq("needs_early_edit", true);
+      if (error) return [];
+      return (data || []).filter(
+        (event: any) => event.editor_id === user!.id || event.weddings?.editor_id === user!.id,
+      );
+    },
+  });
+
+  const markEarlyEdit = useMutation({
+    mutationFn: async (eventId: string) => {
+      const { error } = await supabase
+        .from("wedding_events")
+        .update({ edit_status: "delivered" })
+        .eq("id", eventId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["editor-early-events", user?.id] });
+      toast({ title: "Marked delivered" });
+    },
+    onError: (err: any) =>
+      toast({ variant: "destructive", title: "Could not update this edit", description: err.message }),
   });
 
   const { data: settings } = useQuery({
@@ -525,9 +557,19 @@ export default function EditorDashboard() {
   };
 
   const openInvoiceModal = (wedding: DbWedding) => {
+    setInvoiceEvent(null);
     setInvoiceWedding(wedding);
     setPhotoCount(wedding.editor_photo_target || 0);
     setSelectedVideos(wedding.editor_video_targets || []);
+    setIsInvoiceModalOpen(true);
+  };
+
+  const openEventInvoice = (event: any) => {
+    const details = event.edit_details && typeof event.edit_details === "object" ? event.edit_details : {};
+    setInvoiceWedding(null);
+    setInvoiceEvent(event);
+    setPhotoCount(Number(details.photo_count || 0));
+    setSelectedVideos(Array.isArray(details.video_targets) ? details.video_targets : []);
     setIsInvoiceModalOpen(true);
   };
 
@@ -596,7 +638,7 @@ export default function EditorDashboard() {
 
   const handleSubmitInvoice = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!invoiceWedding) return;
+    if (!invoiceWedding && !invoiceEvent) return;
 
     const photoTotal = photoCount * 0.12;
     const videoTotal = selectedVideos.reduce((sum, vidId) => {
@@ -604,18 +646,49 @@ export default function EditorDashboard() {
       return sum + (video ? video.price : 0);
     }, 0);
     const totalPayout = photoTotal + videoTotal;
+    const invoice = {
+      photoCount,
+      photoTotal,
+      videos: selectedVideos.map((id) => {
+        const v = videoPricing.find((video) => video.id === id);
+        return { id, label: v?.label, price: v?.price };
+      }),
+      videoTotal,
+    };
+
+    if (invoiceEvent) {
+      const details = invoiceEvent.edit_details && typeof invoiceEvent.edit_details === "object" ? invoiceEvent.edit_details : {};
+      supabase
+        .from("wedding_events")
+        .update({
+          edit_details: {
+            ...details,
+            invoice_status: "pending",
+            invoice_amount: totalPayout,
+            invoice,
+          },
+        })
+        .eq("id", invoiceEvent.id)
+        .then(({ error }) => {
+          if (error) {
+            toast({ variant: "destructive", title: "Could not send the event invoice", description: error.message });
+            return;
+          }
+          queryClient.invalidateQueries({ queryKey: ["editor-early-events", user?.id] });
+          setIsInvoiceModalOpen(false);
+          setInvoiceEvent(null);
+          toast({ title: "Invoice sent for this date" });
+        });
+      return;
+    }
+
+    if (!invoiceWedding) return;
 
     const updates = {
       editor_payout_amount: totalPayout,
       editor_invoice_status: "pending",
       editor_invoice_details: {
-        photoCount,
-        photoTotal,
-        videos: selectedVideos.map((id) => {
-          const v = videoPricing.find((v) => v.id === id);
-          return { id, label: v?.label, price: v?.price };
-        }),
-        videoTotal,
+        ...invoice,
         company_name: companyNameFor(invoiceWedding),
         territory_id: invoiceWedding.territory_id || null,
       },
@@ -674,6 +747,33 @@ export default function EditorDashboard() {
             </Button>
           </AlertDescription>
         </Alert>
+      )}
+
+      {earlyEdits.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-lg font-semibold">Edit before the wedding</h2>
+          {earlyEdits.map((event: any) => (
+            <div key={event.id} className="rounded-xl border border-amber-300 bg-amber-50 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <p className="font-medium">{event.weddings?.client_name || "Wedding"} · {event.title || event.event_type}</p>
+                <p className="text-sm text-muted-foreground">
+                  Event {event.event_date || "date not set"} · due before the wedding on {event.weddings?.date || "the wedding day"}
+                </p>
+              </div>
+              {event.edit_status !== "delivered" ? (
+                <Button size="sm" onClick={() => markEarlyEdit.mutate(event.id)}>
+                  Mark delivered
+                </Button>
+              ) : event.edit_details?.invoice_status ? (
+                <Badge>{event.edit_details.invoice_status === "paid" ? "Paid" : "Invoice sent"}</Badge>
+              ) : (
+                <Button size="sm" onClick={() => openEventInvoice(event)}>
+                  Send invoice
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
       )}
 
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">

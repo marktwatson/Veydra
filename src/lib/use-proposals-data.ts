@@ -28,11 +28,14 @@ export function useProposalsData() {
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [territoryId, setTerritoryId] = useState<string | null>(null);
+  const [territoryReady, setTerritoryReady] = useState(false);
 
   useEffect(() => {
     let active = true;
     currentTerritoryId().then((id) => {
-      if (active) setTerritoryId(id);
+      if (!active) return;
+      setTerritoryId(id);
+      setTerritoryReady(true);
     });
     return () => {
       active = false;
@@ -42,6 +45,7 @@ export function useProposalsData() {
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
   useEffect(() => {
+    if (!territoryReady) return;
     let cancelled = false;
     (async () => {
       setLoading(true);
@@ -183,7 +187,7 @@ export function useProposalsData() {
     return () => {
       cancelled = true;
     };
-  }, [refreshKey, territoryId]);
+  }, [refreshKey, territoryId, territoryReady]);
 
   return { proposals, loading, refresh };
 }

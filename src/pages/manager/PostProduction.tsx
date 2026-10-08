@@ -114,6 +114,7 @@ export default function PostProductionTable() {
   const [submitAction, setSubmitAction] = useState<"save" | "revisions">(
     "save",
   );
+  const [eventDraft, setEventDraft] = useState<any>(null);
   const [reviewWedding, setReviewWedding] = useState<DbWedding | null>(null);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
 
@@ -124,6 +125,48 @@ export default function PostProductionTable() {
     queryKey: ["weddings"],
     queryFn: api.getWeddings,
   });
+
+  const { data: earlyEvents = [] } = useQuery({
+    queryKey: ["post-production-events", weddings.map((w) => w.id).join(",")],
+    enabled: weddings.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("wedding_events")
+        .select("id, title, event_type, event_date, edit_status, edit_due_date, editor_id, drive_link, edit_details, wedding_id, weddings(client_name, date)")
+        .eq("needs_early_edit", true)
+        .in("wedding_id", weddings.map((w) => w.id));
+      if (error) return [];
+      return data || [];
+    },
+  });
+
+  const markEventEdit = useMutation({
+    mutationFn: async ({ id, updates }: { id: string; updates: Record<string, any> }) => {
+      const { error } = await supabase.from("wedding_events").update(updates).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["post-production-events"] });
+      toast({ title: "Event edit updated" });
+    },
+    onError: (err: any) =>
+      toast({ variant: "destructive", title: "Could not update the event", description: err.message }),
+  });
+
+  const openEventEditor = (event: any) => {
+    const details = event.edit_details && typeof event.edit_details === "object" ? event.edit_details : {};
+    setEventDraft({
+      ...event,
+      upload_link: details.upload_link || "",
+      vimeo_link: details.vimeo_link || "",
+      youtube_link: details.youtube_link || "",
+      gallery_link: details.gallery_link || "",
+      editing_notes: details.editing_notes || "",
+      revisions_notes: details.revisions_notes || "",
+      photo_count: details.photo_count || "",
+      video_targets: Array.isArray(details.video_targets) ? details.video_targets : [],
+    });
+  };
 
   const { data: settings } = useQuery({
     queryKey: ["portal-settings"],
@@ -267,8 +310,49 @@ export default function PostProductionTable() {
     sortDirection,
   ]);
 
-  const totalPages = Math.ceil(filteredWeddings.length / itemsPerPage);
-  const paginatedWeddings = filteredWeddings.slice(
+  const sortedRows = useMemo(() => {
+    const events = earlyEvents
+      .filter((event: any) => {
+        const name = `${event.weddings?.client_name || ""} ${event.title || event.event_type || ""}`.toLowerCase();
+        const matchesSearch = !searchQuery || name.includes(searchQuery.toLowerCase());
+        const status = event.edit_status || "awaiting_raw_media";
+        const matchesStatus = statusFilter === "all" || status === statusFilter;
+        const matchesEditor =
+          editorFilter === "all" ||
+          (editorFilter === "unassigned" ? !event.editor_id : event.editor_id === editorFilter);
+        return matchesSearch && matchesStatus && matchesEditor;
+      })
+      .map((event: any) => ({
+      ...event,
+      _event: true,
+      date: event.event_date,
+      client_name: `${event.weddings?.client_name || "Wedding"} · ${event.title || event.event_type || "Event"}`,
+      editing_status: event.edit_status,
+    }));
+    const rows = [...filteredWeddings, ...events];
+    rows.sort((a: any, b: any) => {
+      const value = (row: any) => {
+        if (sortColumn === "client") return (row.client_name || "").toLowerCase();
+        if (sortColumn === "deadline") {
+          return row._event
+            ? new Date(row.edit_due_date || row.weddings?.date || row.event_date || 0).getTime()
+            : calculateDeadline(row).getTime();
+        }
+        if (sortColumn === "status") return row.editing_status || "awaiting_raw_media";
+        if (sortColumn === "editor") return row.editor_id || "unassigned";
+        return new Date(row.date || 0).getTime();
+      };
+      const valA = value(a);
+      const valB = value(b);
+      if (valA < valB) return sortDirection === "asc" ? -1 : 1;
+      if (valA > valB) return sortDirection === "asc" ? 1 : -1;
+      return 0;
+    });
+    return rows;
+  }, [filteredWeddings, earlyEvents, sortColumn, sortDirection, searchQuery, statusFilter, editorFilter]);
+
+  const totalPages = Math.ceil(sortedRows.length / itemsPerPage);
+  const paginatedWeddings = sortedRows.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage,
   );
@@ -471,6 +555,148 @@ export default function PostProductionTable() {
         </div>
       </div>
 
+      <Dialog open={!!eventDraft} onOpenChange={(open) => !open && setEventDraft(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
+          <DialogHeader className="px-6 py-4 border-b bg-muted/20 shrink-0">
+            <DialogTitle>Edit Media & Links</DialogTitle>
+          </DialogHeader>
+          {eventDraft && (
+            <form
+              className="flex flex-col flex-1 min-h-0 overflow-hidden"
+              onSubmit={(e) => {
+                e.preventDefault();
+                markEventEdit.mutate({
+                  id: eventDraft.id,
+                  updates: {
+                    drive_link: eventDraft.drive_link || null,
+                    edit_due_date: eventDraft.edit_due_date || null,
+                    edit_details: {
+                      upload_link: eventDraft.upload_link,
+                      vimeo_link: eventDraft.vimeo_link,
+                      youtube_link: eventDraft.youtube_link,
+                      gallery_link: eventDraft.gallery_link,
+                      editing_notes: eventDraft.editing_notes,
+                      revisions_notes: eventDraft.revisions_notes,
+                      photo_count: eventDraft.photo_count,
+                      video_targets: eventDraft.video_targets,
+                    },
+                  },
+                });
+                setEventDraft(null);
+              }}
+            >
+              <div className="flex-1 overflow-y-auto p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="space-y-4">
+                    <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wider">Media Links</h3>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Raw Media Link (Drive/Dropbox)</label>
+                      <Input value={eventDraft.drive_link || ""} onChange={(e) => setEventDraft({ ...eventDraft, drive_link: e.target.value })} placeholder="https://..." />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Final Delivery Upload Folder</label>
+                      <Input value={eventDraft.upload_link || ""} onChange={(e) => setEventDraft({ ...eventDraft, upload_link: e.target.value })} placeholder="https://drive.google.com/..." />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Vimeo Link</label>
+                      <Input value={eventDraft.vimeo_link || ""} onChange={(e) => setEventDraft({ ...eventDraft, vimeo_link: e.target.value })} placeholder="https://vimeo.com/..." />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">YouTube Link</label>
+                      <Input value={eventDraft.youtube_link || ""} onChange={(e) => setEventDraft({ ...eventDraft, youtube_link: e.target.value })} placeholder="https://youtube.com/..." />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Final Gallery Link</label>
+                      <Input value={eventDraft.gallery_link || ""} onChange={(e) => setEventDraft({ ...eventDraft, gallery_link: e.target.value })} placeholder="https://..." />
+                    </div>
+                  </div>
+                  <div className="space-y-4">
+                    <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wider">Notes & Deadlines</h3>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Editor Due Date</label>
+                      <Input type="date" value={eventDraft.edit_due_date || ""} onChange={(e) => setEventDraft({ ...eventDraft, edit_due_date: e.target.value })} />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Editor Notes / Instructions</label>
+                      <Textarea value={eventDraft.editing_notes || ""} onChange={(e) => setEventDraft({ ...eventDraft, editing_notes: e.target.value })} placeholder="Specific editing instructions..." className="min-h-[120px]" />
+                    </div>
+                    <div className="space-y-2 rounded-lg border border-red-100 bg-red-50/50 p-4">
+                      <label className="text-sm font-medium text-red-700">Revisions Feedback</label>
+                      <Textarea value={eventDraft.revisions_notes || ""} onChange={(e) => setEventDraft({ ...eventDraft, revisions_notes: e.target.value })} placeholder="Feedback and revision requests for the editor..." className="min-h-[120px]" />
+                    </div>
+                    <div className="space-y-2 border-t pt-4">
+                      <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wider">Editor Targets</h3>
+                      <label className="text-sm font-medium">Target Photo Count</label>
+                      <Input type="number" value={eventDraft.photo_count || ""} onChange={(e) => setEventDraft({ ...eventDraft, photo_count: e.target.value })} placeholder="e.g. 500" />
+                      <div className="flex items-center justify-between pt-2">
+                        <label className="text-sm font-medium">Target Videos</label>
+                        <Button type="button" variant="outline" size="sm" onClick={() => setEventDraft({ ...eventDraft, video_targets: [...(eventDraft.video_targets || []), videoPricing[0]?.id || "highlight"] })}>
+                          Add Video
+                        </Button>
+                      </div>
+                      {(eventDraft.video_targets || []).length === 0 ? (
+                        <p className="text-sm italic text-muted-foreground">No videos targeted.</p>
+                      ) : (
+                        eventDraft.video_targets.map((vidId: string, index: number) => (
+                          <div key={index} className="flex gap-2">
+                            <Select value={vidId} onValueChange={(val) => {
+                              const next = [...eventDraft.video_targets];
+                              next[index] = val;
+                              setEventDraft({ ...eventDraft, video_targets: next });
+                            }}>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {videoPricing.map((video) => (
+                                  <SelectItem key={video.id} value={video.id}>{video.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Button type="button" variant="ghost" onClick={() => setEventDraft({ ...eventDraft, video_targets: eventDraft.video_targets.filter((_: string, i: number) => i !== index) })}>
+                              Remove
+                            </Button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="px-6 py-4 border-t bg-muted/20 flex justify-between gap-3">
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={() => {
+                    markEventEdit.mutate({
+                      id: eventDraft.id,
+                      updates: {
+                        edit_status: "revisions_requested",
+                        edit_details: {
+                          upload_link: eventDraft.upload_link,
+                          vimeo_link: eventDraft.vimeo_link,
+                          youtube_link: eventDraft.youtube_link,
+                          gallery_link: eventDraft.gallery_link,
+                          editing_notes: eventDraft.editing_notes,
+                          revisions_notes: eventDraft.revisions_notes,
+                          photo_count: eventDraft.photo_count,
+                          video_targets: eventDraft.video_targets,
+                        },
+                      },
+                    });
+                    setEventDraft(null);
+                  }}
+                >
+                  Send for Revisions
+                </Button>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" onClick={() => setEventDraft(null)}>Cancel</Button>
+                  <Button type="submit">Save Changes</Button>
+                </div>
+              </div>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <div className="rounded-md border bg-card">
         <Table>
           <TableHeader>
@@ -617,6 +843,99 @@ export default function PostProductionTable() {
               </TableRow>
             ) : (
               paginatedWeddings.map((wedding) => {
+                if ((wedding as any)._event) {
+                  const event = wedding as any;
+                  const currentStatus = event.edit_status || "awaiting_raw_media";
+                  const due = event.edit_due_date || event.weddings?.date;
+                  return (
+                    <TableRow key={event.id}>
+                      <TableCell className="font-medium whitespace-nowrap">
+                        {event.event_date ? formatDisplayDate(event.event_date) : "No date"}
+                      </TableCell>
+                      <TableCell className="font-semibold">{event.client_name}</TableCell>
+                      <TableCell>
+                        <div className="text-sm font-medium flex items-center gap-1.5 text-muted-foreground">
+                          <Clock className="h-3.5 w-3.5" />
+                          {due ? formatDisplayDate(due) : "No deadline"}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Select
+                          value={event.editor_id || "unassigned"}
+                          onValueChange={(val) =>
+                            markEventEdit.mutate({
+                              id: event.id,
+                              updates: { editor_id: val === "unassigned" ? null : val },
+                            })
+                          }
+                        >
+                          <SelectTrigger className="h-8 text-xs font-medium w-[140px] whitespace-nowrap">
+                            <SelectValue placeholder="Unassigned" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="unassigned" className="text-muted-foreground italic">Unassigned</SelectItem>
+                            {editors.map((editor) => (
+                              <SelectItem key={editor.id} value={editor.id}>{editor.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell>
+                        <Select
+                          value={currentStatus}
+                          onValueChange={(status) => markEventEdit.mutate({ id: event.id, updates: { edit_status: status } })}
+                        >
+                          <SelectTrigger className="h-8 text-xs font-medium w-[160px] whitespace-nowrap">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {STATUS_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                <div className="flex items-center gap-2">
+                                  <span className={`h-2 w-2 rounded-full ${opt.value === "delivered" ? "bg-emerald-500" : opt.value === "awaiting_raw_media" || opt.value === "revisions_requested" ? "bg-red-500" : "bg-blue-500"}`} />
+                                  {opt.label}
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell>
+                        {event.drive_link ? (
+                          <Badge variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200 gap-1 cursor-pointer" onClick={() => window.open(event.drive_link, "_blank")}>
+                            <HardDrive className="h-3 w-3" /> Raw Media
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="opacity-50 gap-1">
+                            <HardDrive className="h-3 w-3" /> Missing Raw
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right space-y-2">
+                        <Button variant="outline" size="sm" className="w-full" onClick={() => openEventEditor(event)}>
+                          <Link2 className="h-4 w-4 mr-1" />
+                          Edit
+                        </Button>
+                        {event.edit_details?.invoice_status === "pending" && (
+                          <Button
+                            size="sm"
+                            className="w-full"
+                            onClick={() =>
+                              markEventEdit.mutate({
+                                id: event.id,
+                                updates: {
+                                  edit_details: { ...event.edit_details, invoice_status: "approved" },
+                                },
+                              })
+                            }
+                          >
+                            Approve invoice
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                }
                 const currentStatus =
                   wedding.editing_status || "awaiting_raw_media";
                 const deadline = calculateDeadline(wedding);

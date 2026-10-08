@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 import { currentTerritoryId } from "@/lib/current-territory";
 import {
   Card,
@@ -70,6 +71,37 @@ export default function ManagerPayouts() {
     queryFn: api.getAssignments,
   });
 
+  const { data: eventTitleByJob = {} } = useQuery({
+    queryKey: ["payout-event-titles", assignments.map((a: any) => a.jobs?.id).filter(Boolean).join(",")],
+    enabled: assignments.length > 0,
+    queryFn: async () => {
+      const jobIds = assignments.map((a: any) => a.jobs?.id).filter(Boolean);
+      const { data: jobRows, error } = await supabase
+        .from("jobs")
+        .select("id, event_id")
+        .in("id", jobIds);
+      if (error || !jobRows) return {};
+      const eventIds = jobRows.map((job: any) => job.event_id).filter(Boolean);
+      if (eventIds.length === 0) return {};
+      const { data: events } = await supabase
+        .from("wedding_events")
+        .select("id, title")
+        .in("id", eventIds);
+      const titles = Object.fromEntries((events || []).map((event: any) => [event.id, event.title]));
+      const byJob: Record<string, string> = {};
+      jobRows.forEach((job: any) => {
+        if (job.event_id && titles[job.event_id]) byJob[job.id] = titles[job.event_id];
+      });
+      return byJob;
+    },
+  });
+
+  const payoutName = (assignment: any) => {
+    const client = assignment.jobs?.weddings?.client_name || "Wedding";
+    const eventTitle = eventTitleByJob[assignment.jobs?.id];
+    return eventTitle ? `${client} · ${eventTitle}` : client;
+  };
+
   const { data: territoryId } = useQuery({
     queryKey: ["current-territory"],
     queryFn: currentTerritoryId,
@@ -79,6 +111,29 @@ export default function ManagerPayouts() {
     queryKey: ["weddings", territoryId],
     queryFn: () => api.getWeddingsForTerritory(territoryId ?? null),
     enabled: territoryId !== undefined,
+  });
+
+  const { data: eventEditorInvoices = [] } = useQuery({
+    queryKey: ["event-editor-invoices"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("wedding_events")
+        .select("id, title, event_date, editor_id, edit_details, weddings(client_name)")
+        .eq("needs_early_edit", true);
+      if (error) return [];
+      return (data || [])
+        .filter((event: any) => event.edit_details?.invoice_status)
+        .map((event: any) => ({
+          id: event.id,
+          _event: true,
+          date: event.event_date,
+          editor_id: event.editor_id,
+          client_name: `${event.weddings?.client_name || "Wedding"} · ${event.title || "Event"}`,
+          editor_invoice_status: event.edit_details.invoice_status,
+          editor_payout_amount: event.edit_details.invoice_amount,
+          editor_invoice_details: event.edit_details.invoice,
+        }));
+    },
   });
 
   const { data: editors = [] } = useQuery({
@@ -98,6 +153,26 @@ export default function ManagerPayouts() {
 
   const deleteEditorInvoiceMutation = useMutation({
     mutationFn: async (id: string) => {
+      const { data: event } = await supabase
+        .from("wedding_events")
+        .select("id, edit_details")
+        .eq("id", id)
+        .maybeSingle();
+      if (event?.edit_details?.invoice_status) {
+        const { error } = await supabase
+          .from("wedding_events")
+          .update({
+            edit_details: {
+              ...event.edit_details,
+              invoice_status: null,
+              invoice_amount: null,
+              invoice: null,
+            },
+          })
+          .eq("id", id);
+        if (error) throw error;
+        return;
+      }
       await api.updateWedding(id, {
         editor_invoice_status: null,
         editor_payout_amount: null,
@@ -106,6 +181,7 @@ export default function ManagerPayouts() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["weddings"] });
+      queryClient.invalidateQueries({ queryKey: ["event-editor-invoices"] });
       toast({ title: "Editor Invoice Deleted" });
     },
   });
@@ -143,7 +219,7 @@ export default function ManagerPayouts() {
           await api.processStripePayout(
             amount,
             stripeAccountId,
-            `Payout for ${assignment.jobs?.weddings?.client_name || "Wedding"} - ${assignment.jobs?.role || "Job"}`,
+            `Payout for ${payoutName(assignment)} - ${assignment.jobs?.role || "Job"}`,
             idempotencyKey,
           );
         }
@@ -185,7 +261,7 @@ export default function ManagerPayouts() {
               venmo_handle: assignment.contractors?.venmo_handle,
               stripe_account_id: assignment.contractors?.stripe_account_id,
               payment_method: paymentMethod,
-              wedding_name: assignment.jobs?.weddings?.client_name,
+              wedding_name: payoutName(assignment),
               role: assignment.jobs?.role,
             };
             fetch(webhookUrl, {
@@ -237,6 +313,33 @@ export default function ManagerPayouts() {
 
   const approveEditorPayoutMutation = useMutation({
     mutationFn: async (id: string) => {
+      const { data: event } = await supabase
+        .from("wedding_events")
+        .select("id, title, editor_id, edit_details, weddings(client_name)")
+        .eq("id", id)
+        .maybeSingle();
+      if (event?.edit_details?.invoice_status) {
+        const editor = editors.find((e) => e.id === event.editor_id);
+        if (!editor) throw new Error("Editor not found");
+        const amount = event.edit_details.invoice_amount || 0;
+        const name = `${event.weddings?.client_name || "Wedding"} · ${event.title || "Event"}`;
+        if (paymentMethod === "Stripe") {
+          const stripeAccountId = editor.stripe_account_id;
+          if (!stripeAccountId) {
+            throw new Error("Editor does not have a connected Stripe account. Please select another payment method.");
+          }
+          if (amount > 0) {
+            await api.processStripePayout(amount, stripeAccountId, `Payout for ${name} - Editing`, idempotencyKey);
+          }
+        }
+        const { error } = await supabase
+          .from("wedding_events")
+          .update({ edit_details: { ...event.edit_details, invoice_status: "paid" } })
+          .eq("id", id);
+        if (error) throw error;
+        return;
+      }
+
       const wedding = weddings.find((w: any) => w.id === id);
       if (!wedding) throw new Error("Wedding not found");
 
@@ -281,6 +384,7 @@ export default function ManagerPayouts() {
     onSuccess: (_, id) => {
       setPaidIds((prev) => new Set(prev).add(id));
       queryClient.invalidateQueries({ queryKey: ["weddings"] });
+      queryClient.invalidateQueries({ queryKey: ["event-editor-invoices"] });
       toast({
         title: "Editor Payout Approved",
         description:
@@ -303,7 +407,10 @@ export default function ManagerPayouts() {
     (a: any) => a.status === "Completed" || a.status === "Payment Received",
   );
 
-  const editorInvoices = weddings.filter((w) => w.editor_invoice_status);
+  const editorInvoices = [
+    ...weddings.filter((w) => w.editor_invoice_status),
+    ...eventEditorInvoices,
+  ];
   const pendingEditorInvoices = editorInvoices.filter(
     (w) =>
       w.editor_invoice_status === "pending" ||
@@ -373,7 +480,7 @@ export default function ManagerPayouts() {
                     )}
                   </div>
                 </TableCell>
-                <TableCell>{wedding?.client_name}</TableCell>
+                <TableCell>{eventTitleByJob[job?.id] ? `${wedding?.client_name} · ${eventTitleByJob[job.id]}` : wedding?.client_name}</TableCell>
                 <TableCell>{job?.role}</TableCell>
                 <TableCell className="text-right font-bold text-green-600 dark:text-green-500">
                   ${total}

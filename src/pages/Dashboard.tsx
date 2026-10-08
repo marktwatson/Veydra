@@ -479,11 +479,36 @@ export default function Dashboard() {
       const { data, error } = await supabase
         .from("assignments")
         .select(
-          "*, jobs(id, status, role, pay_rate, hours, addons, wedding_id, territory_id, weddings(client_name, date, location, region, status, territory_id))",
+          "*, jobs(id, status, role, pay_rate, hours, addons, wedding_id, territory_id, event_id, weddings(client_name, date, location, region, status, territory_id))",
         )
         .eq("contractor_id", contractorId);
       if (error) throw error;
-      return data || [];
+      const rows = data || [];
+      const eventIds = rows.map((row: any) => row.jobs?.event_id).filter(Boolean);
+      if (eventIds.length === 0) return rows;
+      const { data: events } = await supabase
+        .from("wedding_events")
+        .select("id, title, event_date, venue, address, location")
+        .in("id", eventIds);
+      const byId = Object.fromEntries((events || []).map((event: any) => [event.id, event]));
+      return rows.map((row: any) => {
+        const event = byId[row.jobs?.event_id];
+        if (!event?.event_date || !row.jobs?.weddings) return row;
+        return {
+          ...row,
+          jobs: {
+            ...row.jobs,
+            weddings: {
+              ...row.jobs.weddings,
+              date: event.event_date,
+              location:
+                [event.venue, event.address, event.location].filter(Boolean).join(", ") ||
+                "Location not set",
+              client_name: `${row.jobs.weddings.client_name || "Wedding"} · ${event.title || "Extra date"}`,
+            },
+          },
+        };
+      });
     },
   });
 

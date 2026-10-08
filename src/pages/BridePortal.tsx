@@ -100,6 +100,171 @@ const getSafeDate = (dateStr: string | null) => {
   return tzDate;
 };
 
+function PortalEventDates({ weddingId }: { weddingId: string }) {
+  const { data: events = [] } = useQuery({
+    queryKey: ["bride-events", weddingId],
+    enabled: !!weddingId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("wedding_events")
+        .select("id, title, event_type, event_date, venue")
+        .eq("wedding_id", weddingId)
+        .order("event_date");
+      if (error) return [];
+      return data || [];
+    },
+  });
+  if (!events.length) return null;
+  return (
+    <>
+      {events.map((event: any) => (
+        <div key={event.id} className="flex items-center gap-4 bg-[#faf7f2] p-4 rounded-xl border border-[#c9a96e]/20">
+          <div className="bg-amber-100 p-3 rounded-full">
+            <Calendar className="h-6 w-6 text-[#1a1a1a]" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-[#1a1a1a]/60 uppercase tracking-wider">
+              {event.event_type === "bartending" ? "Bartending" : event.event_type === "sangeet" ? "Other day" : "Engagement"}
+            </p>
+            <p className="text-lg font-semibold text-[#1a1a1a]">
+              {event.event_date
+                ? new Date(`${event.event_date}T12:00:00`).toLocaleDateString("en-US", {
+                    weekday: "long",
+                    year: "numeric",
+                    month: "long",
+                    day: "numeric",
+                  })
+                : "Date not set"}
+            </p>
+            <p className="text-sm text-[#1a1a1a]/70">{event.title || "Extra date"}{event.venue ? ` · ${event.venue}` : ""}</p>
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function readEventAnswers(raw: string) {
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") return parsed;
+  } catch {
+    /* older rows are plain text */
+  }
+  return { notes: raw || "" };
+}
+
+function BrideEventPage({ event }: { event: any }) {
+  const { toast } = useToast();
+  const saved = readEventAnswers(event.day_questions || "");
+  const [rows, setRows] = useState<{ time: string; moment: string }[]>(
+    event.timeline_notes ? event.timeline_notes.split("\n").filter(Boolean).map((line: string) => {
+      const [time, ...rest] = line.split(" ");
+      return { time: time || "", moment: rest.join(" ") };
+    }) : [{ time: "", moment: "" }],
+  );
+  const [place, setPlace] = useState(event.venue || "");
+  const [people, setPeople] = useState(saved.people || "");
+  const [outfits, setOutfits] = useState(saved.outfits || "");
+  const [setting, setSetting] = useState(saved.setting || "");
+  const [mustHaves, setMustHaves] = useState(saved.mustHaves || "");
+  const [guestCount, setGuestCount] = useState(saved.guestCount || "");
+  const [barStart, setBarStart] = useState(saved.barStart || "");
+  const [barEnd, setBarEnd] = useState(saved.barEnd || "");
+  const [alcohol, setAlcohol] = useState(saved.alcohol || "");
+  const [moments, setMoments] = useState(saved.moments || saved.notes || "");
+  const save = async () => {
+    const timeline = rows.filter((r) => r.time || r.moment).map((r) => `${r.time} ${r.moment}`.trim()).join("\n");
+    const answers = event.event_type === "bartending"
+      ? { guestCount, barStart, barEnd, alcohol }
+      : event.event_type === "sangeet"
+        ? { moments, outfits }
+        : { people, outfits, setting, mustHaves };
+    const { error } = await supabase
+      .from("wedding_events")
+      .update({ timeline_notes: timeline, day_questions: JSON.stringify(answers), venue: place })
+      .eq("id", event.id);
+    if (error) toast({ variant: "destructive", title: "Could not save this date", description: error.message });
+    else toast({ title: "Saved for this date" });
+  };
+  return (
+    <Card className="rounded-2xl border-[#c9a96e]/30 bg-white">
+      <CardHeader>
+        <CardTitle>{event.title || event.event_type}</CardTitle>
+        <CardDescription>
+          {event.event_date
+            ? new Date(`${event.event_date}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
+            : "Date not set"}
+          . This page is only for this date.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Input value={place} onChange={(e) => setPlace(e.target.value)} placeholder="Venue or address" />
+        {rows.map((row, index) => (
+          <div key={index} className="flex gap-2">
+            <Input type="time" value={row.time} onChange={(e) => {
+              const next = [...rows];
+              next[index] = { ...row, time: e.target.value };
+              setRows(next);
+            }} />
+            <Input value={row.moment} placeholder="Moment" onChange={(e) => {
+              const next = [...rows];
+              next[index] = { ...row, moment: e.target.value };
+              setRows(next);
+            }} />
+          </div>
+        ))}
+        <Button type="button" variant="outline" onClick={() => setRows([...rows, { time: "", moment: "" }])}>Add time</Button>
+        {event.event_type === "bartending" ? (
+          <>
+            <Input value={guestCount} onChange={(e) => setGuestCount(e.target.value)} placeholder="Guest count" />
+            <Input type="time" value={barStart} onChange={(e) => setBarStart(e.target.value)} />
+            <Input type="time" value={barEnd} onChange={(e) => setBarEnd(e.target.value)} />
+            <Input value={alcohol} onChange={(e) => setAlcohol(e.target.value)} placeholder="Who is providing alcohol" />
+          </>
+        ) : event.event_type === "sangeet" ? (
+          <>
+            <Input value={moments} onChange={(e) => setMoments(e.target.value)} placeholder="Key moments" />
+            <Input value={outfits} onChange={(e) => setOutfits(e.target.value)} placeholder="Outfits and where the crew should be" />
+          </>
+        ) : (
+          <>
+            <Input value={people} onChange={(e) => setPeople(e.target.value)} placeholder="How many people" />
+            <Input value={outfits} onChange={(e) => setOutfits(e.target.value)} placeholder="Outfits" />
+            <Input value={setting} onChange={(e) => setSetting(e.target.value)} placeholder="Indoor or outdoor" />
+            <Input value={mustHaves} onChange={(e) => setMustHaves(e.target.value)} placeholder="Must-have shots" />
+          </>
+        )}
+        <Button type="button" variant="outline" onClick={save}>Save this date</Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function BrideEventPages({ weddingId }: { weddingId: string }) {
+  const { toast } = useToast();
+  const { data: events = [] } = useQuery({
+    queryKey: ["bride-events", weddingId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("wedding_events")
+        .select("id, title, event_type, event_date, venue, address, timeline_notes, day_questions")
+        .eq("wedding_id", weddingId)
+        .order("event_date");
+      if (error) return [];
+      return data || [];
+    },
+  });
+  if (events.length === 0) return null;
+  return (
+    <div className="space-y-4">
+      {events.map((event: any) => (
+        <BrideEventPage key={event.id} event={event} />
+      ))}
+    </div>
+  );
+}
+
 function questionnaireHasAnswers(data: any): boolean {
   if (!data || typeof data !== "object") return false;
   const walk = (value: any): boolean => {
@@ -155,11 +320,66 @@ export default function BridePortal() {
   );
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
 
+  const { data: portalEvents = [] } = useQuery({
+    queryKey: ["bride-events", id],
+    enabled: !!id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("wedding_events")
+        .select("id, title, event_type, event_date, venue")
+        .eq("wedding_id", id)
+        .order("event_date");
+      if (error) return [];
+      return data || [];
+    },
+  });
+
+  const { data: teamDates = [] } = useQuery({
+    queryKey: ["bride-team-dates", id],
+    enabled: !!id,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("get_public_wedding_team_dates", {
+        p_wedding_id: id,
+      });
+      if (error) return [];
+      return data || [];
+    },
+  });
+  const groupFor = (member: any) => {
+    const match = teamDates.find((row: any) => row.contractor_id === member.contractor?.id);
+    return match?.event_title || "Wedding day";
+  };
+
   const { data: messages = [] } = useQuery({
     queryKey: ["messages", id],
     queryFn: () => api.getMessages(id!),
     enabled: !!id,
   });
+
+  const noticeKey = id ? `bride_message_notice:${id}` : "";
+  const [hiddenNoticeIds, setHiddenNoticeIds] = useState<string[]>([]);
+  useEffect(() => {
+    if (!noticeKey) return;
+    try {
+      const raw = localStorage.getItem(noticeKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      setHiddenNoticeIds(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      setHiddenNoticeIds([]);
+    }
+  }, [noticeKey]);
+
+  const unreadForBride = messages.filter(
+    (m) => m.receiver_id === id && !m.read && !hiddenNoticeIds.includes(m.id),
+  );
+  const noticeMessage = unreadForBride[unreadForBride.length - 1];
+  const hideMessageNotice = () => {
+    const next = Array.from(
+      new Set([...hiddenNoticeIds, ...unreadForBride.map((m) => m.id)]),
+    );
+    setHiddenNoticeIds(next);
+    if (noticeKey) localStorage.setItem(noticeKey, JSON.stringify(next));
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -476,6 +696,35 @@ export default function BridePortal() {
 
   const [currentStep, setCurrentStep] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
+  const [savingTimeline, setSavingTimeline] = useState(false);
+
+  const saveTimelineOnly = async () => {
+    if (!id) return;
+    try {
+      setSavingTimeline(true);
+      const timelineRows = timelineEvents.map((e) => ({
+        ...e,
+        time: formatTime(e.time),
+      }));
+      const placeholderTimeline =
+        timelineRows.length === 1 &&
+        /photographer arrives/i.test(timelineRows[0].event || "");
+      if (!placeholderTimeline) {
+        await api.saveWeddingQuestionnaireProgress(id, {
+          timeline: timelineRows as any,
+        });
+      }
+      toast({ title: "Timeline saved" });
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Could not save the timeline",
+        description: err.message,
+      });
+    } finally {
+      setSavingTimeline(false);
+    }
+  };
 
   const handleSaveProgress = async () => {
     if (!id) return;
@@ -1481,6 +1730,10 @@ export default function BridePortal() {
             </Card>
           )}
 
+          {currentStep === 5 && id && (
+            <BrideEventPages weddingId={id} />
+          )}
+
           {currentStep === 6 && (
             <Card className="rounded-2xl shadow-sm border-[#c9a96e]/30 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 bg-white">
               <CardHeader className="bg-[#f7f3ee]/50 border-b border-[#c9a96e]/20">
@@ -1638,6 +1891,19 @@ export default function BridePortal() {
       icon: FileText,
       isCompleted: !!wedding.questionnaire_completed,
     },
+    ...portalEvents.map((event: any) => ({
+      id: event.id,
+      label: event.event_type === "bartending" ? "Bartending" : event.event_type === "sangeet" ? "Other day" : "Engagement",
+      description: event.event_date
+        ? new Date(`${event.event_date}T12:00:00`).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })
+        : "Date not set",
+      icon: Calendar,
+      isCompleted: false,
+    })),
     {
       id: "wedding",
       label: "Wedding Day",
@@ -1932,6 +2198,7 @@ export default function BridePortal() {
                         </p>
                       </div>
                     </div>
+                    <PortalEventDates weddingId={id || ""} />
                     <div className="flex items-center gap-4 bg-[#faf7f2] p-4 rounded-xl border border-[#c9a96e]/20">
                       <div className="bg-[#c9a96e]/30 p-3 rounded-full">
                         <Clock className="h-6 w-6 text-[#1a1a1a]" />
@@ -1989,6 +2256,76 @@ export default function BridePortal() {
                     )}
                   </CardContent>
                 </Card>
+
+                <Card className="rounded-2xl shadow-sm border-[#c9a96e]/30 overflow-hidden bg-white">
+                  <CardHeader className="bg-[#f7f3ee]/50 border-b border-[#c9a96e]/20">
+                    <CardTitle
+                      className="text-[#1a1a1a]"
+                      style={{ fontFamily: "'DM Serif Display', serif" }}
+                    >
+                      Wedding Day Timeline
+                    </CardTitle>
+                    <CardDescription className="text-[#1a1a1a]/60">
+                      Update the day here. The same timeline is still in the questionnaire.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4 p-6">
+                    {timelineEvents.map((item, index) => (
+                      <div
+                        key={index}
+                        className="flex items-start gap-2 bg-[#faf7f2] p-3 rounded-lg border border-[#c9a96e]/20"
+                      >
+                        <Input
+                          type="time"
+                          className="w-1/3"
+                          value={item.time}
+                          onChange={(e) => {
+                            const next = [...timelineEvents];
+                            next[index] = { ...next[index], time: e.target.value };
+                            setTimelineEvents(next);
+                          }}
+                        />
+                        <Input
+                          className="flex-1"
+                          placeholder="e.g. Ceremony"
+                          value={item.event}
+                          onChange={(e) => {
+                            const next = [...timelineEvents];
+                            next[index] = { ...next[index], event: e.target.value };
+                            setTimelineEvents(next);
+                          }}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive shrink-0"
+                          onClick={() =>
+                            setTimelineEvents(timelineEvents.filter((_, i) => i !== index))
+                          }
+                          disabled={timelineEvents.length === 1}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setTimelineEvents([...timelineEvents, { time: "", event: "" }])
+                        }
+                      >
+                        <Plus className="h-4 w-4 mr-2" /> Add moment
+                      </Button>
+                      <Button type="button" size="sm" onClick={saveTimelineOnly} disabled={savingTimeline}>
+                        {savingTimeline ? "Saving..." : "Save timeline"}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
 
               <div className="md:col-span-1 space-y-6">
@@ -2003,38 +2340,35 @@ export default function BridePortal() {
                         Your Team
                       </CardTitle>
                       <CardDescription className="text-[#1a1a1a]/60">
-                        Assigned to capture your big day.
+                        Grouped by the date they are working.
                       </CardDescription>
                     </CardHeader>
-                    <CardContent className="pt-4 pb-4 px-4 space-y-3">
-                      {teamMembers.map((member, i) => (
-                        <div
-                          key={i}
-                          className="flex items-center gap-3 p-3 border border-[#c9a96e]/20 rounded-xl bg-[#faf7f2] hover:shadow-md hover:border-[#1a1a1a]/30 hover:-translate-y-0.5 transition-all duration-300 group cursor-pointer"
-                          onClick={() =>
-                            setSelectedContractor(member.contractor)
-                          }
-                        >
-                          <Avatar className="h-10 w-10 border group-hover:border-[#1a1a1a]/50 transition-colors">
-                            <AvatarImage
-                              src={member.contractor.avatar_url || ""}
-                            />
-                            <AvatarFallback className="bg-[#c9a96e]/30 text-[#1a1a1a] text-xs group-hover:bg-[#1a1a1a] group-hover:text-white transition-colors">
-                              {member.contractor.first_name?.[0]}
-                              {member.contractor.last_name?.[0]}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <p className="font-semibold text-[#1a1a1a] text-sm group-hover:text-[#1a1a1a] transition-colors">
-                              {member.contractor.first_name}{" "}
-                              {member.contractor.last_name}
-                            </p>
-                            <p className="text-xs text-[#1a1a1a]/60 capitalize">
-                              {member.role.replace("_", " ")}
-                            </p>
+                    <CardContent className="pt-4 pb-4 px-4 space-y-4">
+                      {["Wedding day", ...portalEvents.map((event: any) => event.title || event.event_type || "Extra date")].map((group) => {
+                        const members = teamMembers.filter((member) => groupFor(member) === group);
+                        if (members.length === 0) return null;
+                        return (
+                          <div key={group} className="space-y-2">
+                            <p className="text-xs font-medium uppercase tracking-wider text-[#1a1a1a]/50">{group}</p>
+                            {members.map((member, i) => (
+                              <div
+                                key={`${group}-${i}`}
+                                className="flex items-center gap-3 p-3 border border-[#c9a96e]/20 rounded-xl bg-[#faf7f2]"
+                                onClick={() => setSelectedContractor(member.contractor)}
+                              >
+                                <Avatar className="h-10 w-10 border">
+                                  <AvatarImage src={member.contractor.avatar_url || ""} />
+                                  <AvatarFallback>{member.contractor.first_name?.[0]}{member.contractor.last_name?.[0]}</AvatarFallback>
+                                </Avatar>
+                                <div>
+                                  <p className="font-semibold text-[#1a1a1a] text-sm">{member.contractor.first_name} {member.contractor.last_name}</p>
+                                  <p className="text-xs text-[#1a1a1a]/60 capitalize">{member.role.replace("_", " ")}</p>
+                                </div>
+                              </div>
+                            ))}
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </CardContent>
                   </Card>
                 ) : (
@@ -3505,6 +3839,48 @@ export default function BridePortal() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog
+        open={!!noticeMessage && !contactModalOpen}
+        onOpenChange={(open) => {
+          if (!open) hideMessageNotice();
+        }}
+      >
+        <DialogContent className="sm:max-w-[420px] rounded-[2rem] border-[#c9a96e]/40 bg-white">
+          <DialogHeader>
+            <DialogTitle
+              className="text-2xl text-[#1a1a1a]"
+              style={{ fontFamily: "'DM Serif Display', serif" }}
+            >
+              New message from {companyName}
+            </DialogTitle>
+            <DialogDescription className="text-base text-[#1a1a1a]/70">
+              {unreadForBride.length > 1
+                ? `You have ${unreadForBride.length} unread messages.`
+                : "You have a new message waiting."}
+            </DialogDescription>
+          </DialogHeader>
+          {noticeMessage?.content && (
+            <p className="text-sm text-[#1a1a1a] bg-[#f7f3ee] rounded-xl px-4 py-3">
+              {noticeMessage.content.split("\n")[0].slice(0, 180)}
+            </p>
+          )}
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button type="button" variant="outline" onClick={hideMessageNotice}>
+              Not now
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                hideMessageNotice();
+                setContactModalOpen(true);
+              }}
+            >
+              Read it
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={contactModalOpen} onOpenChange={setContactModalOpen}>
         <DialogContent className="sm:max-w-[500px] h-[85vh] sm:h-[80vh] flex flex-col p-0 gap-0 overflow-hidden rounded-[2rem] border-[#c9a96e]/40 shadow-2xl bg-white">

@@ -40,6 +40,7 @@ import {
 import { Loader2, Plus, AlertCircle, Send, Info } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { api, getEligibleContractorsForJob } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 import { createJobWithTerritory } from "@/lib/create-job-territory";
 import { cn, getRateCalculationTooltip, formatDisplayDate } from "@/lib/utils";
 
@@ -313,6 +314,25 @@ export default function PositionsTab() {
   } = useQuery({
     queryKey: ["jobs"],
     queryFn: api.getJobs,
+  });
+
+  const { data: eventByJob = {} } = useQuery({
+    queryKey: ["position-events", jobs.map((job: any) => job.event_id).filter(Boolean).join(",")],
+    enabled: jobs.some((job: any) => job.event_id),
+    queryFn: async () => {
+      const ids = jobs.map((job: any) => job.event_id).filter(Boolean);
+      const { data, error } = await supabase
+        .from("wedding_events")
+        .select("id, title, event_date")
+        .in("id", ids);
+      if (error) return {};
+      const byEvent = Object.fromEntries((data || []).map((event: any) => [event.id, event]));
+      const byJob: Record<string, any> = {};
+      jobs.forEach((job: any) => {
+        if (job.event_id && byEvent[job.event_id]) byJob[job.id] = byEvent[job.event_id];
+      });
+      return byJob;
+    },
   });
 
   const openJobs = jobs.filter((j: any) => j.status === "open");
@@ -711,10 +731,11 @@ export default function PositionsTab() {
                         </TableRow>
                       ) : (
                         tab.data.map((job: any) => {
+                          const eventInfo = eventByJob[job.id];
                           const isUrgent =
                             job.status === "open" &&
-                            job.weddings?.date &&
-                            new Date(job.weddings.date).getTime() -
+                            (eventInfo?.event_date || job.weddings?.date) &&
+                            new Date(eventInfo?.event_date || job.weddings.date).getTime() -
                               new Date().getTime() <
                               14 * 24 * 60 * 60 * 1000;
                           return (
@@ -729,6 +750,7 @@ export default function PositionsTab() {
                                 <div className="flex items-center gap-2">
                                   {job.weddings?.client_name ||
                                     "Unknown Wedding"}
+                                  {eventInfo?.title ? ` · ${eventInfo.title}` : ""}
                                   {isUrgent && (
                                     <Badge
                                       variant="destructive"
@@ -760,7 +782,7 @@ export default function PositionsTab() {
                                 </div>
                               </TableCell>
                               <TableCell>
-                                {formatDisplayDate(job.weddings?.date)}
+                                {formatDisplayDate(eventInfo?.event_date || job.weddings?.date)}
                               </TableCell>
                               <TableCell>
                                 {job.hours ? `${job.hours} hrs` : "—"}

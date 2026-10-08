@@ -13,6 +13,10 @@ import { AuthLoadingScreen } from "@/components/AuthLoadingScreen";
 import { useInactivityTimer } from "@/hooks/useInactivityTimer";
 import { toast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
+import {
+  applyHomeAreaOnLogin,
+  restoreViewArea,
+} from "@/lib/current-territory";
 
 export type UserRole =
   | "super_admin"
@@ -321,6 +325,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   ? "owner_readonly"
                   : (manager?.role as UserRole) || "manager";
 
+          if (finalRole !== "editor") {
+            await applyHomeAreaOnLogin();
+          }
+
           setUser({
             id: data.user.id,
             name:
@@ -439,6 +447,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const stopImpersonating = useCallback(() => {
     try {
       localStorage.removeItem("impersonated_user");
+      restoreViewArea();
     } catch (e) {}
     window.location.href = "/manager";
   }, []);
