@@ -18,6 +18,8 @@ function EventFile({ event, weddingId, territoryId }: any) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [notes, setNotes] = useState(event.notes || "");
+  const [venue, setVenue] = useState(event.venue || "");
+  const [address, setAddress] = useState(event.address || event.location || "");
   const [earlyEdit, setEarlyEdit] = useState(!!event.needs_early_edit);
   const [role, setRole] = useState("Lead Photographer");
   const [pay, setPay] = useState("");
@@ -186,6 +188,9 @@ function EventFile({ event, weddingId, territoryId }: any) {
       </div>
 
       <div className="space-y-2 border-t pt-4">
+        <Label>Venue and address</Label>
+        <Input value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="Venue name" />
+        <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Street, city, state" />
         <Label>Notes</Label>
         <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Timing, wardrobe, location notes" />
         <label className="flex items-center gap-2 text-sm">
@@ -220,7 +225,7 @@ export function WeddingEventsCard({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("wedding_events")
-        .select("id, event_type, title, event_date, location, notes, needs_early_edit")
+        .select("id, event_type, title, event_date, location, venue, address, notes, needs_early_edit")
         .eq("wedding_id", weddingId)
         .order("event_date", { ascending: true });
       if (error) throw error;
