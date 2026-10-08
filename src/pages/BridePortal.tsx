@@ -274,6 +274,27 @@ export default function BridePortal() {
     },
   });
 
+  const { data: teamDates = [] } = useQuery({
+    queryKey: ["bride-team-dates", id],
+    enabled: !!id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("jobs")
+        .select("role, event_id, assignments(contractor_id), wedding_events(title, event_type)")
+        .eq("wedding_id", id);
+      if (error) return [];
+      return data || [];
+    },
+  });
+  const dateLabel = (member: any) => {
+    const match = teamDates.find((job: any) =>
+      (job.assignments || []).some((a: any) => a.contractor_id === member.contractor?.id) &&
+      job.role === member.role,
+    );
+    if (!match?.event_id) return "Wedding day";
+    return match.wedding_events?.title || "Extra date";
+  };
+
   const { data: messages = [] } = useQuery({
     queryKey: ["messages", id],
     queryFn: () => api.getMessages(id!),
@@ -2147,7 +2168,7 @@ export default function BridePortal() {
                               {member.contractor.last_name}
                             </p>
                             <p className="text-xs text-[#1a1a1a]/60 capitalize">
-                              {member.role.replace("_", " ")}
+                              {member.role.replace("_", " ")} · {dateLabel(member)}
                             </p>
                           </div>
                         </div>
