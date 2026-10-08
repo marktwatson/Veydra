@@ -130,6 +130,7 @@ export default function AssignmentDetail() {
     };
   }, [currentUser?.address, wedding?.location]);
 
+  const [attendanceConfirmed, setAttendanceConfirmed] = useState(false);
   const [fileCount, setFileCount] = useState("");
   const [allFilesUploaded, setAllFilesUploaded] = useState(false);
 
@@ -295,6 +296,7 @@ export default function AssignmentDetail() {
       {wedding.date &&
         assignment.status !== "Cancelled" &&
         !assignment.attendance_confirmed &&
+        !attendanceConfirmed &&
         (() => {
           const datePart = wedding.date.split("T")[0];
           const [year, month, day] = datePart.split("-").map(Number);
@@ -332,13 +334,16 @@ export default function AssignmentDetail() {
                       api
                         .confirmAssignmentAttendance(assignment.id)
                         .then(() => {
+                          setAttendanceConfirmed(true);
+                          queryClient.invalidateQueries({
+                            queryKey: ["assignment-detail", id],
+                          });
                           queryClient.invalidateQueries({
                             queryKey: ["assignments"],
                           });
                           toast({
-                            title: "Attendance Confirmed",
-                            description:
-                              "Thank you for confirming your attendance!",
+                            title: "Attendance confirmed",
+                            description: "You are confirmed for this wedding.",
                           });
                         });
                     }}
