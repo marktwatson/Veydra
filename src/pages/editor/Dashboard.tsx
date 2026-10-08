@@ -240,10 +240,12 @@ export default function EditorDashboard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("wedding_events")
-        .select("id, title, event_type, event_date, edit_status, wedding_id, weddings(client_name, date, editor_id)")
+        .select("id, title, event_type, event_date, edit_status, edit_due_date, editor_id, wedding_id, weddings(client_name, date, editor_id)")
         .eq("needs_early_edit", true);
       if (error) return [];
-      return (data || []).filter((event: any) => event.weddings?.editor_id === user!.id);
+      return (data || []).filter(
+        (event: any) => event.editor_id === user!.id || event.weddings?.editor_id === user!.id,
+      );
     },
   });
 

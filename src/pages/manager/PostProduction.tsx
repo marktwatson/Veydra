@@ -114,7 +114,7 @@ export default function PostProductionTable() {
   const [submitAction, setSubmitAction] = useState<"save" | "revisions">(
     "save",
   );
-  const [reviewWedding, setReviewWedding] = useState<DbWedding | null>(null);
+  const [eventDraft, setEventDraft] = useState<any>(null);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
 
   const [photoTarget, setPhotoTarget] = useState<number>(0);
@@ -131,7 +131,7 @@ export default function PostProductionTable() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("wedding_events")
-        .select("id, title, event_type, event_date, edit_status, wedding_id, weddings(client_name, date, editor_id)")
+        .select("id, title, event_type, event_date, edit_status, edit_due_date, editor_id, drive_link, wedding_id, weddings(client_name, date)")
         .eq("needs_early_edit", true)
         .in("wedding_id", weddings.map((w) => w.id));
       if (error) return [];
@@ -140,11 +140,8 @@ export default function PostProductionTable() {
   });
 
   const markEventEdit = useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      const { error } = await supabase
-        .from("wedding_events")
-        .update({ edit_status: status })
-        .eq("id", id);
+    mutationFn: async ({ id, updates }: { id: string; updates: Record<string, any> }) => {
+      const { error } = await supabase.from("wedding_events").update(updates).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -512,8 +509,11 @@ export default function PostProductionTable() {
               <TableRow>
                 <TableHead>Event date</TableHead>
                 <TableHead>Project</TableHead>
-                <TableHead>Due before</TableHead>
+                <TableHead>Deadline</TableHead>
+                <TableHead>Editor</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Links</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -523,11 +523,41 @@ export default function PostProductionTable() {
                   <TableCell className="font-semibold">
                     {event.weddings?.client_name || "Wedding"} · {event.title || event.event_type}
                   </TableCell>
-                  <TableCell>{event.weddings?.date ? formatDisplayDate(event.weddings.date) : "Wedding day"}</TableCell>
+                  <TableCell>
+                    <Input
+                      type="date"
+                      className="h-8 w-[150px]"
+                      value={event.edit_due_date || event.weddings?.date?.split("T")[0] || ""}
+                      onChange={(e) => markEventEdit.mutate({ id: event.id, updates: { edit_due_date: e.target.value || null } })}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Select
+                      value={event.editor_id || "unassigned"}
+                      onValueChange={(val) =>
+                        markEventEdit.mutate({
+                          id: event.id,
+                          updates: { editor_id: val === "unassigned" ? null : val },
+                        })
+                      }
+                    >
+                      <SelectTrigger className="h-8 w-[140px] text-xs">
+                        <SelectValue placeholder="Unassigned" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="unassigned">Unassigned</SelectItem>
+                        {editors.map((editor) => (
+                          <SelectItem key={editor.id} value={editor.id}>
+                            {editor.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
                   <TableCell>
                     <Select
                       value={event.edit_status || "awaiting_raw_media"}
-                      onValueChange={(status) => markEventEdit.mutate({ id: event.id, status })}
+                      onValueChange={(status) => markEventEdit.mutate({ id: event.id, updates: { edit_status: status } })}
                     >
                       <SelectTrigger className="h-8 w-[180px] text-xs">
                         <SelectValue />
@@ -541,12 +571,52 @@ export default function PostProductionTable() {
                       </SelectContent>
                     </Select>
                   </TableCell>
+                  <TableCell>
+                    {event.drive_link ? (
+                      <Badge variant="secondary" className="cursor-pointer" onClick={() => window.open(event.drive_link, "_blank")}>
+                        Raw Media
+                      </Badge>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">Missing raw</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button size="sm" variant="outline" onClick={() => setEventDraft(event)}>
+                      Edit
+                    </Button>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         </div>
       )}
+
+      <Dialog open={!!eventDraft} onOpenChange={(open) => !open && setEventDraft(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{eventDraft?.title || "This date"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm font-medium">Raw media link</p>
+            <Input
+              value={eventDraft?.drive_link || ""}
+              onChange={(e) => setEventDraft({ ...eventDraft, drive_link: e.target.value })}
+            />
+            <Button
+              onClick={() => {
+                markEventEdit.mutate({
+                  id: eventDraft.id,
+                  updates: { drive_link: eventDraft.drive_link || null },
+                });
+                setEventDraft(null);
+              }}
+            >
+              Save
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <div className="rounded-md border bg-card">
         <Table>
