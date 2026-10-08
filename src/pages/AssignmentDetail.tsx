@@ -111,7 +111,7 @@ export default function AssignmentDetail() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("wedding_events")
-        .select("title, event_type, event_date, venue, address, timeline_notes, day_questions")
+        .select("title, event_type, event_date, venue, address, location, timeline_notes, day_questions")
         .eq("id", job.event_id)
         .maybeSingle();
       if (error) return null;
@@ -119,6 +119,10 @@ export default function AssignmentDetail() {
     },
   });
   const workDate = eventDay?.event_date || wedding?.date;
+  const eventPlace = eventDay
+    ? [eventDay.venue, eventDay.address, eventDay.location].filter(Boolean).join(", ")
+    : "";
+  const displayLocation = eventDay ? eventPlace || "Location not set" : wedding?.location || "TBD";
   const currentUser = contractors.find(
     (c) => c.email?.trim().toLowerCase() === user?.email?.trim().toLowerCase(),
   );
@@ -126,14 +130,15 @@ export default function AssignmentDetail() {
   const [distance, setDistance] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!currentUser?.address || !wedding?.location) return;
+    const placeForDistance = eventDay ? eventPlace : wedding?.location;
+    if (!currentUser?.address || !placeForDistance) return;
 
     let isMounted = true;
     const calculateDistance = async () => {
       const homeCoords = await geocodeAddress(currentUser.address!);
       if (!homeCoords) return;
 
-      const jobCoords = await geocodeAddress(wedding.location);
+      const jobCoords = await geocodeAddress(placeForDistance);
       if (jobCoords && isMounted) {
         setDistance(calculateDistanceMiles(homeCoords, jobCoords));
       }
@@ -142,7 +147,7 @@ export default function AssignmentDetail() {
     return () => {
       isMounted = false;
     };
-  }, [currentUser?.address, wedding?.location]);
+  }, [currentUser?.address, wedding?.location, eventDay, eventPlace]);
 
   const [attendanceConfirmed, setAttendanceConfirmed] = useState(false);
   const [allFilesUploaded, setAllFilesUploaded] = useState(false);
@@ -438,7 +443,7 @@ export default function AssignmentDetail() {
           </h1>
           <div className="flex flex-wrap items-center gap-3 text-muted-foreground">
             <span className="font-medium text-foreground">
-              {formatDisplayDate(wedding.date)}
+              {formatDisplayDate(workDate)}
             </span>
             <span>•</span>
             {wedding.is_lgbtq && (
@@ -456,10 +461,10 @@ export default function AssignmentDetail() {
             <StatusBadge
               status={(() => {
                 const status = assignment.status || "Upcoming";
-                if (status.toLowerCase() === "upcoming" && wedding.date) {
+                if (status.toLowerCase() === "upcoming" && workDate) {
                   const today = new Date();
                   today.setHours(0, 0, 0, 0);
-                  const datePart = wedding.date.split("T")[0];
+                  const datePart = workDate.split("T")[0];
                   const [year, month, day] = datePart.split("-").map(Number);
                   const wDate = new Date(year, month - 1, day);
                   if (wDate.getTime() === today.getTime()) return "Today";
@@ -473,7 +478,22 @@ export default function AssignmentDetail() {
         <div className="flex items-center gap-2">
           <Button variant="outline" asChild>
             <a
-              href={generateGoogleCalendarUrl(assignment)}
+              href={generateGoogleCalendarUrl(
+                eventDay
+                  ? {
+                      ...assignment,
+                      jobs: {
+                        ...assignment.jobs,
+                        weddings: {
+                          ...assignment.jobs.weddings,
+                          date: eventDay.event_date,
+                          location: eventPlace,
+                          client_name: `${wedding.client_name} · ${eventDay.title || "Event"}`,
+                        },
+                      },
+                    }
+                  : assignment,
+              )}
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -880,10 +900,9 @@ export default function AssignmentDetail() {
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
                 <p>
-                  {eventDay.event_date}
-                  {eventDay.venue ? ` · ${eventDay.venue}` : ""}
+                  {eventDay.event_date ? formatDisplayDate(eventDay.event_date) : "Date not set"}
+                  {eventPlace ? ` · ${eventPlace}` : ""}
                 </p>
-                <p>{eventDay.address}</p>
                 <p className="whitespace-pre-wrap">
                   {eventDay.timeline_notes || "No timeline for this date yet."}
                 </p>
@@ -1269,7 +1288,7 @@ export default function AssignmentDetail() {
                     Location
                   </p>
                   <p className="font-medium break-words">
-                    {wedding.location || "TBD"}
+                    {displayLocation}
                   </p>
                 </div>
               </div>
