@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,6 +33,9 @@ import { supabase } from "@/lib/supabase";
 import { currentTerritoryId } from "@/lib/current-territory";
 import {
   healSalespersonPayoutSchema,
+  healSalespersonPaymentInfo,
+  getSalespersonPaymentNotes,
+  saveSalespersonPaymentNote,
   getSalespersonSendFees,
   getSalespersonPayoutBatches,
   markSalespersonPaid,
@@ -55,6 +59,11 @@ interface OwedRep {
  * visible to contractors or the public builder. Reuses the same idempotent
  * mark-paid path as the Sales Reps page.
  */
+interface DirectoryRep {
+  email: string;
+  name: string;
+}
+
 export function SalespersonPayoutsTab() {
   const { toast } = useToast();
   const [reps, setReps] = useState<OwedRep[]>([]);
@@ -65,11 +74,18 @@ export function SalespersonPayoutsTab() {
   );
   const [confirmRep, setConfirmRep] = useState<OwedRep | null>(null);
   const [paying, setPaying] = useState(false);
+  const [territoryId, setTerritoryId] = useState<string | null>(null);
+  const [directory, setDirectory] = useState<DirectoryRep[]>([]);
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [savingEmail, setSavingEmail] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
     await healSalespersonPayoutSchema();
+    await healSalespersonPaymentInfo();
     const territoryId = await currentTerritoryId();
+    setTerritoryId(territoryId);
 
     // Sent salesperson proposals, scoped to the active area.
     let q = supabase
@@ -115,6 +131,37 @@ export function SalespersonPayoutsTab() {
       if (p.client_name) row.clientNames.push(p.client_name);
     }
     setReps(Array.from(map.values()).sort((a, b) => b.amount - a.amount));
+
+    const people = new Map<string, string>();
+    let peopleQuery = supabase
+      .from("proposals")
+      .select("salesperson_email, salesperson_name")
+      .not("salesperson_email", "is", null);
+    if (territoryId) peopleQuery = peopleQuery.eq("territory_id", territoryId);
+    const { data: peopleRows } = await peopleQuery;
+    for (const row of peopleRows || []) {
+      const email = String(row.salesperson_email || "").trim().toLowerCase();
+      if (!email) continue;
+      if (!people.has(email)) {
+        people.set(email, String(row.salesperson_name || "").trim() || email);
+      }
+    }
+    setDirectory(
+      Array.from(people.entries())
+        .map(([email, name]) => ({ email, name }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    );
+
+    const savedNotes: Record<string, string> = {};
+    if (territoryId) {
+      const noteRows = await getSalespersonPaymentNotes(territoryId);
+      for (const row of noteRows) {
+        const email = String(row.email || "").trim().toLowerCase();
+        if (email) savedNotes[email] = row.payment_note || "";
+      }
+    }
+    setNotes(savedNotes);
+    setDrafts(savedNotes);
 
     setBatches(await getSalespersonPayoutBatches());
     setLoading(false);
@@ -167,6 +214,31 @@ export function SalespersonPayoutsTab() {
     [reps],
   );
 
+  const saveNote = async (person: DirectoryRep) => {
+    if (!territoryId) return;
+    const next = drafts[person.email] ?? "";
+    if ((notes[person.email] || "") === next) return;
+    setSavingEmail(person.email);
+    try {
+      await saveSalespersonPaymentNote({
+        territoryId,
+        email: person.email,
+        name: person.name,
+        paymentNote: next,
+      });
+      setNotes((current) => ({ ...current, [person.email]: next }));
+      toast({ title: "Payment info saved", description: person.name });
+    } catch (e: any) {
+      toast({
+        variant: "destructive",
+        title: "Could not save payment info",
+        description: e?.message || "Unknown error",
+      });
+    } finally {
+      setSavingEmail(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">
@@ -210,6 +282,9 @@ export function SalespersonPayoutsTab() {
                       <div className="text-xs text-muted-foreground">
                         {r.email}
                       </div>
+                      <div className="text-xs text-muted-foreground">
+                        {notes[r.email] || "No payment info yet"}
+                      </div>
                     </TableCell>
                     <TableCell className="text-center">{r.count}</TableCell>
                     <TableCell className="text-right font-bold text-green-600 dark:text-green-500">
@@ -229,6 +304,64 @@ export function SalespersonPayoutsTab() {
                 ))}
               </TableBody>
             </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Where to pay them</CardTitle>
+          <CardDescription>
+            Venmo, Zelle, Cash App, or a short note. It stays on this email for
+            this area and does not send the money.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!territoryId ? (
+            <p className="text-sm text-muted-foreground">
+              Choose one area in the area picker. Payment info is saved per
+              area.
+            </p>
+          ) : directory.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No salespeople in this area yet.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {directory.map((person) => (
+                <div
+                  key={person.email}
+                  className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] sm:items-center"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">{person.name}</div>
+                    <div className="truncate text-xs text-muted-foreground">
+                      {person.email}
+                    </div>
+                  </div>
+                  <Input
+                    value={drafts[person.email] ?? ""}
+                    placeholder="Venmo, Zelle email, or phone"
+                    onChange={(event) =>
+                      setDrafts((current) => ({
+                        ...current,
+                        [person.email]: event.target.value,
+                      }))
+                    }
+                    onBlur={() => saveNote(person)}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={savingEmail === person.email}
+                    onClick={() => saveNote(person)}
+                  >
+                    {savingEmail === person.email ? "Saving" : "Save"}
+                  </Button>
+                </div>
+              ))}
+            </div>
           )}
         </CardContent>
       </Card>

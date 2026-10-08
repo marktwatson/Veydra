@@ -202,3 +202,57 @@ export async function markSalespersonPaid(opts: {
 
   return { batchId: batch.id, amount, count: paidIds.length };
 }
+
+const SALESPERSON_PAYMENT_INFO_SQL = `DO $$
+BEGIN
+  EXECUTE 'CREATE TABLE IF NOT EXISTS public.salesperson_payment_info (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    territory_id uuid NOT NULL,
+    email text NOT NULL,
+    name text,
+    payment_note text,
+    updated_at timestamptz DEFAULT now(),
+    UNIQUE (territory_id, email)
+  )';
+  EXECUTE 'ALTER TABLE public.salesperson_payment_info ENABLE ROW LEVEL SECURITY';
+  EXECUTE 'DROP POLICY IF EXISTS spi_auth_all ON public.salesperson_payment_info';
+  EXECUTE 'CREATE POLICY spi_auth_all ON public.salesperson_payment_info FOR ALL TO authenticated USING (true) WITH CHECK (true)';
+END $$;`;
+
+/** Creates the payment-note table only. Does not touch proposals or payouts. */
+export async function healSalespersonPaymentInfo(): Promise<void> {
+  try {
+    await supabase.rpc("exec_sql", { sql_text: SALESPERSON_PAYMENT_INFO_SQL });
+  } catch {
+    /* the table may already exist */
+  }
+}
+
+export async function getSalespersonPaymentNotes(territoryId: string) {
+  const { data, error } = await supabase
+    .from("salesperson_payment_info")
+    .select("email, name, payment_note")
+    .eq("territory_id", territoryId);
+  if (error) return [];
+  return data || [];
+}
+
+export async function saveSalespersonPaymentNote(input: {
+  territoryId: string;
+  email: string;
+  name?: string;
+  paymentNote: string;
+}) {
+  const email = input.email.trim().toLowerCase();
+  const { error } = await supabase.from("salesperson_payment_info").upsert(
+    {
+      territory_id: input.territoryId,
+      email,
+      name: input.name || null,
+      payment_note: input.paymentNote.trim(),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "territory_id,email" },
+  );
+  if (error) throw error;
+}
