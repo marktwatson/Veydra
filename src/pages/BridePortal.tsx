@@ -551,41 +551,41 @@ export default function BridePortal() {
           setActiveTab("overview");
         } else {
           setActiveTab("questionnaire");
-          if (data.timeline) {
-            try {
-              const parsed =
-                typeof data.timeline === "string"
-                  ? JSON.parse(data.timeline)
-                  : data.timeline;
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                setTimelineEvents(
-                  parsed.map((e: any) => ({
-                    ...e,
-                    time: parseTimeTo24Hour(e.time),
-                  })),
-                );
-              }
-            } catch (e) {
-              // Ignore if it's old raw text, keep default
+        }
+        if (data.timeline) {
+          try {
+            const parsed =
+              typeof data.timeline === "string"
+                ? JSON.parse(data.timeline)
+                : data.timeline;
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setTimelineEvents(
+                parsed.map((e: any) => ({
+                  ...e,
+                  time: parseTimeTo24Hour(e.time),
+                })),
+              );
             }
+          } catch (e) {
+            // Ignore if it's old raw text, keep default
           }
-          setVipNames(data.vip_names || "");
-          setVendors(data.vendors || "");
-          setSpecialRequests(data.special_requests || "");
+        }
+        setVipNames(data.vip_names || "");
+        setVendors(data.vendors || "");
+        setSpecialRequests(data.special_requests || "");
 
-          if (data.questionnaire_data) {
-            try {
-              const qData =
-                typeof data.questionnaire_data === "string"
-                  ? JSON.parse(data.questionnaire_data)
-                  : data.questionnaire_data;
-              setQuestionnaireData((prev) => ({
-                ...prev,
-                ...qData,
-              }));
-            } catch (e) {
-              // Ignore
-            }
+        if (data.questionnaire_data) {
+          try {
+            const qData =
+              typeof data.questionnaire_data === "string"
+                ? JSON.parse(data.questionnaire_data)
+                : data.questionnaire_data;
+            setQuestionnaireData((prev) => ({
+              ...prev,
+              ...qData,
+            }));
+          } catch (e) {
+            // Ignore
           }
         }
 
@@ -685,6 +685,29 @@ export default function BridePortal() {
 
   const [currentStep, setCurrentStep] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
+  const [savingTimeline, setSavingTimeline] = useState(false);
+
+  const saveTimelineOnly = async () => {
+    if (!id) return;
+    try {
+      setSavingTimeline(true);
+      await api.saveWeddingQuestionnaireProgress(id, {
+        timeline: timelineEvents.map((e) => ({
+          ...e,
+          time: formatTime(e.time),
+        })) as any,
+      });
+      toast({ title: "Timeline saved" });
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Could not save the timeline",
+        description: err.message,
+      });
+    } finally {
+      setSavingTimeline(false);
+    }
+  };
 
   const handleSaveProgress = async () => {
     if (!id) return;
@@ -2200,6 +2223,76 @@ export default function BridePortal() {
                         </div>
                       </div>
                     )}
+                  </CardContent>
+                </Card>
+
+                <Card className="rounded-2xl shadow-sm border-[#c9a96e]/30 overflow-hidden bg-white">
+                  <CardHeader className="bg-[#f7f3ee]/50 border-b border-[#c9a96e]/20">
+                    <CardTitle
+                      className="text-[#1a1a1a]"
+                      style={{ fontFamily: "'DM Serif Display', serif" }}
+                    >
+                      Wedding Day Timeline
+                    </CardTitle>
+                    <CardDescription className="text-[#1a1a1a]/60">
+                      Update the day here. The same timeline is still in the questionnaire.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4 p-6">
+                    {timelineEvents.map((item, index) => (
+                      <div
+                        key={index}
+                        className="flex items-start gap-2 bg-[#faf7f2] p-3 rounded-lg border border-[#c9a96e]/20"
+                      >
+                        <Input
+                          type="time"
+                          className="w-1/3"
+                          value={item.time}
+                          onChange={(e) => {
+                            const next = [...timelineEvents];
+                            next[index] = { ...next[index], time: e.target.value };
+                            setTimelineEvents(next);
+                          }}
+                        />
+                        <Input
+                          className="flex-1"
+                          placeholder="e.g. Ceremony"
+                          value={item.event}
+                          onChange={(e) => {
+                            const next = [...timelineEvents];
+                            next[index] = { ...next[index], event: e.target.value };
+                            setTimelineEvents(next);
+                          }}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive shrink-0"
+                          onClick={() =>
+                            setTimelineEvents(timelineEvents.filter((_, i) => i !== index))
+                          }
+                          disabled={timelineEvents.length === 1}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setTimelineEvents([...timelineEvents, { time: "", event: "" }])
+                        }
+                      >
+                        <Plus className="h-4 w-4 mr-2" /> Add moment
+                      </Button>
+                      <Button type="button" size="sm" onClick={saveTimelineOnly} disabled={savingTimeline}>
+                        {savingTimeline ? "Saving..." : "Save timeline"}
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               </div>
