@@ -280,19 +280,28 @@ export default function BridePortal() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("jobs")
-        .select("role, event_id, assignments(contractor_id), wedding_events(title, event_type)")
+        .select("id, role, event_id, assignments(contractor_id)")
         .eq("wedding_id", id);
       if (error) return [];
-      return data || [];
+      const eventIds = (data || []).map((job: any) => job.event_id).filter(Boolean);
+      let titles: Record<string, string> = {};
+      if (eventIds.length) {
+        const { data: events } = await supabase
+          .from("wedding_events")
+          .select("id, title, event_type")
+          .in("id", eventIds);
+        titles = Object.fromEntries((events || []).map((event: any) => [event.id, event.title || event.event_type || "Extra date"]));
+      }
+      return (data || []).map((job: any) => ({ ...job, eventTitle: job.event_id ? titles[job.event_id] || "Extra date" : "" }));
     },
   });
   const dateLabel = (member: any) => {
-    const match = teamDates.find((job: any) =>
-      (job.assignments || []).some((a: any) => a.contractor_id === member.contractor?.id) &&
-      job.role === member.role,
+    const matches = teamDates.filter((job: any) =>
+      (job.assignments || []).some((a: any) => a.contractor_id === member.contractor?.id),
     );
-    if (!match?.event_id) return "Wedding day";
-    return match.wedding_events?.title || "Extra date";
+    const eventJob = matches.find((job: any) => job.event_id);
+    if (eventJob) return eventJob.eventTitle;
+    return "Wedding day";
   };
 
   const { data: messages = [] } = useQuery({
