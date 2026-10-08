@@ -114,7 +114,9 @@ export function SuperAdminAreaSwitcher() {
       setDefaultId(def);
       setAreas(rows);
       setValue(next);
-      if (saved && !inList) setSuperAdminViewTerritory(next);
+      // The dropdown already shows one area. Save it so the lists use that
+      // area on this load instead of every area.
+      if (!saved || !inList) setSuperAdminViewTerritory(next);
       if (cancelled) return;
     })();
     return () => {

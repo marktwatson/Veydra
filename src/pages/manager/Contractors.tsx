@@ -654,10 +654,13 @@ export default function ManagerContractors() {
   const queryClient = useQueryClient();
 
   const [territoryId, setTerritoryId] = useState<string | null>(null);
+  const [territoryReady, setTerritoryReady] = useState(false);
   useEffect(() => {
     let active = true;
     currentTerritoryId().then((id) => {
-      if (active) setTerritoryId(id);
+      if (!active) return;
+      setTerritoryId(id);
+      setTerritoryReady(true);
     });
     return () => {
       active = false;
@@ -667,6 +670,7 @@ export default function ManagerContractors() {
   const { data: contractors = [], isLoading } = useQuery({
     queryKey: ["contractors", territoryId],
     queryFn: () => api.getContractorsForTerritory(territoryId),
+    enabled: territoryReady,
   });
 
   const syncAttempted = useRef<Set<string>>(new Set());

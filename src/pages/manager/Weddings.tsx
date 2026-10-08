@@ -3070,10 +3070,13 @@ export default function ManagerWeddings() {
   const regions = Array.isArray(settings?.regions) ? settings.regions : [];
 
   const [territoryId, setTerritoryId] = useState<string | null>(null);
+  const [territoryReady, setTerritoryReady] = useState(false);
   useEffect(() => {
     let active = true;
     currentTerritoryId().then((id) => {
-      if (active) setTerritoryId(id);
+      if (!active) return;
+      setTerritoryId(id);
+      setTerritoryReady(true);
     });
     return () => {
       active = false;
@@ -3083,6 +3086,7 @@ export default function ManagerWeddings() {
   const { data: weddings = [], isLoading } = useQuery({
     queryKey: ["weddings", territoryId],
     queryFn: () => api.getWeddingsForTerritory(territoryId),
+    enabled: territoryReady,
   });
 
   const { data: jobs = [] } = useQuery({

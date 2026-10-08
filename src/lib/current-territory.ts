@@ -6,7 +6,9 @@ import { HONEYSUCKLE_TERRITORY_ID } from "./territory";
  * localStorage key holding the user's chosen "view area" for the main manager
  * lists (Weddings, Proposals, Contractors, Payment Audit).
  *
- *  - Super admin: any territory id, or absent → All Areas (no filter).
+ *  - Super admin: the picked view area. If nothing is saved yet, the first
+ *    area in the picker (same order as the header) is saved and used.
+ *    It does not load every area.
  *  - Multi-area manager (territory_ids has > 1 id): one of their allowed ids.
  *    Absent → their home territory_id.
  *
@@ -37,6 +39,21 @@ export function setSuperAdminViewTerritory(id: string | null): void {
     }
   } catch {
     /* ignore */
+  }
+}
+
+/** The first area in the header picker. Used when a super admin has not chosen one yet. */
+async function firstPickerTerritoryId(): Promise<string | null> {
+  try {
+    const { data, error } = await supabase
+      .from("territories")
+      .select("id")
+      .order("name")
+      .limit(1);
+    if (error) return null;
+    return data?.[0]?.id || null;
+  } catch {
+    return null;
   }
 }
 
@@ -176,8 +193,8 @@ export async function canSwitchAreas(): Promise<boolean> {
 /**
  * The territory the current logged-in user is scoped to.
  *
- *  - Super admin → the picked view area, or null meaning "All Areas"
- *    (manager list fetches must NOT filter).
+ *  - Super admin → the picked view area. Nothing saved yet becomes the
+ *    first area in the picker, and that choice is saved. Never null.
  *  - Multi-area manager → the saved switcher value if it is still in their
  *    allowed list, else their home territory_id. Never null.
  *  - Single-area manager → their territory_id (or Honeysuckle fallback).
@@ -196,8 +213,15 @@ export async function currentTerritoryId(): Promise<string | null> {
       ? impersonated.role === "super_admin"
       : isSuperAdminEmail(email);
 
-    // Super admin: respect the area picker. null = All Areas (no filter).
-    if (actingAsSuperAdmin) return getSuperAdminViewTerritory();
+    // Super admin: the header shows one area. Use that area. Do not treat
+    // a missing choice as every area, or the first numbers are a mix.
+    if (actingAsSuperAdmin) {
+      const saved = getSuperAdminViewTerritory();
+      if (saved) return saved;
+      const fallback = (await firstPickerTerritoryId()) || HONEYSUCKLE_TERRITORY_ID;
+      setSuperAdminViewTerritory(fallback);
+      return fallback;
+    }
 
     // Manager / owner: resolve from their managers row.
     const mgr = await loadManagerTerritory();
