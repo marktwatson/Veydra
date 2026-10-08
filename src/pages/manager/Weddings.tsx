@@ -143,6 +143,7 @@ import { useBartendingModule } from "@/hooks/use-bartending-module";
 import { ChangePendingBadge } from "@/components/ChangePendingBadge";
 import { WeddingActionsMenu } from "@/components/WeddingActionsMenu";
 import { OnDeckTab } from "@/components/OnDeckTab";
+import { ReviewWeddingDialog } from "@/components/ReviewWeddingDialog";
 import { WeddingChecklist } from "@/components/WeddingChecklist";
 import { VIDEO_PRICING, PACKAGES, ADDONS } from "@/lib/wedding-constants";
 import {
