@@ -145,9 +145,10 @@ function BrideEventPage({ event }: { event: any }) {
   const [notes, setNotes] = useState(event.day_questions || "");
   const save = async () => {
     const timeline = rows.filter((r) => r.time || r.moment).map((r) => `${r.time} ${r.moment}`.trim()).join("\n");
+    const answers = [`People: ${people}`, notes].filter(Boolean).join("\n");
     const { error } = await supabase
       .from("wedding_events")
-      .update({ timeline_notes: timeline, day_questions: notes, venue: place })
+      .update({ timeline_notes: timeline, day_questions: answers, venue: place })
       .eq("id", event.id);
     if (error) toast({ variant: "destructive", title: "Could not save this date", description: error.message });
     else toast({ title: "Saved for this date" });
