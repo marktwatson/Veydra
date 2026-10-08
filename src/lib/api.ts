@@ -549,6 +549,7 @@ async function sendJobAlerts(
   date: string,
   settings: any,
   contractorIds?: string[],
+  kind?: string,
 ) {
   const weddingRegions = parseRegionsArray(weddingRegionArg);
   const { data: rawContractors } = await supabase
@@ -714,7 +715,9 @@ async function sendJobAlerts(
       await supabase.from("notifications").insert({
         contractor_id: contractor.id,
         title: "New Job Available",
-        message: `A new ${job.role} position is open for a wedding in ${location}.`,
+        message: kind
+          ? `A new ${job.role} position is open for ${kind} in ${location}.`
+          : `A new ${job.role} position is open for a wedding in ${location}.`,
         type: "position",
         read: false,
       });
@@ -4445,7 +4448,11 @@ export const api = {
     return data;
   },
 
-  async resendJobAlerts(id: string, contractorIds?: string[]) {
+  async resendJobAlerts(
+    id: string,
+    contractorIds?: string[],
+    overrides?: { location?: string; date?: string; kind?: string },
+  ) {
     const { data: job, error: jobError } = await supabase
       .from("jobs")
       .select("*, weddings(location, region, date)")
@@ -4456,9 +4463,10 @@ export const api = {
       throw new Error("Job must be open to send alerts");
     job.addons = parseAddons(job.addons);
 
-    const location = (job.weddings as any)?.location || "";
+    const location =
+      overrides?.location || (job.weddings as any)?.location || "";
     const weddingRegion = (job.weddings as any)?.region;
-    const date = (job.weddings as any)?.date || "";
+    const date = overrides?.date || (job.weddings as any)?.date || "";
 
     const settings = await getScopedPortalSettingsFull({
       weddingId: job.wedding_id,
@@ -4490,6 +4498,7 @@ export const api = {
       date,
       settings,
       contractorIds,
+      overrides?.kind,
     );
   },
 
@@ -4911,12 +4920,20 @@ export const api = {
 
     if (data.contractor_id) {
       // Get job info for the notification and failsafe
-      const { data: job } = await supabase
+      const withEvent = await supabase
         .from("jobs")
-        .select("role, wedding_id")
+        .select("role, wedding_id, event_id")
         .eq("id", data.job_id)
         .single();
-      const role = job?.role || "job";
+      const plain = withEvent.error
+        ? await supabase
+            .from("jobs")
+            .select("role, wedding_id")
+            .eq("id", data.job_id)
+            .single()
+        : null;
+      const job = withEvent.error ? plain?.data : withEvent.data;
+      let role = job?.role || "job";
 
       let location = "a location";
       let date = "TBD";
@@ -4934,6 +4951,22 @@ export const api = {
           }
         } catch (e) {
           console.error("Failed to fetch wedding details for assignment", e);
+        }
+      }
+
+      if (job?.event_id) {
+        const { data: eventDay } = await supabase
+          .from("wedding_events")
+          .select("title, event_date, venue, address, location")
+          .eq("id", job.event_id)
+          .maybeSingle();
+        if (eventDay) {
+          const place = [eventDay.venue, eventDay.address, eventDay.location]
+            .filter(Boolean)
+            .join(", ");
+          if (place) location = place;
+          if (eventDay.event_date) date = eventDay.event_date;
+          if (eventDay.title) role = `${role} for ${eventDay.title}`;
         }
       }
 

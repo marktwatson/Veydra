@@ -906,7 +906,39 @@ export default function AssignmentDetail() {
                 <p className="whitespace-pre-wrap">
                   {eventDay.timeline_notes || "No timeline for this date yet."}
                 </p>
-                <p className="whitespace-pre-wrap">{eventDay.day_questions}</p>
+                {(() => {
+                  let parsed: any = null;
+                  try {
+                    parsed = JSON.parse(eventDay.day_questions || "");
+                  } catch {
+                    parsed = null;
+                  }
+                  if (parsed && typeof parsed === "object") {
+                    const rows = [
+                      ["Who is coming", parsed.people],
+                      ["Outfits", parsed.outfits],
+                      ["Setting", parsed.setting],
+                      ["Must-have shots", parsed.mustHaves],
+                      ["Guest count", parsed.guestCount],
+                      ["Bar start", parsed.barStart],
+                      ["Bar end", parsed.barEnd],
+                      ["Alcohol", parsed.alcohol],
+                      ["Moments", parsed.moments],
+                      ["Notes", parsed.notes],
+                    ].filter(([, value]) => value);
+                    if (rows.length === 0) return null;
+                    return rows.map(([label, value]) => (
+                      <p key={label}>
+                        <span className="text-muted-foreground">{label}</span>
+                        <br />
+                        {value}
+                      </p>
+                    ));
+                  }
+                  return eventDay.day_questions ? (
+                    <p className="whitespace-pre-wrap">{eventDay.day_questions}</p>
+                  ) : null;
+                })()}
               </CardContent>
             </Card>
           )}

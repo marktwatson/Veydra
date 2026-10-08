@@ -311,7 +311,18 @@ export default function PostProductionTable() {
   ]);
 
   const sortedRows = useMemo(() => {
-    const events = earlyEvents.map((event: any) => ({
+    const events = earlyEvents
+      .filter((event: any) => {
+        const name = `${event.weddings?.client_name || ""} ${event.title || event.event_type || ""}`.toLowerCase();
+        const matchesSearch = !searchQuery || name.includes(searchQuery.toLowerCase());
+        const status = event.edit_status || "awaiting_raw_media";
+        const matchesStatus = statusFilter === "all" || status === statusFilter;
+        const matchesEditor =
+          editorFilter === "all" ||
+          (editorFilter === "unassigned" ? !event.editor_id : event.editor_id === editorFilter);
+        return matchesSearch && matchesStatus && matchesEditor;
+      })
+      .map((event: any) => ({
       ...event,
       _event: true,
       date: event.event_date,
@@ -338,7 +349,7 @@ export default function PostProductionTable() {
       return 0;
     });
     return rows;
-  }, [filteredWeddings, earlyEvents, sortColumn, sortDirection]);
+  }, [filteredWeddings, earlyEvents, sortColumn, sortDirection, searchQuery, statusFilter, editorFilter]);
 
   const totalPages = Math.ceil(sortedRows.length / itemsPerPage);
   const paginatedWeddings = sortedRows.slice(

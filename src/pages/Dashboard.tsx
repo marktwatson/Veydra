@@ -488,7 +488,7 @@ export default function Dashboard() {
       if (eventIds.length === 0) return rows;
       const { data: events } = await supabase
         .from("wedding_events")
-        .select("id, title, event_date")
+        .select("id, title, event_date, venue, address, location")
         .in("id", eventIds);
       const byId = Object.fromEntries((events || []).map((event: any) => [event.id, event]));
       return rows.map((row: any) => {
@@ -501,6 +501,9 @@ export default function Dashboard() {
             weddings: {
               ...row.jobs.weddings,
               date: event.event_date,
+              location:
+                [event.venue, event.address, event.location].filter(Boolean).join(", ") ||
+                "Location not set",
               client_name: `${row.jobs.weddings.client_name || "Wedding"} · ${event.title || "Extra date"}`,
             },
           },

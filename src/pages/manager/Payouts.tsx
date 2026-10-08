@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 import { currentTerritoryId } from "@/lib/current-territory";
 import {
   Card,
@@ -69,6 +70,37 @@ export default function ManagerPayouts() {
     queryKey: ["assignments"],
     queryFn: api.getAssignments,
   });
+
+  const { data: eventTitleByJob = {} } = useQuery({
+    queryKey: ["payout-event-titles", assignments.map((a: any) => a.jobs?.id).filter(Boolean).join(",")],
+    enabled: assignments.length > 0,
+    queryFn: async () => {
+      const jobIds = assignments.map((a: any) => a.jobs?.id).filter(Boolean);
+      const { data: jobRows, error } = await supabase
+        .from("jobs")
+        .select("id, event_id")
+        .in("id", jobIds);
+      if (error || !jobRows) return {};
+      const eventIds = jobRows.map((job: any) => job.event_id).filter(Boolean);
+      if (eventIds.length === 0) return {};
+      const { data: events } = await supabase
+        .from("wedding_events")
+        .select("id, title")
+        .in("id", eventIds);
+      const titles = Object.fromEntries((events || []).map((event: any) => [event.id, event.title]));
+      const byJob: Record<string, string> = {};
+      jobRows.forEach((job: any) => {
+        if (job.event_id && titles[job.event_id]) byJob[job.id] = titles[job.event_id];
+      });
+      return byJob;
+    },
+  });
+
+  const payoutName = (assignment: any) => {
+    const client = assignment.jobs?.weddings?.client_name || "Wedding";
+    const eventTitle = eventTitleByJob[assignment.jobs?.id];
+    return eventTitle ? `${client} · ${eventTitle}` : client;
+  };
 
   const { data: territoryId } = useQuery({
     queryKey: ["current-territory"],
@@ -143,7 +175,7 @@ export default function ManagerPayouts() {
           await api.processStripePayout(
             amount,
             stripeAccountId,
-            `Payout for ${assignment.jobs?.weddings?.client_name || "Wedding"} - ${assignment.jobs?.role || "Job"}`,
+            `Payout for ${payoutName(assignment)} - ${assignment.jobs?.role || "Job"}`,
             idempotencyKey,
           );
         }
@@ -185,7 +217,7 @@ export default function ManagerPayouts() {
               venmo_handle: assignment.contractors?.venmo_handle,
               stripe_account_id: assignment.contractors?.stripe_account_id,
               payment_method: paymentMethod,
-              wedding_name: assignment.jobs?.weddings?.client_name,
+              wedding_name: payoutName(assignment),
               role: assignment.jobs?.role,
             };
             fetch(webhookUrl, {
@@ -373,7 +405,7 @@ export default function ManagerPayouts() {
                     )}
                   </div>
                 </TableCell>
-                <TableCell>{wedding?.client_name}</TableCell>
+                <TableCell>{eventTitleByJob[job?.id] ? `${wedding?.client_name} · ${eventTitleByJob[job.id]}` : wedding?.client_name}</TableCell>
                 <TableCell>{job?.role}</TableCell>
                 <TableCell className="text-right font-bold text-green-600 dark:text-green-500">
                   ${total}

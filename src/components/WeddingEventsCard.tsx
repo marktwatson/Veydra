@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -100,6 +101,18 @@ function EventFile({ event, weddingId, territoryId }: any) {
           contractor_id: contractorId,
           status: "Upcoming",
         });
+      } else {
+        const place = [venue, address, event.location].filter(Boolean).join(", ");
+        const kind = event.title || "an extra date";
+        try {
+          await api.resendJobAlerts(job.id, undefined, {
+            location: place || undefined,
+            date: eventDate || event.event_date || undefined,
+            kind,
+          });
+        } catch (alertError) {
+          console.error("Event job alert failed", alertError);
+        }
       }
     },
     onSuccess: () => {
