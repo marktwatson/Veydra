@@ -9,6 +9,7 @@ type Item = {
   label: string;
   done: boolean;
   manual?: boolean;
+  hint: string;
 };
 
 function hasText(value: any): boolean {
@@ -119,29 +120,31 @@ export function WeddingChecklist({ wedding }: { wedding: any }) {
     {
       title: "Booked",
       items: [
-        { id: "contract", label: "Contract signed", done: contractSigned },
-        { id: "deposit", label: "A payment is on the wedding", done: paid },
+        { id: "contract", label: "Contract signed", done: contractSigned, hint: "The bride signs on the proposal. This checks itself when the contract is signed." },
+        { id: "deposit", label: "A payment is on the wedding", done: paid, hint: "A paid invoice has to land on this wedding. This checks itself when money is recorded." },
         {
           id: "reviewed_hours",
           label: "Package hours reviewed",
           done: !!saved.reviewed_hours,
           manual: true,
+          hint: "Open the booked package and confirm the photo and video hours, then check this yourself.",
         },
       ],
     },
     {
       title: "Publish",
       items: [
-        { id: "published", label: "Wedding published", done: published },
-        { id: "date", label: "Date is set", done: !!wedding?.date },
-        { id: "place", label: "Location is set", done: !!String(wedding?.location || "").trim() },
-        { id: "region", label: "Region is set", done: region },
-        { id: "positions", label: "Positions exist", done: weddingJobs.length > 0 },
+        { id: "published", label: "Wedding published", done: published, hint: "Publish the wedding from the weddings list. Draft and pending do not count." },
+        { id: "date", label: "Date is set", done: !!wedding?.date, hint: "Put the wedding date on the Details tab." },
+        { id: "place", label: "Location is set", done: !!String(wedding?.location || "").trim(), hint: "Put the venue or address on the Details tab." },
+        { id: "region", label: "Region is set", done: region, hint: "Choose the region on the Details tab so the right contractors can see the jobs." },
+        { id: "positions", label: "Positions exist", done: weddingJobs.length > 0, hint: "Add the photo and video positions on the Positions tab." },
         {
           id: "alerts_sent",
           label: "Job alerts sent",
           done: !!saved.alerts_sent,
           manual: true,
+          hint: "Use Resend alerts on each open position, then check this yourself.",
         },
       ],
     },
@@ -155,11 +158,13 @@ export function WeddingChecklist({ wedding }: { wedding: any }) {
             id: `filled-${job.id}`,
             label: name ? `${job.role} · ${name}` : `${job.role || "Position"} filled`,
             done: !!assignment?.contractor_id,
+            hint: "Assign someone on the Positions tab. This checks itself when a person is on the job.",
           },
           {
             id: `confirmed-${job.id}`,
             label: `${name || job.role || "Contractor"} confirmed`,
             done: !!assignment?.attendance_confirmed,
+            hint: "The contractor confirms attendance in their own portal. This checks itself when they do.",
           },
         ];
       }),
@@ -167,16 +172,17 @@ export function WeddingChecklist({ wedding }: { wedding: any }) {
     {
       title: "Before the day",
       items: [
-        { id: "questionnaire", label: "Questionnaire is in", done: questionnaire },
-        { id: "timeline", label: "Timeline is filled in", done: realTimeline(wedding?.timeline) },
+        { id: "questionnaire", label: "Questionnaire is in", done: questionnaire, hint: "The bride fills this in on her portal. An empty form does not count." },
+        { id: "timeline", label: "Timeline is filled in", done: realTimeline(wedding?.timeline), hint: "The bride adds the real timeline on her portal. The placeholder row does not count." },
         ...(videoWork
-          ? [{ id: "songs", label: "Highlight songs are in", done: songs || !!wedding?.songs_submitted_at }]
+          ? [{ id: "songs", label: "Highlight songs are in", done: songs || !!wedding?.songs_submitted_at, hint: "The bride submits highlight songs on her portal." }]
           : []),
         {
           id: "call_sheet_sent",
           label: "Call sheet sent",
           done: !!saved.call_sheet_sent,
           manual: true,
+          hint: "Send the call sheet to the assigned team, then check this yourself.",
         },
       ],
     },
@@ -187,20 +193,23 @@ export function WeddingChecklist({ wedding }: { wedding: any }) {
           id: "raw",
           label: "Raw media is linked",
           done: !!(wedding?.drive_link || wedding?.upload_link),
+          hint: "Add the drive or upload link on this wedding.",
         },
-        { id: "editor", label: "Editor is assigned", done: !!wedding?.editor_id },
-        { id: "due", label: "Edit due date is set", done: !!wedding?.editor_due_date },
+        { id: "editor", label: "Editor is assigned", done: !!wedding?.editor_id, hint: "Assign an editor in Post Production." },
+        { id: "due", label: "Edit due date is set", done: !!wedding?.editor_due_date, hint: "Set the editor due date in Post Production." },
         {
           id: "delivery",
           label: "Gallery or film link is in",
           done: !!(wedding?.gallery_link || wedding?.vimeo_link || wedding?.youtube_link),
+          hint: "Add the gallery, Vimeo, or YouTube link when the edit is delivered.",
         },
         {
           id: "editor-invoice",
           label: "Editor invoice sent",
           done: /sent|paid|invoic/i.test(String(wedding?.editor_invoice_status || "")),
+          hint: "The editor sends the invoice from their pipeline after the edit is delivered.",
         },
-        { id: "balance", label: "Balance is paid", done: paidFull },
+        { id: "balance", label: "Balance is paid", done: paidFull, hint: "The remaining balance has to be recorded on the wedding." },
       ],
     },
   ];
@@ -209,16 +218,18 @@ export function WeddingChecklist({ wedding }: { wedding: any }) {
     const eventJobs = jobs.filter((job: any) => job.event_id === event.id);
     const title = event.title || "Extra date";
     const items: Item[] = [
-      { id: `event-date-${event.id}`, label: `${title} date is set`, done: !!event.event_date },
+      { id: `event-date-${event.id}`, label: `${title} date is set`, done: !!event.event_date, hint: "Set the date on the Events tab." },
       {
         id: `event-place-${event.id}`,
         label: `${title} location is set`,
         done: !!(event.venue || event.address || event.location),
+        hint: "Add the venue or address on the Events tab.",
       },
       {
         id: `event-details-${event.id}`,
         label: `${title} questions or timeline are in`,
         done: hasText(event.day_questions) || hasText(event.timeline_notes),
+        hint: "The bride fills the questions for this date on her portal.",
       },
     ];
     for (const job of eventJobs) {
@@ -228,23 +239,26 @@ export function WeddingChecklist({ wedding }: { wedding: any }) {
         id: `event-filled-${job.id}`,
         label: name ? `${title} · ${job.role} · ${name}` : `${title} · ${job.role || "Position"} filled`,
         done: !!assignment?.contractor_id,
+        hint: "Assign this date's position on the Events tab.",
       });
       items.push({
         id: `event-confirmed-${job.id}`,
         label: `${title} · ${name || job.role || "Contractor"} confirmed`,
         done: !!assignment?.attendance_confirmed,
+        hint: "That contractor confirms this date in their portal.",
       });
     }
     if (event.needs_early_edit) {
       const details = event.edit_details || {};
       items.push(
-        { id: `event-editor-${event.id}`, label: `${title} editor assigned`, done: !!event.editor_id },
-        { id: `event-due-${event.id}`, label: `${title} edit due date set`, done: !!event.edit_due_date },
-        { id: `event-raw-${event.id}`, label: `${title} raw media linked`, done: !!event.drive_link },
+        { id: `event-editor-${event.id}`, label: `${title} editor assigned`, done: !!event.editor_id, hint: "Assign the editor on this date's row in Post Production." },
+        { id: `event-due-${event.id}`, label: `${title} edit due date set`, done: !!event.edit_due_date, hint: "Set the due date on this date's edit in Post Production." },
+        { id: `event-raw-${event.id}`, label: `${title} raw media linked`, done: !!event.drive_link, hint: "Add the raw media link on this date's edit." },
         {
           id: `event-invoice-${event.id}`,
           label: `${title} editor invoice sent`,
           done: /sent|paid|invoic/i.test(String(details.invoice_status || "")),
+          hint: "The editor sends this date's invoice from their pipeline.",
         },
       );
     }
@@ -262,6 +276,7 @@ export function WeddingChecklist({ wedding }: { wedding: any }) {
       .update({ manager_checklist })
       .eq("id", wedding.id);
     if (error) {
+      setManual(saved);
       toast({
         variant: "destructive",
         title: "Could not save that check",
@@ -288,18 +303,21 @@ export function WeddingChecklist({ wedding }: { wedding: any }) {
             </p>
             <div className="rounded-lg border divide-y">
               {group.items.map((item) => (
-                <label
-                  key={item.id}
-                  className="flex items-center gap-3 px-3 py-2 text-sm"
-                >
+                <label key={item.id} className="flex items-start gap-3 px-3 py-2 text-sm">
                   <Checkbox
+                    className="mt-0.5"
                     checked={item.done}
                     disabled={!item.manual}
                     onCheckedChange={(value) => {
                       if (item.manual) toggle(item.id, value === true);
                     }}
                   />
-                  <span className={item.done ? "text-muted-foreground" : ""}>{item.label}</span>
+                  <span className="min-w-0">
+                    <span className={item.done ? "text-muted-foreground" : ""}>{item.label}</span>
+                    {!item.done && (
+                      <span className="mt-0.5 block text-xs text-muted-foreground">{item.hint}</span>
+                    )}
+                  </span>
                   {!item.manual && (
                     <span className="ml-auto text-[10px] uppercase tracking-wide text-muted-foreground">
                       Auto
