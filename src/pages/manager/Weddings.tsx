@@ -354,6 +354,17 @@ function ImportWeddingsDialog() {
 
 // ReviewWeddingDialog extracted to src/components/ReviewWeddingDialog.tsx
 
+function questionnaireHasAnswers(data: any): boolean {
+  if (!data || typeof data !== "object") return false;
+  const walk = (value: any): boolean => {
+    if (typeof value === "string") return value.trim().length > 0;
+    if (Array.isArray(value)) return value.some(walk);
+    if (value && typeof value === "object") return Object.values(value).some(walk);
+    return false;
+  };
+  return walk(data);
+}
+
 export function ManageWeddingSheet({
   wedding,
   trigger,
@@ -769,7 +780,11 @@ export function ManageWeddingSheet({
         vip_names: vipNames,
         vendors,
         special_requests: specialRequests,
-        questionnaire_data: questionnaireData,
+        questionnaire_data: questionnaireHasAnswers(questionnaireData)
+          ? questionnaireData
+          : questionnaireHasAnswers(wedding.questionnaire_data)
+            ? wedding.questionnaire_data
+            : questionnaireData,
         status,
         stripe_customer_id: stripeCustomerId || null,
         stripe_subscription_id: stripeSubscriptionId || null,

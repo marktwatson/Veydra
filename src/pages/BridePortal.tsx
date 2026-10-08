@@ -265,6 +265,17 @@ function BrideEventPages({ weddingId }: { weddingId: string }) {
   );
 }
 
+function questionnaireHasAnswers(data: any): boolean {
+  if (!data || typeof data !== "object") return false;
+  const walk = (value: any): boolean => {
+    if (typeof value === "string") return value.trim().length > 0;
+    if (Array.isArray(value)) return value.some(walk);
+    if (value && typeof value === "object") return Object.values(value).some(walk);
+    return false;
+  };
+  return walk(data);
+}
+
 export default function BridePortal() {
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
@@ -721,7 +732,9 @@ export default function BridePortal() {
         vip_names: vipNames,
         vendors,
         special_requests: specialRequests,
-        questionnaire_data: questionnaireData,
+        ...(questionnaireHasAnswers(questionnaireData)
+          ? { questionnaire_data: questionnaireData }
+          : {}),
       });
       toast({
         title: "Progress Saved",
@@ -743,6 +756,14 @@ export default function BridePortal() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!id) return;
+    if (!questionnaireHasAnswers(questionnaireData)) {
+      toast({
+        variant: "destructive",
+        title: "Questionnaire looks blank",
+        description: "Nothing was saved, so existing answers were left alone.",
+      });
+      return;
+    }
 
     try {
       setSubmitting(true);
