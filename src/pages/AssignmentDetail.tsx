@@ -79,7 +79,7 @@ export default function AssignmentDetail() {
           .select(
             `
             *,
-            jobs (id, status, role, pay_rate, hours, addons, contractor_todos, wedding_id, territory_id, weddings(client_name, date, location, region, timeline, vip_names, vendors, special_requests, questionnaire_data, questionnaire_completed, drive_link, upload_link, is_lgbtq, territory_id)),
+            jobs (id, status, role, pay_rate, hours, addons, contractor_todos, wedding_id, territory_id, event_id, weddings(client_name, date, location, region, timeline, vip_names, vendors, special_requests, questionnaire_data, questionnaire_completed, drive_link, upload_link, is_lgbtq, territory_id)),
             contractors (first_name, last_name, email, venmo_handle, stripe_account_id)
           `,
           )
@@ -105,6 +105,19 @@ export default function AssignmentDetail() {
   const assignment = assignments.find((a: any) => a.id === id);
   const job = assignment?.jobs;
   const wedding = job?.weddings;
+  const { data: eventDay } = useQuery({
+    queryKey: ["assignment-event-day", job?.event_id],
+    enabled: !!job?.event_id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("wedding_events")
+        .select("title, event_type, event_date, venue, address, timeline_notes, day_questions")
+        .eq("id", job.event_id)
+        .maybeSingle();
+      if (error) return null;
+      return data;
+    },
+  });
   const currentUser = contractors.find(
     (c) => c.email?.trim().toLowerCase() === user?.email?.trim().toLowerCase(),
   );
@@ -859,6 +872,26 @@ export default function AssignmentDetail() {
             </Card>
           )}
 
+          {eventDay && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{eventDay.title || "This date"}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <p>
+                  {eventDay.event_date}
+                  {eventDay.venue ? ` · ${eventDay.venue}` : ""}
+                </p>
+                <p>{eventDay.address}</p>
+                <p className="whitespace-pre-wrap">
+                  {eventDay.timeline_notes || "No timeline for this date yet."}
+                </p>
+                <p className="whitespace-pre-wrap">{eventDay.day_questions}</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {!eventDay && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -907,8 +940,9 @@ export default function AssignmentDetail() {
               )}
             </CardContent>
           </Card>
+          )}
 
-          {(vip_names || vendors || special_requests) && (
+          {!eventDay && (vip_names || vendors || special_requests) && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -949,7 +983,7 @@ export default function AssignmentDetail() {
             </Card>
           )}
 
-          {wedding.questionnaire_data && (
+          {!eventDay && wedding.questionnaire_data && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">

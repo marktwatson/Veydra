@@ -17,7 +17,8 @@ const EVENT_TYPES = [
 function EventFile({ event, weddingId, territoryId }: any) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [notes, setNotes] = useState(event.notes || "");
+  const [timeline, setTimeline] = useState(event.timeline_notes || "");
+  const [questions, setQuestions] = useState(event.day_questions || "");
   const [venue, setVenue] = useState(event.venue || "");
   const [address, setAddress] = useState(event.address || event.location || "");
   const [earlyEdit, setEarlyEdit] = useState(!!event.needs_early_edit);
@@ -57,7 +58,15 @@ function EventFile({ event, weddingId, territoryId }: any) {
     mutationFn: async () => {
       const { error } = await supabase
         .from("wedding_events")
-        .update({ notes, needs_early_edit: earlyEdit })
+        .update({
+          notes,
+          needs_early_edit: earlyEdit,
+          venue,
+          address,
+          location: address,
+          timeline_notes: timeline,
+          day_questions: questions,
+        })
         .eq("id", event.id);
       if (error) throw error;
     },
@@ -191,6 +200,9 @@ function EventFile({ event, weddingId, territoryId }: any) {
         <Label>Venue and address</Label>
         <Input value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="Venue name" />
         <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Street, city, state" />
+        <Label>This date only</Label>
+        <Input value={timeline} onChange={(e) => setTimeline(e.target.value)} placeholder="Timeline, one line per moment" />
+        <Input value={questions} onChange={(e) => setQuestions(e.target.value)} placeholder="Questions for this day's crew" />
         <Label>Notes</Label>
         <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Timing, wardrobe, location notes" />
         <label className="flex items-center gap-2 text-sm">
@@ -225,7 +237,7 @@ export function WeddingEventsCard({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("wedding_events")
-        .select("id, event_type, title, event_date, location, venue, address, notes, needs_early_edit")
+        .select("id, event_type, title, event_date, location, venue, address, notes, needs_early_edit, timeline_notes, day_questions")
         .eq("wedding_id", weddingId)
         .order("event_date", { ascending: true });
       if (error) throw error;
