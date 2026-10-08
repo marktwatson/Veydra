@@ -467,8 +467,24 @@ export default function Dashboard() {
   });
 
   const { data: assignments = [], isLoading: loadingAssignments } = useQuery({
-    queryKey: ["assignments"],
-    queryFn: api.getAssignments,
+    queryKey: ["my-home-assignments", user?.id, user?.email],
+    enabled: !!user?.email,
+    queryFn: async () => {
+      let contractorId = user?.role === "contractor" ? user.id : null;
+      if (!contractorId) {
+        const row = await getContractorByEmail(user?.email || "");
+        contractorId = row?.id || null;
+      }
+      if (!contractorId) return [];
+      const { data, error } = await supabase
+        .from("assignments")
+        .select(
+          "*, jobs(id, status, role, pay_rate, hours, addons, wedding_id, territory_id, weddings(client_name, date, location, region, status, territory_id))",
+        )
+        .eq("contractor_id", contractorId);
+      if (error) throw error;
+      return data || [];
+    },
   });
 
   const { data: applications = [], isLoading: loadingApps } = useQuery({
