@@ -366,7 +366,7 @@ export default function ManagerMessages() {
     chatType === "contractors" ? sortedContractors : sortedClients;
 
   return (
-    <div className="flex-1 flex flex-col space-y-4 min-h-0">
+    <div className="flex min-h-0 flex-1 flex-col space-y-4 max-md:fixed max-md:inset-x-0 max-md:bottom-16 max-md:top-16 max-md:z-20 max-md:bg-background max-md:px-2 max-md:pt-3">
       <div
         className={cn(
           "flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between",
@@ -383,11 +383,11 @@ export default function ManagerMessages() {
         </div>
       </div>
 
-      <Card className="flex-1 overflow-hidden grid lg:grid-cols-3 xl:grid-cols-4">
+      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden lg:grid lg:grid-cols-3 xl:grid-cols-4">
         {/* Sidebar */}
         <div
           className={cn(
-            "border-r flex flex-col h-full col-span-1",
+            "min-h-0 flex-1 flex-col border-r lg:h-full lg:flex-none",
             selectedContractorId ? "hidden lg:flex" : "flex",
           )}
         >
@@ -522,7 +522,7 @@ export default function ManagerMessages() {
         {/* Chat Area */}
         <div
           className={cn(
-            "col-span-1 lg:col-span-2 xl:col-span-3 flex flex-col min-w-0 overflow-hidden",
+            "min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:col-span-2 xl:col-span-3",
             !selectedContractorId
               ? "hidden lg:flex lg:h-full lg:bg-muted/10"
               : "flex h-full lg:bg-muted/10 bg-background lg:bg-transparent",
@@ -619,7 +619,7 @@ export default function ManagerMessages() {
                           className={`flex group ${isMine ? "justify-end" : "justify-start"}`}
                         >
                           {isMine && (
-                            <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity mr-2">
+                            <div className="mr-2 flex items-center opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -655,7 +655,7 @@ export default function ManagerMessages() {
                             </span>
                           </div>
                           {!isMine && (
-                            <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity ml-2">
+                            <div className="ml-2 flex items-center opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
                               <Button
                                 variant="ghost"
                                 size="icon"
