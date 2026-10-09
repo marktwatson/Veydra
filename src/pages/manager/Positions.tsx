@@ -462,8 +462,8 @@ export default function PositionsTab() {
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 py-4">
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="weddingId" className="text-right">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                  <Label htmlFor="weddingId" className="text-left sm:text-right">
                     Wedding
                   </Label>
                   <div className="col-span-3">
@@ -481,8 +481,8 @@ export default function PositionsTab() {
                     </Select>
                   </div>
                 </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="role" className="text-right">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                  <Label htmlFor="role" className="text-left sm:text-right">
                     Role
                   </Label>
                   <div className="col-span-3">
@@ -520,8 +520,8 @@ export default function PositionsTab() {
                     </Select>
                   </div>
                 </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="hours" className="text-right">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                  <Label htmlFor="hours" className="text-left sm:text-right">
                     Hours
                   </Label>
                   <Input
@@ -537,8 +537,8 @@ export default function PositionsTab() {
                     }
                   />
                 </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="pay_type" className="text-right">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                  <Label htmlFor="pay_type" className="text-left sm:text-right">
                     Pay Type
                   </Label>
                   <div className="col-span-3">
@@ -559,9 +559,9 @@ export default function PositionsTab() {
                   </div>
                 </div>
                 {newPayType === "flat" && (
-                  <div className="grid grid-cols-4 items-center gap-4">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
                     <div className="flex items-center justify-end gap-1">
-                      <Label htmlFor="rate" className="text-right">
+                      <Label htmlFor="rate" className="text-left sm:text-right">
                         Pay Rate ($)
                       </Label>
                       <Tooltip>
@@ -600,8 +600,8 @@ export default function PositionsTab() {
                     />
                   </div>
                 )}
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="requirements" className="text-right">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                  <Label htmlFor="requirements" className="text-left sm:text-right">
                     Requirements
                   </Label>
                   <Input
@@ -611,8 +611,8 @@ export default function PositionsTab() {
                     className="col-span-3"
                   />
                 </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="drone_required" className="text-right">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                  <Label htmlFor="drone_required" className="text-left sm:text-right">
                     Requires Drone
                   </Label>
                   <div className="col-span-3 flex items-center space-x-2">
@@ -629,7 +629,7 @@ export default function PositionsTab() {
                     </Label>
                   </div>
                 </div>
-                <div className="grid grid-cols-4 items-start gap-4">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-start sm:gap-4">
                   <Label className="text-right pt-2">Addons</Label>
                   <div className="col-span-3 space-y-2">
                     {ADDON_OPTIONS.map((addon) => (
@@ -881,8 +881,8 @@ export default function PositionsTab() {
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="edit-weddingId" className="text-right">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                <Label htmlFor="edit-weddingId" className="text-left sm:text-right">
                   Wedding
                 </Label>
                 <div className="col-span-3">
@@ -904,8 +904,8 @@ export default function PositionsTab() {
                   </Select>
                 </div>
               </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="edit-role" className="text-right">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                <Label htmlFor="edit-role" className="text-left sm:text-right">
                   Role
                 </Label>
                 <div className="col-span-3">
@@ -943,8 +943,8 @@ export default function PositionsTab() {
                   </Select>
                 </div>
               </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="edit-hours" className="text-right">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                <Label htmlFor="edit-hours" className="text-left sm:text-right">
                   Hours
                 </Label>
                 <Input
@@ -960,8 +960,8 @@ export default function PositionsTab() {
                   className="col-span-3"
                 />
               </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="edit_pay_type" className="text-right">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                <Label htmlFor="edit_pay_type" className="text-left sm:text-right">
                   Pay Type
                 </Label>
                 <div className="col-span-3">
@@ -982,9 +982,9 @@ export default function PositionsTab() {
                 </div>
               </div>
               {true && (
-                <div className="grid grid-cols-4 items-center gap-4">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
                   <div className="flex items-center justify-end gap-1">
-                    <Label htmlFor="edit-rate" className="text-right">
+                    <Label htmlFor="edit-rate" className="text-left sm:text-right">
                       {editPayType === "bidding"
                         ? editingJob?.status === "filled"
                           ? "Approved Bid ($)"
@@ -1029,8 +1029,8 @@ export default function PositionsTab() {
                   />
                 </div>
               )}
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="edit-status" className="text-right">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                <Label htmlFor="edit-status" className="text-left sm:text-right">
                   Status
                 </Label>
                 <div className="col-span-3">
@@ -1051,8 +1051,8 @@ export default function PositionsTab() {
                   </Select>
                 </div>
               </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="edit-requirements" className="text-right">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                <Label htmlFor="edit-requirements" className="text-left sm:text-right">
                   Requirements
                 </Label>
                 <Input
@@ -1063,8 +1063,8 @@ export default function PositionsTab() {
                   className="col-span-3"
                 />
               </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="edit-drone_required" className="text-right">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                <Label htmlFor="edit-drone_required" className="text-left sm:text-right">
                   Requires Drone
                 </Label>
                 <div className="col-span-3 flex items-center space-x-2">
@@ -1081,7 +1081,7 @@ export default function PositionsTab() {
                   </Label>
                 </div>
               </div>
-              <div className="grid grid-cols-4 items-start gap-4">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-start sm:gap-4">
                 <Label className="text-right pt-2">Addons</Label>
                 <div className="col-span-3 space-y-2">
                   {ADDON_OPTIONS.map((addon) => (

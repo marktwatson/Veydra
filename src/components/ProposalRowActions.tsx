@@ -32,6 +32,7 @@ interface Props {
   onReview: (proposal: any) => void;
   onArchive: (id: string) => void;
   onRestore: (id: string) => void;
+  plain?: boolean;
 }
 
 /**
@@ -50,10 +51,15 @@ export function ProposalRowActions({
   onReview,
   onArchive,
   onRestore,
+  plain,
 }: Props) {
+  const Wrap = plain ? "div" : TableCell;
   return (
-    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-      <div className="flex items-center justify-end gap-2">
+    <Wrap
+      className={plain ? "mt-2" : "text-right"}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className={plain ? "flex flex-wrap items-center gap-2" : "flex items-center justify-end gap-2"}>
         {awaiting ? (
           <Button
             variant="ghost"
@@ -142,6 +148,6 @@ export function ProposalRowActions({
           </AlertDialog>
         )}
       </div>
-    </TableCell>
+    </Wrap>
   );
 }

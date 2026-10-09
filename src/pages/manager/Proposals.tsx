@@ -270,7 +270,7 @@ export default function ManagerProposals() {
         value={activeTab}
         onValueChange={(v) => setActiveTab(v as ProposalTab)}
       >
-        <TabsList>
+        <TabsList className="flex h-auto w-full max-w-full justify-start gap-1 overflow-x-auto [&>*]:shrink-0">
           <TabsTrigger value="all">All ({counts.all})</TabsTrigger>
           <TabsTrigger value="draft">Draft ({counts.draft})</TabsTrigger>
           <TabsTrigger value="waiting">
@@ -319,7 +319,64 @@ export default function ManagerProposals() {
               No proposals in this view.
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+            <div className="space-y-3 md:hidden">
+              {filtered.map((proposal) => {
+                const w = resolveWedding(proposal);
+                const ofStatus =
+                  w?.offplatform_status || proposal.offplatform_status;
+                const ofMethod =
+                  w?.offplatform_method || proposal.offplatform_method;
+                const ofAmount =
+                  Number(
+                    w?.offplatform_amount || proposal.offplatform_amount,
+                  ) || 0;
+                const awaiting = isAwaitingCoverage(proposal);
+                return (
+                  <div
+                    key={proposal.id}
+                    className="rounded-xl border p-4"
+                    onClick={() => setDetailProposal(proposal)}
+                  >
+                    <div className="font-medium">{proposal.client_name}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {proposal.client_email}
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                      <span>{formatDisplayDate(proposal.wedding_date)}</span>
+                      <span className="font-medium">
+                        ${proposal.total_amount?.toLocaleString()}
+                      </span>
+                      {getStatusBadge(proposal)}
+                    </div>
+                    {ofStatus && (
+                      <div className="mt-2">
+                        <OffPlatformBadge
+                          status={ofStatus}
+                          method={ofMethod}
+                          amount={ofAmount}
+                          claimedAt={proposal.offplatform_claimed_at}
+                        />
+                      </div>
+                    )}
+                    <ProposalRowActions
+                      plain
+                      proposal={proposal}
+                      awaiting={awaiting}
+                      copied={copiedId === proposal.id}
+                      onCopy={copyLink}
+                      onEdit={(id) => navigate(`/edit-proposal/${id}`)}
+                      onMarkBooked={handleMarkAsBooked}
+                      onPreview={(id) => openProposalPreview(id, proposals)}
+                      onReview={setDetailProposal}
+                      onArchive={(id) => setProposalStatus(id, "archived")}
+                      onRestore={(id) => setProposalStatus(id, "viewed")}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="hidden overflow-x-auto md:block">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -474,6 +531,7 @@ export default function ManagerProposals() {
                 </TableBody>
               </Table>
             </div>
+            </>
           )}
         </CardContent>
       </Card>

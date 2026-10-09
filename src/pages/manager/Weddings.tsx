@@ -2569,7 +2569,7 @@ export function ManageWeddingSheet({
             <TabsContent value="jobs" className="space-y-4 mt-4">
               <div className="space-y-4">
                 <WeddingBookedServices wedding={wedding} />
-                <div className="flex justify-between items-center border-b pb-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
                   <h3 className="text-sm font-semibold">Positions (Jobs)</h3>
                   <Button
                     type="button"
@@ -4343,8 +4343,8 @@ export default function ManagerWeddings() {
                   </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="title" className="text-right">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                    <Label htmlFor="title" className="text-left sm:text-right">
                       Title
                     </Label>
                     <Input
@@ -4355,8 +4355,8 @@ export default function ManagerWeddings() {
                       required
                     />
                   </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="brideName" className="text-right">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                    <Label htmlFor="brideName" className="text-left sm:text-right">
                       Client 1
                     </Label>
                     <Input
@@ -4367,8 +4367,8 @@ export default function ManagerWeddings() {
                       required
                     />
                   </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="partnerName" className="text-right">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                    <Label htmlFor="partnerName" className="text-left sm:text-right">
                       Client 2
                     </Label>
                     <Input
@@ -4378,8 +4378,8 @@ export default function ManagerWeddings() {
                       className="col-span-3"
                     />
                   </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="date" className="text-right">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                    <Label htmlFor="date" className="text-left sm:text-right">
                       Date
                     </Label>
                     <Input
@@ -4390,8 +4390,8 @@ export default function ManagerWeddings() {
                       required
                     />
                   </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="venue" className="text-right">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                    <Label htmlFor="venue" className="text-left sm:text-right">
                       Venue
                     </Label>
                     <Input
@@ -4401,8 +4401,8 @@ export default function ManagerWeddings() {
                       className="col-span-3"
                     />
                   </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="city" className="text-right">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                    <Label htmlFor="city" className="text-left sm:text-right">
                       City
                     </Label>
                     <Input
@@ -4413,8 +4413,8 @@ export default function ManagerWeddings() {
                       required
                     />
                   </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="state" className="text-right">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                    <Label htmlFor="state" className="text-left sm:text-right">
                       State
                     </Label>
                     <Input
@@ -4425,16 +4425,16 @@ export default function ManagerWeddings() {
                       required
                     />
                   </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="isLgbtqNew" className="text-right">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                    <Label htmlFor="isLgbtqNew" className="text-left sm:text-right">
                       LGBTQ+
                     </Label>
                     <div className="col-span-3 flex items-center">
                       <Switch id="isLgbtqNew" name="isLgbtq" />
                     </div>
                   </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="totalAmount" className="text-right">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                    <Label htmlFor="totalAmount" className="text-left sm:text-right">
                       Investment ($)
                     </Label>
                     <Input
@@ -4446,8 +4446,8 @@ export default function ManagerWeddings() {
                       className="col-span-3"
                     />
                   </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="region" className="text-right">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                    <Label htmlFor="region" className="text-left sm:text-right">
                       Region
                     </Label>
                     <div className="col-span-3">

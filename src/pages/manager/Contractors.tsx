@@ -1945,8 +1945,8 @@ export default function ManagerContractors() {
                   </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4 pb-6 overflow-y-auto px-6">
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="fullName" className="text-right">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                    <Label htmlFor="fullName" className="text-left sm:text-right">
                       Full Name
                     </Label>
                     <Input
@@ -1957,8 +1957,8 @@ export default function ManagerContractors() {
                       required
                     />
                   </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="email" className="text-right">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                    <Label htmlFor="email" className="text-left sm:text-right">
                       Email
                     </Label>
                     <Input
@@ -1970,8 +1970,8 @@ export default function ManagerContractors() {
                       required
                     />
                   </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="phone" className="text-right">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                    <Label htmlFor="phone" className="text-left sm:text-right">
                       Phone
                     </Label>
                     <Input
@@ -1983,8 +1983,8 @@ export default function ManagerContractors() {
                       required
                     />
                   </div>
-                  <div className="grid grid-cols-4 items-start gap-4">
-                    <Label className="text-right mt-2">Regions</Label>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-start sm:gap-4">
+                    <Label className="text-left sm:text-right sm:mt-2">Regions</Label>
                     <div className="col-span-3 flex flex-wrap gap-4 p-3 border rounded-md">
                       {globalRegions.map((r: string) => (
                         <div key={r} className="flex items-center space-x-2">
@@ -2005,8 +2005,8 @@ export default function ManagerContractors() {
                       ))}
                     </div>
                   </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="specialty" className="text-right">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                    <Label htmlFor="specialty" className="text-left sm:text-right">
                       Specialty
                     </Label>
                     <div className="col-span-3">
@@ -2029,8 +2029,8 @@ export default function ManagerContractors() {
                       </Select>
                     </div>
                   </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="portfolioUrl" className="text-right">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                    <Label htmlFor="portfolioUrl" className="text-left sm:text-right">
                       Portfolio URL
                     </Label>
                     <Input
@@ -2566,7 +2566,7 @@ export default function ManagerContractors() {
                 className="px-6 pb-6 flex-1 overflow-y-auto"
               >
                 <TabsList
-                  className={`grid w-full shrink-0 mb-4 ${["applied", "interview", "paperwork"].includes(editingContractor.status) ? "grid-cols-4" : "grid-cols-6"}`}
+                  className={`mb-4 flex h-auto w-full shrink-0 justify-start gap-1 overflow-x-auto [&>*]:shrink-0 md:grid ${["applied", "interview", "paperwork"].includes(editingContractor.status) ? "md:grid-cols-4" : "md:grid-cols-6"}`}
                 >
                   <TabsTrigger value="stage-status">Stage Status</TabsTrigger>
                   {!["applied", "interview", "paperwork"].includes(
@@ -2591,8 +2591,8 @@ export default function ManagerContractors() {
                     editingContractor.status,
                   ) && (
                     <TabsContent value="profile" className="space-y-4 m-0">
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label className="text-right">First Name</Label>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                        <Label className="text-left sm:text-right">First Name</Label>
                         <Input
                           name="first_name"
                           defaultValue={editingContractor.first_name}
@@ -2600,8 +2600,8 @@ export default function ManagerContractors() {
                           required
                         />
                       </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label className="text-right">Last Name</Label>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                        <Label className="text-left sm:text-right">Last Name</Label>
                         <Input
                           name="last_name"
                           defaultValue={editingContractor.last_name}
@@ -2609,8 +2609,8 @@ export default function ManagerContractors() {
                           required
                         />
                       </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label className="text-right">Email</Label>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                        <Label className="text-left sm:text-right">Email</Label>
                         <Input
                           name="email"
                           type="email"
@@ -2619,16 +2619,16 @@ export default function ManagerContractors() {
                           required
                         />
                       </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label className="text-right">Phone</Label>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                        <Label className="text-left sm:text-right">Phone</Label>
                         <Input
                           name="phone"
                           defaultValue={editingContractor.phone}
                           className="col-span-3"
                         />
                       </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label className="text-right">Specialty</Label>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                        <Label className="text-left sm:text-right">Specialty</Label>
                         <div className="col-span-3">
                           <Select
                             name="specialty"
@@ -2654,8 +2654,8 @@ export default function ManagerContractors() {
                           </Select>
                         </div>
                       </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label className="text-right">Status</Label>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                        <Label className="text-left sm:text-right">Status</Label>
                         <select
                           name="status"
                           defaultValue={editingContractor.status}
@@ -2668,8 +2668,8 @@ export default function ManagerContractors() {
                           <option value="inactive">Inactive</option>
                         </select>
                       </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label className="text-right">Drone</Label>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                        <Label className="text-left sm:text-right">Drone</Label>
                         <div className="col-span-3 flex items-center gap-2">
                           <Switch
                             checked={editingDroneApproved}
@@ -2680,8 +2680,8 @@ export default function ManagerContractors() {
                           </span>
                         </div>
                       </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label className="text-right">Training</Label>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                        <Label className="text-left sm:text-right">Training</Label>
                         <div className="col-span-3 flex items-center gap-2">
                           <Switch
                             checked={editingTrainingCompleted}
@@ -2692,8 +2692,8 @@ export default function ManagerContractors() {
                           </span>
                         </div>
                       </div>
-                      <div className="grid grid-cols-4 items-start gap-4">
-                        <Label className="text-right mt-2">Regions</Label>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-start sm:gap-4">
+                        <Label className="text-left sm:text-right sm:mt-2">Regions</Label>
                         <div className="col-span-3 flex flex-wrap gap-2 p-3 border rounded-md">
                           {globalRegions.map((r: string) => (
                             <div
