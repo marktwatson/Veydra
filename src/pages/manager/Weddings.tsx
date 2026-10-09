@@ -4629,6 +4629,7 @@ export default function ManagerWeddings() {
 
       <TabsContent value="weddings" className="space-y-6 mt-0">
         <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="hidden md:contents">
           <ImportWeddingsDialog />
           <Button
             variant="outline"
@@ -4678,6 +4679,7 @@ export default function ManagerWeddings() {
             <Copy className="h-4 w-4 mr-2" />
             Copy Booking Link
           </Button>
+          </div>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button>
@@ -4855,7 +4857,25 @@ export default function ManagerWeddings() {
         {/* On Deck moved into its own tab below */}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="mb-4">
+          <select
+            className="mb-4 h-11 w-full rounded-full border bg-background px-4 text-sm md:hidden"
+            value={activeTab}
+            onChange={(e) => setActiveTab(e.target.value)}
+            aria-label="Wedding list"
+          >
+            <option value="on-deck">On Deck ({onDeckSorted.length})</option>
+            {pendingWeddings.length > 0 && (
+              <option value="needs-review">
+                Needs Review ({pendingWeddings.length})
+              </option>
+            )}
+            <option value="active">Active Weddings</option>
+            <option value="past">Past Weddings</option>
+            <option value="cancelled">
+              Cancelled ({cancelledWeddings.length})
+            </option>
+          </select>
+          <TabsList className="mb-4 hidden md:inline-flex">
             <TabsTrigger value="on-deck" className="relative">
               On Deck
               {onDeckSorted.length > 0 && (
