@@ -104,7 +104,7 @@ import {
   Wine,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { WeddingEventsCard } from "@/components/WeddingEventsCard";
+import { EventTypeBadges, useWeddingEventBadges, WeddingEventsCard } from "@/components/WeddingEventsCard";
 import { api, DbWedding } from "@/lib/api";
 import { createJobWithTerritory } from "@/lib/create-job-territory";
 import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
@@ -3124,6 +3124,9 @@ export default function ManagerWeddings() {
     queryFn: () => api.getWeddingsForTerritory(territoryId),
     enabled: territoryReady,
   });
+  const { data: eventBadges } = useWeddingEventBadges(
+    weddings.map((wedding: any) => wedding.id),
+  );
 
   const { data: jobs = [] } = useQuery({
     queryKey: ["jobs"],
@@ -4173,6 +4176,7 @@ export default function ManagerWeddings() {
                           })()
                         : "No date"}
                     </div>
+                    <EventTypeBadges events={eventBadges?.get(wedding.id)} />
                     <div className="text-sm text-muted-foreground">
                       {packageName(wedding)}
                     </div>
@@ -4265,6 +4269,7 @@ export default function ManagerWeddings() {
                             amount={wedding.offplatform_amount}
                             claimedAt={wedding.offplatform_claimed_at}
                           />
+                          <EventTypeBadges events={eventBadges?.get(wedding.id)} />
                         </div>
                       </TableCell>
                       <TableCell>

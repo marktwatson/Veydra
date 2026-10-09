@@ -12,11 +12,13 @@ import { CallSheetGenerator } from "@/components/CallSheetGenerator";
 import { ContractModal } from "@/components/ContractModal";
 import { WeddingActionsMenu } from "@/components/WeddingActionsMenu";
 import { ManageWeddingSheet } from "@/pages/manager/Weddings";
+import { EventTypeBadges } from "@/components/WeddingEventsCard";
 import { formatDisplayDate } from "@/lib/utils";
 import { OnDeckWeddingMeta } from "@/components/OnDeckCard";
 
 export interface OnDeckTableProps {
   parsedWeddings: OnDeckWeddingMeta[];
+  eventsByWedding?: Map<string, any[]>;
   settings: any;
   navigate: (path: string) => void;
   onChangePlan: (w: any) => void;
@@ -33,6 +35,7 @@ export interface OnDeckTableProps {
 
 export function OnDeckTable({
   parsedWeddings,
+  eventsByWedding,
   settings,
   navigate,
   onChangePlan,
@@ -108,6 +111,7 @@ export function OnDeckTable({
                           <span className="font-semibold text-foreground">
                             {wedding.client_name}
                           </span>
+                          <EventTypeBadges events={eventsByWedding?.get(wedding.id)} />
                           {isUrgent && (
                             <Badge
                               variant="destructive"

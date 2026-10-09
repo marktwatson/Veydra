@@ -13,6 +13,7 @@ import { CallSheetGenerator } from "@/components/CallSheetGenerator";
 import { ContractModal } from "@/components/ContractModal";
 import { WeddingActionsMenu } from "@/components/WeddingActionsMenu";
 import { ManageWeddingSheet } from "@/pages/manager/Weddings";
+import { EventTypeBadges } from "@/components/WeddingEventsCard";
 import { formatDisplayDate } from "@/lib/utils";
 
 export interface OnDeckWeddingMeta {
@@ -39,6 +40,7 @@ export interface OnDeckWeddingMeta {
 
 interface OnDeckCardProps {
   meta: OnDeckWeddingMeta;
+  events?: any[];
   settings: any;
   navigate: (path: string) => void;
   onChangePlan: (w: any) => void;
@@ -55,6 +57,7 @@ interface OnDeckCardProps {
 
 export function OnDeckCard({
   meta,
+  events,
   settings,
   navigate,
   onChangePlan,
@@ -133,6 +136,11 @@ export function OnDeckCard({
             <MapPin className="h-3 w-3 shrink-0" />
             <span className="truncate">{wedding.location || "Venue TBD"}</span>
           </div>
+          {events && events.length > 0 && (
+            <div className="mt-2">
+              <EventTypeBadges events={events} />
+            </div>
+          )}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           {isUrgent && (

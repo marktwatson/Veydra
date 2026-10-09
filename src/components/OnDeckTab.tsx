@@ -19,6 +19,7 @@ import {
 } from "@/lib/wedding-readiness";
 import { OnDeckCard, OnDeckWeddingMeta } from "@/components/OnDeckCard";
 import { OnDeckTable } from "@/components/OnDeckTable";
+import { useWeddingEventBadges } from "@/components/WeddingEventsCard";
 
 export interface OnDeckTabProps {
   onDeckSorted: any[];
@@ -59,6 +60,9 @@ export function OnDeckTab({
     string | null
   >(null);
   const { toast } = useToast();
+  const { data: eventBadges } = useWeddingEventBadges(
+    onDeckSorted.map((wedding: any) => wedding.id),
+  );
 
   const handleRemind = async (wedding: any) => {
     setSendingReminder(wedding.id);
@@ -357,6 +361,7 @@ export function OnDeckTab({
                     <OnDeckCard
                       key={meta.wedding.id}
                       meta={meta}
+                      events={eventBadges?.get(meta.wedding.id)}
                       settings={settings}
                       navigate={navigate}
                       onChangePlan={onChangePlan}
@@ -384,6 +389,7 @@ export function OnDeckTab({
       {viewMode === "table" && (
         <OnDeckTable
           parsedWeddings={parsedWeddings}
+          eventsByWedding={eventBadges}
           settings={settings}
           navigate={navigate}
           onChangePlan={onChangePlan}

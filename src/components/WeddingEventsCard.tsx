@@ -15,6 +15,72 @@ const EVENT_TYPES = [
   { value: "sangeet", label: "Sangeet / other day", chip: "bg-violet-100 text-violet-900", card: "border-l-violet-500 bg-violet-50" },
 ];
 
+const EVENT_BADGES: Record<string, { label: string; className: string }> = {
+  engagement: { label: "Engagement", className: "bg-amber-100 text-amber-900" },
+  bartending: { label: "Bartending", className: "bg-emerald-100 text-emerald-900" },
+  sangeet: { label: "Other day", className: "bg-violet-100 text-violet-900" },
+};
+
+function shortEventDate(value?: string | null) {
+  if (!value) return "";
+  const [year, month, day] = String(value).split("T")[0].split("-").map(Number);
+  if (!year || !month || !day) return "";
+  return new Date(year, month - 1, day).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+export function EventTypeBadges({ events }: { events?: any[] }) {
+  const extras = (events || []).filter(
+    (event) => event.event_type && event.event_type !== "wedding_day",
+  );
+  if (extras.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {extras.map((event) => {
+        const meta = EVENT_BADGES[event.event_type] || {
+          label: event.title || "Extra date",
+          className: "bg-sky-100 text-sky-900",
+        };
+        const when = shortEventDate(event.event_date);
+        return (
+          <span
+            key={event.id}
+            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${meta.className}`}
+          >
+            {meta.label}
+            {when ? ` · ${when}` : ""}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+export function useWeddingEventBadges(weddingIds: string[]) {
+  const key = [...weddingIds].sort().join(",");
+  return useQuery({
+    queryKey: ["wedding-event-badges", key],
+    enabled: weddingIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("wedding_events")
+        .select("id, wedding_id, event_type, title, event_date")
+        .in("wedding_id", weddingIds);
+      if (error) throw error;
+      const map = new Map<string, any[]>();
+      for (const event of data || []) {
+        if (!event.event_type || event.event_type === "wedding_day") continue;
+        const list = map.get(event.wedding_id) || [];
+        list.push(event);
+        map.set(event.wedding_id, list);
+      }
+      return map;
+    },
+  });
+}
+
 function EventFile({ event, weddingId, territoryId }: any) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -138,6 +204,7 @@ function EventFile({ event, weddingId, territoryId }: any) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["wedding-events", weddingId] });
+      queryClient.invalidateQueries({ queryKey: ["wedding-event-badges"] });
       toast({ title: "Event removed" });
     },
     onError: (err: any) =>
@@ -306,6 +373,7 @@ export function WeddingEventsCard({
       setEventDate("");
       setLocation("");
       queryClient.invalidateQueries({ queryKey: ["wedding-events", weddingId] });
+      queryClient.invalidateQueries({ queryKey: ["wedding-event-badges"] });
       toast({ title: "Event added" });
     },
     onError: (err: any) =>
