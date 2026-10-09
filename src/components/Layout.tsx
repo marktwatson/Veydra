@@ -706,7 +706,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           onLogout={handleLogout}
         />
 
-        <div className="flex-1 overflow-y-auto pb-20 md:pb-0 flex flex-col">
+        <div className="app-scroll flex-1 overflow-y-auto pb-20 md:pb-0 flex flex-col">
           {isTerminated && (
             <div className="bg-destructive text-destructive-foreground px-4 py-3 text-center text-sm font-medium flex items-center justify-center gap-2 shadow-sm">
               <Shield className="h-4 w-4" />
