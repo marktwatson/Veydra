@@ -3641,12 +3641,102 @@ export default function ManagerWeddings() {
       cancelledPage * itemsPerPage,
     );
 
+    const restoreCancelled = (wedding: DbWedding) => {
+      if (
+        !confirm(
+          `Restore ${wedding.client_name}'s wedding back to active status?`,
+        )
+      ) {
+        return;
+      }
+      api
+        .updateWedding(wedding.id, {
+          status: "upcoming",
+          cancelled_at: null,
+          cancelled_by: null,
+          cancellation_reason: null,
+          refund_amount: 0,
+          refund_processed: false,
+          refund_date: null,
+          cancellation_notes: null,
+        })
+        .then(() => {
+          queryClient.invalidateQueries({ queryKey: ["weddings"] });
+          toast({
+            title: "Wedding Restored",
+            description: `${wedding.client_name}'s wedding is now active again.`,
+          });
+        })
+        .catch((err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Failed to restore",
+            description: err.message,
+          });
+        });
+    };
+
     return (
-      <Card>
-        <CardHeader>
+      <Card className="border-0 bg-transparent shadow-none md:border md:bg-card md:shadow-sm">
+        <CardHeader className="hidden md:flex">
           <CardTitle>Cancelled Weddings</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0 md:p-6">
+          <div className="space-y-3 md:hidden">
+            {isLoading ? (
+              <div className="flex justify-center p-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : paginatedList.length === 0 ? (
+              <div className="p-8 text-center text-muted-foreground">
+                No cancelled weddings.
+              </div>
+            ) : (
+              paginatedList.map((wedding) => (
+                <div
+                  key={wedding.id}
+                  className="space-y-2 rounded-xl border bg-card p-4"
+                >
+                  <div className="font-medium">{wedding.client_name}</div>
+                  <div className="text-sm text-muted-foreground">
+                    Wedding{" "}
+                    {wedding.date ? formatDisplayDate(wedding.date) : "—"}
+                    {" · "}
+                    Cancelled{" "}
+                    {wedding.cancelled_at
+                      ? formatDisplayDate(wedding.cancelled_at)
+                      : "—"}
+                  </div>
+                  <div className="text-sm">
+                    {wedding.refund_processed ? (
+                      <span className="font-medium text-emerald-600">
+                        Refunded $
+                        {(wedding.refund_amount || 0).toLocaleString()}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">No refund</span>
+                    )}
+                  </div>
+                  {wedding.cancellation_reason && (
+                    <div className="text-sm text-muted-foreground">
+                      {wedding.cancellation_reason}
+                    </div>
+                  )}
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <ManageWeddingSheet wedding={wedding} />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => restoreCancelled(wedding)}
+                    >
+                      Restore
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -3761,6 +3851,7 @@ export default function ManagerWeddings() {
               )}
             </TableBody>
           </Table>
+          </div>
           {totalPages > 1 && (
             <div className="mt-4 flex justify-end">
               <Pagination>
@@ -3818,14 +3909,274 @@ export default function ManagerWeddings() {
       currentPage * itemsPerPage,
     );
 
+    const packageName = (wedding: DbWedding) =>
+      DB_PACKAGES.find((p) => p.id === wedding.package)?.name ||
+      wedding.package ||
+      "Custom";
+
+    const renderActions = (wedding: DbWedding) =>
+      isPending ? (
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <ReviewWeddingDialog wedding={wedding} onPublish={() => {}} />
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-primary"
+            title="Send booking confirmation email"
+            onClick={async () => {
+              const email =
+                wedding.client_email ||
+                (wedding.questionnaire_data as any)?.contact_info?.email;
+              if (!email) {
+                toast({
+                  variant: "destructive",
+                  title: "No Email Found",
+                  description:
+                    "Add the bride's email in Manage > Details first.",
+                });
+                return;
+              }
+              if (
+                !settings?.email_bride_welcome_template ||
+                !settings?.email_bride_welcome_subject
+              ) {
+                toast({
+                  variant: "destructive",
+                  title: "Template Missing",
+                  description:
+                    "Configure the Bride Welcome email template in Settings.",
+                });
+                return;
+              }
+              const subject = settings.email_bride_welcome_subject
+                .replace(/{{company_name}}/g, settings.company_name || "us")
+                .replace(/{{bride_name}}/g, wedding.client_name || "Bride");
+              const msg = settings.email_bride_welcome_template
+                .replace(/{{company_name}}/g, settings.company_name || "us")
+                .replace(/{{logo_url}}/g, settings.logo_url || DEFAULT_LOGO_URL)
+                .replace(/{{bride_name}}/g, wedding.client_name || "Bride")
+                .replace(
+                  /{{portal_link}}/g,
+                  `${(settings.app_url || window.location.origin).replace(/\/$/, "")}/bride-portal/${wedding.id}`,
+                );
+              toast({
+                title: "Sending...",
+                description: `Sending confirmation to ${email}`,
+              });
+              try {
+                await api.sendOvantaEmail(
+                  email,
+                  subject,
+                  msg,
+                  wedding.client_name,
+                  true,
+                );
+                toast({
+                  title: "Confirmation Sent!",
+                  description: `Booking confirmation sent to ${email}`,
+                });
+              } catch (err: any) {
+                toast({
+                  variant: "destructive",
+                  title: "Failed to send",
+                  description: err.message,
+                });
+              }
+            }}
+          >
+            <Send className="h-4 w-4 mr-1" />
+            Confirm
+          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                className="text-destructive hover:bg-destructive hover:text-destructive-foreground"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete pending wedding?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete the pending wedding for{" "}
+                  {wedding.client_name}. This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => deleteWeddingMutation.mutate(wedding.id)}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {(() => {
+            const totalAmount = Number(wedding.total_amount) || 0;
+            const paidAmount = Number(wedding.paid_amount) || 0;
+            const fullyPaid =
+              totalAmount > 0 && paidAmount >= totalAmount - 0.01;
+            return (
+              <Button
+                size="sm"
+                variant={
+                  wedding.final_payment_verified
+                    ? "secondary"
+                    : fullyPaid
+                      ? "default"
+                      : "outline"
+                }
+                className="text-xs"
+                disabled={verifyFinalPaymentMutation.isPending}
+                onClick={() =>
+                  verifyFinalPaymentMutation.mutate({
+                    weddingId: wedding.id,
+                    verified: !wedding.final_payment_verified,
+                  })
+                }
+              >
+                {wedding.final_payment_verified ? (
+                  <>
+                    <CheckCircle className="h-3.5 w-3.5 mr-1 text-emerald-500" />
+                    Verified
+                  </>
+                ) : fullyPaid ? (
+                  <>
+                    <CheckCircle className="h-3.5 w-3.5 mr-1" />
+                    Confirm Payment
+                  </>
+                ) : (
+                  <>
+                    <DollarSign className="h-3.5 w-3.5 mr-1" />
+                    Verify Payment
+                  </>
+                )}
+              </Button>
+            );
+          })()}
+          <WeddingActionsMenu
+            wedding={wedding}
+            settings={settings}
+            navigate={navigate}
+            onChangePlan={setChangePlanWedding}
+            onUpsell={setUpsellWedding}
+            onVerifyPayment={handleVerifyPayment}
+            verifyPaymentPending={verifyFinalPaymentMutation.isPending}
+            onEmailPreview={(data, sendFn) => {
+              setEmailPreview(data);
+              setEmailPreviewSend(() => sendFn);
+              setEmailPreviewOpen(true);
+            }}
+          />
+          <ContractModal wedding={wedding} showSaveSnapshot />
+          <ManageWeddingSheet wedding={wedding} />
+          <Button
+            variant="outline"
+            size="icon"
+            className="text-destructive hover:bg-destructive hover:text-destructive-foreground"
+            title="Cancel & Archive Wedding"
+            onClick={() => setCancelWeddingTarget(wedding)}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      );
+
     return (
-      <Card>
-        <CardHeader>
+      <Card className="border-0 bg-transparent shadow-none md:border md:bg-card md:shadow-sm">
+        <CardHeader className="hidden md:flex">
           <CardTitle>
             {title || (isPending ? "Pending Weddings" : "Wedding Roster")}
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0 md:p-6">
+          <div className="space-y-3 md:hidden">
+            {isLoading ? (
+              <div className="flex justify-center p-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : paginatedList.length === 0 ? (
+              <div className="p-8 text-center text-muted-foreground">
+                No weddings found.
+              </div>
+            ) : (
+              paginatedList.map((wedding) => {
+                const readiness = calculateReadiness(wedding);
+                let displayStatus = wedding.status;
+                if (
+                  wedding.status?.toLowerCase() === "upcoming" &&
+                  wedding.date
+                ) {
+                  const wDate = parseLocalDate(wedding.date);
+                  if (wDate.getTime() === today.getTime())
+                    displayStatus = "Today";
+                  else if (wDate.getTime() < today.getTime())
+                    displayStatus = "Past";
+                }
+                const songs = Array.isArray(wedding.highlight_songs)
+                  ? wedding.highlight_songs
+                  : [];
+                return (
+                  <div
+                    key={wedding.id}
+                    className="space-y-3 rounded-xl border bg-card p-4"
+                  >
+                    <div className="flex flex-wrap items-center gap-2 font-medium">
+                      {wedding.client_name}
+                      <OffPlatformBadge
+                        status={wedding.offplatform_status}
+                        method={wedding.offplatform_method}
+                        amount={wedding.offplatform_amount}
+                        claimedAt={wedding.offplatform_claimed_at}
+                      />
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {wedding.date
+                        ? formatDisplayDate(wedding.date)
+                        : "No date"}
+                      {" · "}
+                      {packageName(wedding)}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                      <span>
+                        ${(wedding.total_amount || 0).toLocaleString()}
+                      </span>
+                      <span className="font-medium text-emerald-600">
+                        ${(wedding.paid_amount || 0).toLocaleString()} paid
+                      </span>
+                      <StatusBadge status={displayStatus} />
+                      {wedding.songs_submitted_at && songs.length > 0 && (
+                        <Badge
+                          variant="secondary"
+                          className="gap-1 text-[10px]"
+                        >
+                          <Music className="h-2.5 w-2.5" />
+                          {songs.length}
+                        </Badge>
+                      )}
+                    </div>
+                    <div>
+                      <div className="mb-1 flex justify-between text-[10px] font-medium text-muted-foreground">
+                        <span>Readiness</span>
+                        <span>{Math.round(readiness)}%</span>
+                      </div>
+                      <Progress value={readiness} className="h-1.5" />
+                    </div>
+                    {renderActions(wedding)}
+                  </div>
+                );
+              })
+            )}
+          </div>
+          <div className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -4209,6 +4560,7 @@ export default function ManagerWeddings() {
               )}
             </TableBody>
           </Table>
+          </div>
           {totalPages > 1 && (
             <div className="mt-4 flex justify-end">
               <Pagination>
@@ -4252,7 +4604,7 @@ export default function ManagerWeddings() {
   };
 
   return (
-    <Tabs defaultValue="weddings" className="w-full space-y-6">
+    <Tabs defaultValue="weddings" className="phone-bleed w-full space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
