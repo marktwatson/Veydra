@@ -116,6 +116,7 @@ function PipelineCard({
   onRequestGallery,
   onAdvanceStage,
   onSendReminder,
+  dragEnabled = true,
 }: {
   contractor: any;
   isOverlay?: boolean;
@@ -123,6 +124,7 @@ function PipelineCard({
   onRequestGallery?: (c: any) => void;
   onAdvanceStage?: (c: any, status: string) => void;
   onSendReminder?: (c: any) => void;
+  dragEnabled?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
@@ -174,7 +176,11 @@ function PipelineCard({
                   : "border-l-emerald-500"
         }`}
       >
-        <div {...listeners} {...attributes} className="min-h-[60px]">
+        <div
+          {...(dragEnabled ? listeners : {})}
+          {...(dragEnabled ? attributes : {})}
+          className="min-h-[60px]"
+        >
           <div className="flex justify-between items-start">
             <div className="font-semibold text-sm truncate pr-2 flex-1">
               {contractor.first_name} {contractor.last_name}
@@ -351,6 +357,8 @@ function PipelineColumn({
   onRequestGallery,
   onAdvanceStage,
   onSendReminder,
+  dragEnabled = true,
+  fullWidth = false,
 }: {
   id: string;
   title: string;
@@ -360,13 +368,15 @@ function PipelineColumn({
   onRequestGallery?: (c: any) => void;
   onAdvanceStage?: (c: any, status: string) => void;
   onSendReminder?: (c: any) => void;
+  dragEnabled?: boolean;
+  fullWidth?: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id });
 
   return (
     <div
       ref={setNodeRef}
-      className={`flex-1 bg-muted/30 rounded-xl p-4 min-w-[250px] ${isOver ? "bg-muted/50" : ""}`}
+      className={`${fullWidth ? "w-full min-w-0" : "min-w-[250px] flex-1"} rounded-xl bg-muted/30 p-4 ${isOver ? "bg-muted/50" : ""}`}
     >
       <div className="mb-4">
         <h3 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">
@@ -387,6 +397,7 @@ function PipelineColumn({
             onRequestGallery={onRequestGallery}
             onAdvanceStage={onAdvanceStage}
             onSendReminder={onSendReminder}
+            dragEnabled={dragEnabled}
           />
         ))}
       </div>
@@ -644,6 +655,7 @@ export default function ManagerContractors() {
   const [specialtyFilter, setSpecialtyFilter] = useState("all");
   const [regionFilter, setRegionFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [pipelineStage, setPipelineStage] = useState("applied");
   const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
@@ -2575,13 +2587,102 @@ export default function ManagerContractors() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="pipeline" className="h-[calc(100vh-220px)]">
+        <TabsContent value="pipeline" className="h-auto md:h-[calc(100vh-220px)]">
+          <div className="space-y-3 md:hidden">
+            {(() => {
+              const stages = [
+                {
+                  id: "applied",
+                  title: "Applied",
+                  people: allContractors.filter((c: any) => c.status === "applied"),
+                },
+                {
+                  id: "interview",
+                  title: "Interview",
+                  people: allContractors.filter((c: any) => c.status === "interview"),
+                },
+                {
+                  id: "paperwork",
+                  title: "Paperwork",
+                  description:
+                    "Interview passed. Hired after paperwork & training.",
+                  people: allContractors.filter((c: any) => c.status === "paperwork"),
+                },
+                {
+                  id: "hired",
+                  title: "Hired",
+                  description:
+                    "Account activated. Contractor must pass training to unlock jobs.",
+                  people: allContractors.filter(
+                    (c: any) => c.status === "active" || c.status === "hired",
+                  ),
+                },
+                {
+                  id: "rejected",
+                  title: "Rejected",
+                  people: allContractors.filter(
+                    (c: any) =>
+                      c.status === "rejected" || c.status === "declined",
+                  ),
+                },
+              ];
+              const stage =
+                stages.find((s) => s.id === pipelineStage) || stages[0];
+              const openContractor = (c: any) => {
+                setEditingContractor(c);
+                setEditingDroneApproved(
+                  c.drone_approved === true ||
+                    String(c.drone_approved).toLowerCase() === "true",
+                );
+                setEditingTrainingCompleted(c.training_completed !== false);
+                setReviewNotes(c.review_notes || "");
+              };
+              return (
+                <>
+                  <select
+                    className="h-11 w-full rounded-full border bg-background px-4 text-sm"
+                    value={stage.id}
+                    onChange={(e) => setPipelineStage(e.target.value)}
+                    aria-label="Applicant stage"
+                  >
+                    {stages.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.title} ({s.people.length})
+                      </option>
+                    ))}
+                  </select>
+                  <PipelineColumn
+                    id={stage.id}
+                    title={stage.title}
+                    description={stage.description}
+                    contractors={stage.people}
+                    onEdit={openContractor}
+                    onRequestGallery={
+                      stage.id === "applied"
+                        ? setPortfolioRequestContractor
+                        : undefined
+                    }
+                    onAdvanceStage={
+                      stage.id === "hired" || stage.id === "rejected"
+                        ? undefined
+                        : handleAdvanceStage
+                    }
+                    onSendReminder={
+                      stage.id === "rejected" ? undefined : handleSendReminder
+                    }
+                    dragEnabled={false}
+                    fullWidth
+                  />
+                </>
+              );
+            })()}
+          </div>
           <DndContext
             sensors={sensors}
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
-            <div className="flex h-full gap-4 overflow-x-auto pb-4 no-scrollbar">
+            <div className="hidden h-full gap-4 overflow-x-auto pb-4 no-scrollbar md:flex">
               <PipelineColumn
                 id="applied"
                 title="Applied"
