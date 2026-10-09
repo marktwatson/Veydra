@@ -334,6 +334,118 @@ export default function ManagerApplications() {
   );
 
   const renderTable = (apps: any[], isReviewedTab: boolean = false) => (
+    <>
+    <div className="space-y-3 md:hidden">
+      {isLoadingApps ? (
+        <div className="flex justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : apps.length === 0 ? (
+        <div className="py-8 text-center text-muted-foreground">No applications found.</div>
+      ) : (
+        apps.map((app: any) => {
+          const job = app.jobs;
+          const wedding = job?.weddings;
+          const contractor = app.contractors;
+          let hasBlackout = false;
+          if (wedding?.date && contractor?.id) {
+            const jobDate = new Date(wedding.date);
+            jobDate.setHours(0, 0, 0, 0);
+            hasBlackout = blackoutDates.some((bd: any) => {
+              if (bd.contractor_id !== contractor.id) return false;
+              const [sy, sm, sd] = bd.start_date.split("-").map(Number);
+              const [ey, em, ed] = bd.end_date.split("-").map(Number);
+              const start = new Date(sy, sm - 1, sd);
+              const end = new Date(ey, em - 1, ed);
+              start.setHours(0, 0, 0, 0);
+              end.setHours(0, 0, 0, 0);
+              return jobDate >= start && jobDate <= end;
+            });
+          }
+          const filled = !job || ["filled", "completed", "cancelled"].includes(job?.status);
+          return (
+            <div key={app.id} className="space-y-3 rounded-xl border bg-card p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-medium">
+                    {contractor?.first_name} {contractor?.last_name}
+                    {hasBlackout ? " · Blackout" : ""}
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    {wedding?.client_name || "Unknown Wedding"} · {job?.role || "Unknown Position"}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {job?.pay_type === "bidding"
+                      ? app.bid_amount != null
+                        ? `Bid: $${app.bid_amount}`
+                        : "Bidding"
+                      : `Rate: $${job?.pay_rate || 0}`}
+                    {contractor?.specialty ? ` · ${contractor.specialty}` : ""}
+                  </div>
+                </div>
+                <StatusBadge
+                  status={
+                    app.status === "not_selected"
+                      ? "Not Selected"
+                      : app.status === "under_review"
+                        ? "Under Review"
+                        : app.status
+                  }
+                />
+              </div>
+              {(app.status === "pending" || app.status === "under_review") && (
+                <div className="flex flex-col gap-2">
+                  {filled ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleStatusChange(app, "not_selected")}
+                      disabled={updateStatusMutation.isPending}
+                    >
+                      Close (Job Filled)
+                    </Button>
+                  ) : (
+                    <>
+                      <Button
+                        size="sm"
+                        onClick={() => handleStatusChange(app, "awarded")}
+                        disabled={updateStatusMutation.isPending}
+                      >
+                        Assign
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => handleStatusChange(app, "declined")}
+                        disabled={updateStatusMutation.isPending}
+                      >
+                        Decline
+                      </Button>
+                    </>
+                  )}
+                </div>
+              )}
+              {app.status === "awarded" && isReviewedTab && (
+                <div className="flex flex-col gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => unassignMutation.mutate({ app })}
+                    disabled={unassignMutation.isPending}
+                  >
+                    Unassign
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setReassignApp(app)}>
+                    Reassign
+                  </Button>
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+    </div>
+    <div className="hidden md:block">
     <Table>
       <TableHeader>
         <TableRow>
@@ -532,6 +644,8 @@ export default function ManagerApplications() {
         )}
       </TableBody>
     </Table>
+    </div>
+    </>
   );
 
   return (
@@ -548,7 +662,7 @@ export default function ManagerApplications() {
       </div>
 
       <Tabs defaultValue="pending" className="space-y-4">
-        <TabsList>
+        <TabsList className="grid h-auto w-full grid-cols-2 md:inline-flex md:w-auto">
           <TabsTrigger value="pending">
             Pending ({pendingApps.length})
           </TabsTrigger>

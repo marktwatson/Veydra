@@ -265,6 +265,35 @@ export function SalespersonPayoutsTab() {
               No owed salesperson payouts.
             </div>
           ) : (
+            <>
+            <div className="space-y-3 md:hidden">
+              {reps.map((r) => (
+                <div key={r.email} className="space-y-3 rounded-xl border p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-medium">{r.name}</div>
+                      <div className="text-xs text-muted-foreground">{r.email}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {notes[r.email] || "No payment info yet"}
+                      </div>
+                      <div className="mt-1 text-sm text-muted-foreground">
+                        {r.count} proposal{r.count === 1 ? "" : "s"}
+                      </div>
+                    </div>
+                    <div className="font-bold text-green-600">${r.amount.toLocaleString()}</div>
+                  </div>
+                  <Button
+                    size="sm"
+                    className="w-full bg-green-600 text-white hover:bg-green-700"
+                    onClick={() => setConfirmRep(r)}
+                  >
+                    <CheckCircle className="mr-2 h-4 w-4" />
+                    Mark ${r.amount.toLocaleString()} paid
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <div className="hidden md:block">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -304,6 +333,8 @@ export function SalespersonPayoutsTab() {
                 ))}
               </TableBody>
             </Table>
+            </div>
+            </>
           )}
         </CardContent>
       </Card>

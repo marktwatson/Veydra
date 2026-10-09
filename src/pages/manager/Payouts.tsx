@@ -65,6 +65,7 @@ export default function ManagerPayouts() {
   const [paymentMethod, setPaymentMethod] = useState<string>("Venmo");
   const [idempotencyKey, setIdempotencyKey] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [payoutTab, setPayoutTab] = useState("pending");
 
   const { data: assignments = [], isLoading } = useQuery({
     queryKey: ["assignments"],
@@ -425,6 +426,106 @@ export default function ManagerPayouts() {
     isPending: boolean,
     isHistory: boolean = false,
   ) => (
+    <>
+    <div className="space-y-3 md:hidden">
+      {isLoading ? (
+        <div className="flex justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : data.length === 0 ? (
+        <div className="py-8 text-center text-muted-foreground">
+          No {isPending ? "pending" : "completed"} payouts found.
+        </div>
+      ) : (
+        data.map((assg: any) => {
+          const job = assg.jobs;
+          const wedding = job?.weddings;
+          const contractor = assg.contractors;
+          const total = job?.pay_rate || 0;
+          const title = eventTitleByJob[job?.id]
+            ? `${wedding?.client_name} · ${eventTitleByJob[job.id]}`
+            : wedding?.client_name;
+          return (
+            <div key={assg.id} className="space-y-3 rounded-xl border bg-card p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-medium">
+                    {contractor?.first_name} {contractor?.last_name}
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    {title} · {job?.role}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {isHistory && assg.payment_method
+                      ? `Paid via ${assg.payment_method}`
+                      : contractor?.venmo_handle
+                        ? `Venmo: ${contractor.venmo_handle}`
+                        : "No payment info"}
+                  </div>
+                </div>
+                <div className="font-bold text-green-600">${total}</div>
+              </div>
+              {assg.media_link ? (
+                <a
+                  href={assg.media_link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center text-sm font-medium text-primary"
+                >
+                  View media <ExternalLink className="ml-1 h-3 w-3" />
+                </a>
+              ) : (
+                <span className="text-xs italic text-muted-foreground">No media link</span>
+              )}
+              {isPending && (
+                <div className="flex flex-col gap-2">
+                  <Button
+                    size="sm"
+                    disabled={paidIds.has(assg.id)}
+                    className="bg-green-600 text-white hover:bg-green-700"
+                    onClick={() => {
+                      if (!contractor?.venmo_handle && !contractor?.stripe_account_id) {
+                        toast({
+                          title: "Payment Info Missing",
+                          description:
+                            "This contractor hasn't connected a Stripe account or provided a Venmo handle, but you can still record the payout if you paid them another way.",
+                        });
+                      }
+                      setPayoutToConfirm(assg.id);
+                      setIdempotencyKey(crypto.randomUUID());
+                    }}
+                  >
+                    <CheckCircle className="mr-2 h-4 w-4" />
+                    {paidIds.has(assg.id) ? "Paid" : "Approve and pay"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      updateStatusMutation.mutate({ id: assg.id, status: "Action Required" })
+                    }
+                  >
+                    Reject back to contractor
+                  </Button>
+                </div>
+              )}
+              {isHistory && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    updateStatusMutation.mutate({ id: assg.id, status: "Pending Payout" })
+                  }
+                >
+                  Revert to pending
+                </Button>
+              )}
+            </div>
+          );
+        })
+      )}
+    </div>
+    <div className="hidden md:block">
     <Table>
       <TableHeader>
         <TableRow>
@@ -631,6 +732,8 @@ export default function ManagerPayouts() {
         )}
       </TableBody>
     </Table>
+    </div>
+    </>
   );
 
   return (
@@ -696,8 +799,19 @@ export default function ManagerPayouts() {
         </Card>
       </div>
 
-      <Tabs defaultValue="pending" className="space-y-4">
-        <TabsList>
+      <Tabs value={payoutTab} onValueChange={setPayoutTab} className="space-y-4">
+        <select
+          className="h-11 w-full rounded-full border bg-background px-4 text-sm md:hidden"
+          value={payoutTab}
+          onChange={(e) => setPayoutTab(e.target.value)}
+          aria-label="Payout list"
+        >
+          <option value="pending">Pending Payouts ({pendingPayouts.length})</option>
+          <option value="history">Paid History</option>
+          <option value="editor-payouts">Editor Payouts ({pendingEditorInvoices.length})</option>
+          <option value="sales-reps">Sales reps</option>
+        </select>
+        <TabsList className="hidden md:inline-flex">
           <TabsTrigger value="pending" className="relative">
             Pending Payouts
             {pendingPayouts.length > 0 && (

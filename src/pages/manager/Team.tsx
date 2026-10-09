@@ -446,7 +446,75 @@ export default function ManagerTeam() {
               </p>
             </div>
           ) : (
-            <div className="rounded-md border">
+            <>
+            <div className="space-y-3 md:hidden">
+              {allManagers.map((manager: any) => (
+                <div key={manager.id} className="space-y-3 rounded-xl border p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-medium">
+                        {manager.name}
+                        {manager.id === user?.id ? " · You" : ""}
+                      </div>
+                      <div className="text-sm text-muted-foreground">{manager.email}</div>
+                    </div>
+                    <TeamMemberActions
+                      manager={manager}
+                      user={user}
+                      onEdit={(m) => {
+                        setEditingAdmin(m);
+                        setIsEditDialogOpen(true);
+                      }}
+                      onDelete={handleDeleteAdmin}
+                      onResendInvite={handleResendInvite}
+                      onDeleteInvite={handleDeleteInvite}
+                      onSendResetEmail={handleSendResetEmail}
+                      onOpenOwnPassword={() => setIsPasswordDialogOpen(true)}
+                      onImpersonate={handleImpersonate}
+                      isDeleting={deleteMutation.isPending}
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <span className="rounded-md border px-2 py-1">
+                      {isSuperAdminEmail(manager.email)
+                        ? "All Areas"
+                        : Array.isArray(manager.territory_ids) && manager.territory_ids.length > 1
+                          ? manager.territory_ids.map((tid: string) => territoryNameById(tid)).join(", ")
+                          : territoryNameById(manager.territory_id)}
+                    </span>
+                    <span className="rounded-md border px-2 py-1">
+                      {manager.role === "super_admin" || isSuperAdminEmail(manager.email)
+                        ? "Super Admin"
+                        : manager.role === "owner"
+                          ? "Owner"
+                          : manager.role === "owner_readonly"
+                            ? "Owner (Read Only)"
+                            : manager.role === "editor"
+                              ? "Editor"
+                              : manager.role === "read_only"
+                                ? "Read Only"
+                                : "Manager"}
+                    </span>
+                    <span className="rounded-md border px-2 py-1">
+                      {manager.status === "invited" ? "Invited" : "Active"}
+                    </span>
+                    {manager.role === "editor" && (
+                      <span className="rounded-md border px-2 py-1">
+                        {manager.stripe_account_id
+                          ? "Stripe Connected"
+                          : manager.venmo_handle
+                            ? "Venmo Added"
+                            : "No Payment Info"}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Added {new Date(manager.created_at).toLocaleDateString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="hidden rounded-md border md:block">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -601,6 +669,7 @@ export default function ManagerTeam() {
                 </TableBody>
               </Table>
             </div>
+            </>
           )}
         </CardContent>
       </Card>
