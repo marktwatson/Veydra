@@ -1751,6 +1751,84 @@ export default function ManagerContractors() {
     currentPage * itemsPerPage,
   );
 
+  const manageMenu = (contractor: any) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm">
+          Manage <MoreHorizontal className="ml-2 h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          onClick={() => {
+            setEditingContractor(contractor);
+            setEditingDroneApproved(
+              contractor.drone_approved === true ||
+                String(contractor.drone_approved).toLowerCase() === "true",
+            );
+            setEditingTrainingCompleted(
+              contractor.training_completed !== false,
+            );
+            setReviewNotes(contractor.review_notes || "");
+          }}
+        >
+          Edit Profile
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() =>
+            impersonate({
+              id: contractor.id,
+              email: contractor.email,
+              name: `${contractor.first_name} ${contractor.last_name}`,
+              role: "contractor",
+            })
+          }
+        >
+          Log in as
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => handleSendPasswordReset(contractor.email)}
+        >
+          Reset Password
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => {
+            sonnerToast.promise(api.syncContractorCRM(contractor.id), {
+              loading: "Syncing contractor to CRM...",
+              success: "Contractor synced to CRM.",
+              error: (err) => err.message || "Failed to sync contractor.",
+            });
+          }}
+        >
+          Sync to CRM
+        </DropdownMenuItem>
+        {contractor.status !== "rejected" &&
+          contractor.status !== "inactive" &&
+          contractor.status !== "declined" &&
+          contractor.status !== "terminated" && (
+            <DropdownMenuItem onClick={() => handleSendReminder(contractor)}>
+              <Bell className="mr-2 h-4 w-4" /> Send Stage Reminder
+            </DropdownMenuItem>
+          )}
+        {contractor.status === "active" && (
+          <DropdownMenuItem
+            className="font-medium text-destructive focus:bg-destructive/10 focus:text-destructive"
+            onClick={() => setTerminatingContractor(contractor)}
+          >
+            <Shield className="mr-2 h-4 w-4" />
+            Terminate
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem
+          className="text-destructive"
+          onClick={() => handleDeleteWithUndo(contractor)}
+        >
+          Delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between mb-2">
@@ -2052,7 +2130,7 @@ export default function ManagerContractors() {
       </div>
 
       <Tabs defaultValue="roster" className="space-y-4">
-        <TabsList>
+        <TabsList className="grid h-auto w-full grid-cols-2 md:inline-flex md:w-auto">
           <TabsTrigger value="roster">Roster</TabsTrigger>
           <TabsTrigger value="pipeline">Applicant Pipeline</TabsTrigger>
         </TabsList>
@@ -2068,9 +2146,9 @@ export default function ManagerContractors() {
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
-            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[130px]">
+                <SelectTrigger className="w-full sm:w-[130px]">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -2085,7 +2163,7 @@ export default function ManagerContractors() {
                 value={specialtyFilter}
                 onValueChange={setSpecialtyFilter}
               >
-                <SelectTrigger className="w-[140px]">
+                <SelectTrigger className="w-full sm:w-[140px]">
                   <SelectValue placeholder="Specialty" />
                 </SelectTrigger>
                 <SelectContent>
@@ -2097,7 +2175,7 @@ export default function ManagerContractors() {
                 </SelectContent>
               </Select>
               <Select value={regionFilter} onValueChange={setRegionFilter}>
-                <SelectTrigger className="w-[140px]">
+                <SelectTrigger className="w-full sm:w-[140px]">
                   <SelectValue placeholder="Region" />
                 </SelectTrigger>
                 <SelectContent>
@@ -2112,11 +2190,111 @@ export default function ManagerContractors() {
             </div>
           </div>
 
-          <Card>
-            <CardHeader>
+          <Card className="border-0 bg-transparent shadow-none md:border md:bg-card md:shadow-sm">
+            <CardHeader className="hidden md:flex">
               <CardTitle>Roster</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-0 md:p-6">
+              <div className="space-y-3 md:hidden">
+                {isLoading ? (
+                  <div className="flex justify-center p-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : paginatedContractors.length === 0 ? (
+                  <div className="p-8 text-center text-muted-foreground">
+                    No contractors found.
+                  </div>
+                ) : (
+                  paginatedContractors.map((contractor: any) => (
+                    <div
+                      key={contractor.id}
+                      className="space-y-3 rounded-xl border bg-card p-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-medium">
+                            {contractor.first_name} {contractor.last_name}
+                          </div>
+                          <div className="mt-1">
+                            <StatusBadge status={contractor.status} />
+                          </div>
+                        </div>
+                        {manageMenu(contractor)}
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {parseRegions(contractor.region).map((r: string) => (
+                          <Badge
+                            key={r}
+                            variant="outline"
+                            className="text-xs font-normal"
+                          >
+                            {r}
+                          </Badge>
+                        ))}
+                        <Badge variant="secondary">{contractor.specialty}</Badge>
+                        {contractor.drone_approved && (
+                          <Badge
+                            variant="outline"
+                            className="bg-blue-50/50 text-[10px] text-blue-600"
+                          >
+                            Drone Approved
+                          </Badge>
+                        )}
+                        {contractor.training_completed !== false ? (
+                          <Badge
+                            variant="outline"
+                            className="bg-green-50/50 text-[10px] text-green-600"
+                          >
+                            Certified
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="outline"
+                            className="bg-orange-50/50 text-[10px] text-orange-600"
+                          >
+                            Training Pending
+                          </Badge>
+                        )}
+                        {contractor.stripe_account_id ? (
+                          <Badge
+                            variant="outline"
+                            className="bg-indigo-50/50 text-[10px] text-indigo-600"
+                          >
+                            Stripe Connected
+                          </Badge>
+                        ) : contractor.venmo_handle ? (
+                          <Badge
+                            variant="outline"
+                            className="bg-sky-50/50 text-[10px] text-sky-600"
+                          >
+                            Venmo Added
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="outline"
+                            className="bg-red-50/50 text-[10px] text-red-600"
+                          >
+                            No Payment Info
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="text-sm text-yellow-500">
+                        {contractor.rating ? (
+                          <span>
+                            <span className="mr-1 font-medium">
+                              {contractor.rating}
+                            </span>
+                            ★
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">No rating</span>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="hidden md:block">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -2360,6 +2538,7 @@ export default function ManagerContractors() {
                   )}
                 </TableBody>
               </Table>
+              </div>
               {totalPages > 1 && (
                 <div className="mt-4 flex justify-end">
                   <Pagination>
