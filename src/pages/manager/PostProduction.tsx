@@ -105,7 +105,7 @@ export default function PostProductionTable() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [editorFilter, setEditorFilter] = useState("all");
   const [sortColumn, setSortColumn] = useState("date");
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 15;
 
@@ -340,7 +340,10 @@ export default function PostProductionTable() {
         }
         if (sortColumn === "status") return row.editing_status || "awaiting_raw_media";
         if (sortColumn === "editor") return row.editor_id || "unassigned";
-        return new Date(row.date || 0).getTime();
+        return (() => {
+          const time = new Date(row.date || "").getTime();
+          return Number.isFinite(time) ? time : Number.MAX_SAFE_INTEGER;
+        })();
       };
       const valA = value(a);
       const valB = value(b);
