@@ -523,7 +523,7 @@ export default function PostProductionTable() {
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:items-center">
           <Filter className="h-4 w-4 text-muted-foreground" />
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-full sm:w-48">
@@ -697,7 +697,226 @@ export default function PostProductionTable() {
         </DialogContent>
       </Dialog>
 
-      <div className="rounded-md border bg-card">
+      <div className="space-y-3 md:hidden">
+        {isLoading ? (
+          <div className="flex justify-center p-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : paginatedWeddings.length === 0 ? (
+          <div className="p-8 text-center text-muted-foreground">
+            No weddings found matching your criteria.
+          </div>
+        ) : (
+          paginatedWeddings.map((wedding) => {
+            if ((wedding as any)._event) {
+              const event = wedding as any;
+              const currentStatus = event.edit_status || "awaiting_raw_media";
+              const due = event.edit_due_date || event.weddings?.date;
+              return (
+                <div key={event.id} className="space-y-3 rounded-xl border bg-card p-4">
+                  <div>
+                    <div className="font-medium">{event.client_name}</div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      {event.event_date ? formatDisplayDate(event.event_date) : "No date"}
+                      {" · "}
+                      Due {due ? formatDisplayDate(due) : "no deadline"}
+                    </div>
+                  </div>
+                  <Select
+                    value={event.editor_id || "unassigned"}
+                    onValueChange={(val) =>
+                      markEventEdit.mutate({
+                        id: event.id,
+                        updates: { editor_id: val === "unassigned" ? null : val },
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Unassigned" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="unassigned">Unassigned</SelectItem>
+                      {editors.map((editor) => (
+                        <SelectItem key={editor.id} value={editor.id}>
+                          {editor.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={currentStatus}
+                    onValueChange={(status) =>
+                      markEventEdit.mutate({ id: event.id, updates: { edit_status: status } })
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STATUS_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div>
+                    {event.drive_link ? (
+                      <Badge
+                        variant="secondary"
+                        className="cursor-pointer gap-1 border-blue-200 bg-blue-50 text-blue-700"
+                        onClick={() => window.open(event.drive_link, "_blank")}
+                      >
+                        <HardDrive className="h-3 w-3" /> Raw Media
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="gap-1 opacity-50">
+                        <HardDrive className="h-3 w-3" /> Missing Raw
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Button variant="outline" size="sm" onClick={() => openEventEditor(event)}>
+                      <Link2 className="mr-1 h-4 w-4" /> Edit
+                    </Button>
+                    {event.edit_details?.invoice_status === "pending" && (
+                      <Button
+                        size="sm"
+                        onClick={() =>
+                          markEventEdit.mutate({
+                            id: event.id,
+                            updates: {
+                              edit_details: { ...event.edit_details, invoice_status: "approved" },
+                            },
+                          })
+                        }
+                      >
+                        Approve invoice
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            }
+            const currentStatus = wedding.editing_status || "awaiting_raw_media";
+            const deadline = calculateDeadline(wedding);
+            const isOverdue = new Date() > deadline && currentStatus !== "delivered";
+            return (
+              <div key={wedding.id} className="space-y-3 rounded-xl border bg-card p-4">
+                <div>
+                  <div className="font-medium">{wedding.client_name}</div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    {formatDisplayDate(wedding.date)}
+                    {" · "}
+                    <span className={isOverdue ? "text-destructive" : ""}>
+                      Due {formatDisplayDate(deadline.toISOString())}
+                    </span>
+                  </div>
+                </div>
+                <Select
+                  value={wedding.editor_id || "unassigned"}
+                  onValueChange={(val) =>
+                    handleEditorChange(wedding.id, val === "unassigned" ? null : val)
+                  }
+                  disabled={updateWeddingMutation.isPending}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Unassigned" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unassigned">Unassigned</SelectItem>
+                    {editors.map((editor) => (
+                      <SelectItem key={editor.id} value={editor.id}>
+                        {editor.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={currentStatus}
+                  onValueChange={(val) => handleStatusChange(wedding.id, val)}
+                  disabled={updateWeddingMutation.isPending}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STATUS_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="flex flex-wrap gap-2">
+                  {wedding.drive_link ? (
+                    <Badge
+                      variant="secondary"
+                      className="cursor-pointer gap-1 border-blue-200 bg-blue-50 text-blue-700"
+                      onClick={() => window.open(wedding.drive_link!, "_blank")}
+                    >
+                      <HardDrive className="h-3 w-3" /> Raw Media
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="gap-1 opacity-50">
+                      <HardDrive className="h-3 w-3" /> Missing Raw
+                    </Badge>
+                  )}
+                  {wedding.vimeo_link && (
+                    <Badge
+                      variant="secondary"
+                      className="cursor-pointer gap-1 border-cyan-200 bg-cyan-50 text-cyan-700"
+                      onClick={() => window.open(wedding.vimeo_link!, "_blank")}
+                    >
+                      <Video className="h-3 w-3" /> Vimeo
+                    </Badge>
+                  )}
+                  {wedding.youtube_link && (
+                    <Badge
+                      variant="secondary"
+                      className="cursor-pointer gap-1 border-red-200 bg-red-50 text-red-700"
+                      onClick={() => window.open(wedding.youtube_link!, "_blank")}
+                    >
+                      <Play className="h-3 w-3" /> YouTube
+                    </Badge>
+                  )}
+                  {wedding.gallery_link && (
+                    <Badge
+                      variant="secondary"
+                      className="cursor-pointer gap-1 border-purple-200 bg-purple-50 text-purple-700"
+                      onClick={() => window.open(wedding.gallery_link!, "_blank")}
+                    >
+                      <Image className="h-3 w-3" /> Gallery
+                    </Badge>
+                  )}
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Button variant="outline" size="sm" onClick={() => openLinksModal(wedding)}>
+                    <Link2 className="mr-1 h-4 w-4" /> Edit
+                  </Button>
+                  {wedding.editor_invoice_status === "pending" && (
+                    <Button size="sm" onClick={() => openReviewModal(wedding)}>
+                      <DollarSign className="mr-1 h-4 w-4" /> Review Invoice
+                    </Button>
+                  )}
+                  {wedding.editor_invoice_status === "approved" && (
+                    <Badge variant="outline" className="justify-center border-emerald-200 bg-emerald-50 text-emerald-700">
+                      Invoice Approved
+                    </Badge>
+                  )}
+                  {wedding.editor_invoice_status === "paid" && (
+                    <Badge variant="outline" className="justify-center border-emerald-200 bg-emerald-50 text-emerald-700">
+                      Invoice Paid
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      <div className="hidden rounded-md border bg-card md:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -1122,8 +1341,9 @@ export default function PostProductionTable() {
             )}
           </TableBody>
         </Table>
+      </div>
 
-        {totalPages > 1 && (
+      {totalPages > 1 && (
           <div className="p-4 border-t flex justify-end">
             <Pagination>
               <PaginationContent>
@@ -1160,7 +1380,6 @@ export default function PostProductionTable() {
             </Pagination>
           </div>
         )}
-      </div>
 
       <Dialog open={isLinksModalOpen} onOpenChange={setIsLinksModalOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
