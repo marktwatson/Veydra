@@ -145,10 +145,10 @@ export function SuperAdminAreaSwitcher() {
   };
 
   return (
-    <div className="flex items-center gap-1.5">
-      <Globe className="h-4 w-4 text-muted-foreground hidden sm:block" />
+    <div className="flex min-w-0 items-center gap-1.5">
+      <Globe className="hidden h-4 w-4 text-muted-foreground sm:block" />
       <Select value={value} onValueChange={handleChange}>
-        <SelectTrigger className="h-8 w-[130px] sm:w-[170px] text-xs gap-1">
+        <SelectTrigger className="h-8 w-auto min-w-0 max-w-[46vw] gap-1 text-xs sm:w-[170px] sm:max-w-none">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -162,7 +162,7 @@ export function SuperAdminAreaSwitcher() {
       {!isImpersonating && value && (
         <button
           type="button"
-          className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+          className="hidden text-xs text-muted-foreground underline-offset-2 hover:underline sm:inline"
           onClick={async () => {
             await saveHomeTerritory(value);
             setHomeId(value);

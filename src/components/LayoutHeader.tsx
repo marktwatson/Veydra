@@ -131,7 +131,7 @@ export function LayoutHeader({
             src={logoUrl}
             alt="Portal Logo"
             className={cn(
-              "h-6 object-contain",
+              "h-5 max-w-[4.5rem] object-contain md:h-6 md:max-w-none",
               role !== "editor" && "md:hidden",
             )}
             onError={(e) => {
@@ -165,12 +165,12 @@ export function LayoutHeader({
             </nav>
           )}
         </div>
-        <div className="flex items-center gap-1 sm:gap-2">
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-0.5 sm:gap-2">
           {showSwitcher && role !== "editor" && <SuperAdminAreaSwitcher />}
           {role === "super_admin" && <HeaderClock />}
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="relative" asChild>
+              <Button variant="ghost" size="icon" className="relative h-8 w-8 md:h-10 md:w-10" asChild>
                 <Link to="/notifications">
                   <Bell className="h-5 w-5 text-muted-foreground" />
                   {unreadNotificationsCount > 0 && (
@@ -190,7 +190,7 @@ export function LayoutHeader({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="relative"
+                  className="relative hidden h-8 w-8 md:inline-flex md:h-10 md:w-10"
                   asChild
                 >
                   <Link to="/manager/changelog">
@@ -212,7 +212,7 @@ export function LayoutHeader({
               <Button
                 variant="ghost"
                 size="icon"
-                className="rounded-full bg-muted overflow-hidden border border-border/50 shadow-sm hover:shadow-md transition-all ml-1"
+                className="ml-0.5 h-8 w-8 overflow-hidden rounded-full border border-border/50 bg-muted shadow-sm transition-all hover:shadow-md md:ml-1 md:h-10 md:w-10"
               >
                 {avatarUrl ? (
                   <img
@@ -260,6 +260,14 @@ export function LayoutHeader({
                       className="cursor-pointer w-full"
                     >
                       <Activity className="mr-2 h-4 w-4" /> Activity Log
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link
+                      to="/manager/changelog"
+                      className="cursor-pointer w-full md:hidden"
+                    >
+                      <History className="mr-2 h-4 w-4" /> What's new
                     </Link>
                   </DropdownMenuItem>
                 </>
