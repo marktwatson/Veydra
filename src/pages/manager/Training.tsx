@@ -42,6 +42,14 @@ export const VEYDRA_TRAINING_VIDEOS = [
     url: "https://storage.googleapis.com/msgsndr/76EKIVBXrGYIny0RbqcE/media/14e3b4c8-0826-40e1-b3dd-af530f98c50e.mov",
     type: "video/quicktime",
   },
+  {
+    id: "05",
+    title: "How to add an event to an existing wedding",
+    description:
+      "Add an engagement, bartending day, or other date on a wedding that is already booked, then put a position on that date.",
+    url: "https://assets.cdn.filesafe.space/9JzuUHcQvdlb7oRHmeq3/media/6ac9505dcc7a5a2b73617e4f.mov",
+    type: "video/quicktime",
+  },
 ];
 
 type VideoItem = (typeof VEYDRA_TRAINING_VIDEOS)[number];
