@@ -1008,17 +1008,17 @@ export function ManageWeddingSheet({
         </SheetHeader>
         <form onSubmit={handleSave} className="py-6 space-y-6">
           <Tabs defaultValue="details" className="w-full">
-            <TabsList className="flex h-auto w-full justify-start gap-1 overflow-x-auto md:grid md:grid-cols-5">
-              <TabsTrigger value="details" className="shrink-0 text-xs">Details</TabsTrigger>
-              <TabsTrigger value="events" className="shrink-0 text-xs">Events</TabsTrigger>
-              <TabsTrigger value="checklist" className="shrink-0 text-xs">Checklist</TabsTrigger>
-              <TabsTrigger value="questionnaire" className="shrink-0 text-xs">Questionnaire</TabsTrigger>
-              <TabsTrigger value="jobs" className="shrink-0 text-xs">Positions</TabsTrigger>
+            <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 md:grid md:grid-cols-5">
+              <TabsTrigger value="details" className="text-xs">Details</TabsTrigger>
+              <TabsTrigger value="events" className="text-xs">Events</TabsTrigger>
+              <TabsTrigger value="checklist" className="text-xs">Checklist</TabsTrigger>
+              <TabsTrigger value="questionnaire" className="text-xs">Questionnaire</TabsTrigger>
+              <TabsTrigger value="jobs" className="text-xs">Positions</TabsTrigger>
             </TabsList>
 
             <TabsContent value="details" className="space-y-4 mt-4">
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="clientName">Client Name</Label>
                     <Input
@@ -1048,7 +1048,7 @@ export function ManageWeddingSheet({
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="date">Date</Label>
                     <Input
@@ -1075,7 +1075,7 @@ export function ManageWeddingSheet({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="location">Location</Label>
                     <Input
@@ -1258,7 +1258,7 @@ export function ManageWeddingSheet({
                     )}
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="package">Package</Label>
                     <Input
@@ -1416,7 +1416,7 @@ export function ManageWeddingSheet({
                       Sync Amount
                     </Button>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label className="text-xs">Stripe Customer ID</Label>
                       <Input
@@ -1436,7 +1436,7 @@ export function ManageWeddingSheet({
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label className="text-xs">Contract Signed Date</Label>
                       <Input
@@ -1446,7 +1446,7 @@ export function ManageWeddingSheet({
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label className="text-xs">Total Investment ($)</Label>
                       <div className="relative">
@@ -1891,7 +1891,7 @@ export function ManageWeddingSheet({
 
                 <div className="space-y-4 pt-4 border-t">
                   <h4 className="font-semibold text-sm">Contact Information</h4>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label className="text-xs">Your Full Name</Label>
                       <Input
@@ -2033,7 +2033,7 @@ export function ManageWeddingSheet({
 
                 <div className="space-y-4 pt-4 border-t">
                   <h4 className="font-semibold text-sm">Style & Vibe</h4>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label className="text-xs">Wedding Theme</Label>
                       <Input
@@ -2148,7 +2148,7 @@ export function ManageWeddingSheet({
 
                 <div className="space-y-4 pt-4 border-t">
                   <h4 className="font-semibold text-sm">Family Details</h4>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label className="text-xs">Bride's Parents' Names</Label>
                       <Input
@@ -2254,7 +2254,7 @@ export function ManageWeddingSheet({
                   <h4 className="font-semibold text-sm">
                     Photo & Video Details
                   </h4>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label className="text-xs">
                         First Look before ceremony?
@@ -2910,16 +2910,18 @@ export function ManageWeddingSheet({
             </TabsContent>
           </Tabs>
 
-          <div className="flex justify-end gap-2 pt-4 border-t">
+          <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-end">
             <Button
               type="button"
               variant="outline"
+              className="w-full sm:w-auto"
               onClick={() => setIsOpen(false)}
             >
               Cancel
             </Button>
             <Button
               type="submit"
+              className="w-full sm:w-auto"
               disabled={
                 updateWeddingAndJobsMutation.isPending ||
                 (customPaymentPlan?.enabled &&

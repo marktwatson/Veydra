@@ -205,7 +205,7 @@ function EventFile({ event, weddingId, territoryId }: any) {
 
       <div className="space-y-2">
         <p className="text-sm font-medium">Add crew</p>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <Input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Role" />
           <select
             value={contractorId}
@@ -328,7 +328,7 @@ export function WeddingEventsCard({
       )}
       <div className="rounded-2xl border border-[#c9a96e]/30 bg-white p-4 space-y-3">
         <p className="text-sm font-medium">Add another date</p>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <select
             value={eventType}
             onChange={(e) => setEventType(e.target.value)}
