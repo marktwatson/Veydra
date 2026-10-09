@@ -374,6 +374,7 @@ export function ManageWeddingSheet({
   trigger?: React.ReactNode;
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [sheetTab, setSheetTab] = useState("details");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -1007,8 +1008,20 @@ export function ManageWeddingSheet({
           </SheetDescription>
         </SheetHeader>
         <form onSubmit={handleSave} className="py-6 space-y-6">
-          <Tabs defaultValue="details" className="w-full">
-            <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 md:grid md:grid-cols-5">
+          <Tabs value={sheetTab} onValueChange={setSheetTab} className="w-full">
+            <select
+              className="h-11 w-full rounded-full border bg-background px-4 text-sm md:hidden"
+              value={sheetTab}
+              onChange={(e) => setSheetTab(e.target.value)}
+              aria-label="Wedding section"
+            >
+              <option value="details">Details</option>
+              <option value="events">Events</option>
+              <option value="checklist">Checklist</option>
+              <option value="questionnaire">Questionnaire</option>
+              <option value="jobs">Positions</option>
+            </select>
+            <TabsList className="hidden h-auto w-full md:grid md:grid-cols-5">
               <TabsTrigger value="details" className="text-xs">Details</TabsTrigger>
               <TabsTrigger value="events" className="text-xs">Events</TabsTrigger>
               <TabsTrigger value="checklist" className="text-xs">Checklist</TabsTrigger>
