@@ -1008,12 +1008,12 @@ export function ManageWeddingSheet({
         </SheetHeader>
         <form onSubmit={handleSave} className="py-6 space-y-6">
           <Tabs defaultValue="details" className="w-full">
-            <TabsList className="w-full grid grid-cols-5">
-              <TabsTrigger value="details" className="text-xs">Details</TabsTrigger>
-              <TabsTrigger value="events" className="text-xs">Events</TabsTrigger>
-              <TabsTrigger value="checklist" className="text-xs">Checklist</TabsTrigger>
-              <TabsTrigger value="questionnaire" className="text-xs">Questionnaire</TabsTrigger>
-              <TabsTrigger value="jobs" className="text-xs">Positions</TabsTrigger>
+            <TabsList className="flex h-auto w-full justify-start gap-1 overflow-x-auto md:grid md:grid-cols-5">
+              <TabsTrigger value="details" className="shrink-0 text-xs">Details</TabsTrigger>
+              <TabsTrigger value="events" className="shrink-0 text-xs">Events</TabsTrigger>
+              <TabsTrigger value="checklist" className="shrink-0 text-xs">Checklist</TabsTrigger>
+              <TabsTrigger value="questionnaire" className="shrink-0 text-xs">Questionnaire</TabsTrigger>
+              <TabsTrigger value="jobs" className="shrink-0 text-xs">Positions</TabsTrigger>
             </TabsList>
 
             <TabsContent value="details" className="space-y-4 mt-4">

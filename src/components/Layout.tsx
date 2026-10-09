@@ -10,6 +10,7 @@ import {
   Webhook,
   Shield,
   MessageSquare,
+  Menu,
   ChevronDown,
   DollarSign,
   Receipt,
@@ -46,6 +47,12 @@ import {
 } from "@/components/ui/collapsible";
 import { LayoutHeader } from "@/components/LayoutHeader";
 import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
@@ -80,6 +87,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
       return DEFAULT_LOGO_URL;
     }
   });
+  const [moreOpen, setMoreOpen] = useState(false);
+  useEffect(() => {
+    setMoreOpen(false);
+  }, [location.pathname]);
   useEffect(() => {
     // Kick the scheduler worker as a backup (idempotent via dedupe_key) so
     // offset notifications still send even if the 10-min cron is down.
@@ -712,45 +723,157 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Mobile Bottom Nav */}
       {user?.role !== "editor" && (
-        <nav className="fixed bottom-0 left-0 right-0 z-40 flex h-16 items-center justify-around border-t border-border/40 bg-background/80 backdrop-blur-xl px-2 md:hidden overflow-x-auto no-scrollbar pb-safe">
-          {flatNavItems.map((item) => {
-            const isActive =
-              location.pathname === item.path ||
-              (item.path !== "/" &&
-                item.path !== "/editor" &&
-                location.pathname.startsWith(item.path));
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={cn(
-                  "relative flex flex-col items-center justify-center gap-1 p-2 text-[10px] font-medium transition-all duration-300 min-w-[64px] rounded-full mx-1",
-                  isActive
-                    ? "text-primary bg-primary/10 shadow-sm"
-                    : "text-muted-foreground hover:bg-muted/50",
-                )}
-              >
-                <div className="relative">
-                  <item.icon className="h-5 w-5" />
-                  {item.label === "Messages" && unreadCount > 0 && (
-                    <span className="absolute -top-1.5 -right-2.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-white shadow-sm border-2 border-background">
-                      {unreadCount}
-                    </span>
-                  )}
-                  {item.label === "Jobs" && availableJobsCount > 0 && (
-                    <span className="absolute -top-1.5 -right-2.5 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-white shadow-sm border-2 border-background">
-                      {availableJobsCount}
-                    </span>
-                  )}
-                </div>
-                <span className="truncate w-full text-center">
-                  {item.label}
-                </span>
-              </Link>
-            );
-          })}
-        </nav>
+        <MobileTabBar
+          items={flatNavItems}
+          groups={isManagerOrAdmin ? effectiveNavGroups : []}
+          pathname={location.pathname}
+          unreadCount={unreadCount}
+          availableJobsCount={availableJobsCount}
+          moreOpen={moreOpen}
+          setMoreOpen={setMoreOpen}
+        />
       )}
     </SidebarProvider>
+  );
+}
+
+const PHONE_PRIMARY = [
+  "/manager",
+  "/manager/weddings",
+  "/manager/proposals",
+  "/manager/messages",
+];
+
+function pathActive(pathname: string, path: string) {
+  return (
+    pathname === path ||
+    (path !== "/" && path !== "/editor" && pathname.startsWith(path))
+  );
+}
+
+function MobileTabBar({
+  items,
+  groups,
+  pathname,
+  unreadCount,
+  availableJobsCount,
+  moreOpen,
+  setMoreOpen,
+}: {
+  items: { icon: any; label: string; path: string }[];
+  groups: { label: string; items: { icon: any; label: string; path: string }[] }[];
+  pathname: string;
+  unreadCount: number;
+  availableJobsCount: number;
+  moreOpen: boolean;
+  setMoreOpen: (open: boolean) => void;
+}) {
+  const useMore = items.length > 5;
+  const picked = PHONE_PRIMARY.map((path) =>
+    items.find((item) => item.path === path),
+  ).filter(Boolean) as { icon: any; label: string; path: string }[];
+  const bar = useMore ? picked : items;
+  const moreHasActive =
+    useMore && items.some((item) => pathActive(pathname, item.path) && !bar.some((b) => b.path === item.path));
+
+  return (
+    <>
+      <nav className="fixed bottom-0 left-0 right-0 z-40 flex h-16 items-stretch justify-around border-t border-border/40 bg-background/95 px-1 pb-safe backdrop-blur-xl md:hidden">
+        {bar.map((item) => (
+          <TabLink
+            key={item.path}
+            item={item}
+            active={pathActive(pathname, item.path)}
+            unreadCount={unreadCount}
+            availableJobsCount={availableJobsCount}
+          />
+        ))}
+        {useMore && (
+          <button
+            type="button"
+            onClick={() => setMoreOpen(true)}
+            className={cn(
+              "flex min-w-0 flex-1 flex-col items-center justify-center gap-1 text-[10px] font-medium",
+              moreOpen || moreHasActive ? "text-primary" : "text-muted-foreground",
+            )}
+          >
+            <Menu className="h-5 w-5" />
+            <span>More</span>
+          </button>
+        )}
+      </nav>
+      {useMore && (
+        <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
+          <SheetContent side="bottom" className="max-h-[80vh] overflow-y-auto rounded-t-2xl pb-8">
+            <SheetHeader>
+              <SheetTitle>Menu</SheetTitle>
+            </SheetHeader>
+            <div className="mt-4 space-y-5">
+              {groups.map((group) => (
+                <div key={group.label}>
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {group.label}
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {group.items.map((item) => (
+                      <Link
+                        key={item.path}
+                        to={item.path}
+                        className={cn(
+                          "flex items-center gap-2 rounded-lg border px-3 py-3 text-sm",
+                          pathActive(pathname, item.path)
+                            ? "border-primary/30 bg-primary/10 text-primary"
+                            : "text-foreground",
+                        )}
+                      >
+                        <item.icon className="h-4 w-4 shrink-0" />
+                        <span className="truncate">{item.label}</span>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </SheetContent>
+        </Sheet>
+      )}
+    </>
+  );
+}
+
+function TabLink({
+  item,
+  active,
+  unreadCount,
+  availableJobsCount,
+}: {
+  item: { icon: any; label: string; path: string };
+  active: boolean;
+  unreadCount: number;
+  availableJobsCount: number;
+}) {
+  return (
+    <Link
+      to={item.path}
+      className={cn(
+        "flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-1 text-[10px] font-medium",
+        active ? "text-primary" : "text-muted-foreground",
+      )}
+    >
+      <span className="relative">
+        <item.icon className="h-5 w-5" />
+        {item.label === "Messages" && unreadCount > 0 && (
+          <span className="absolute -right-2.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border-2 border-background bg-destructive text-[10px] font-bold text-white">
+            {unreadCount}
+          </span>
+        )}
+        {item.label === "Jobs" && availableJobsCount > 0 && (
+          <span className="absolute -right-2.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border-2 border-background bg-emerald-500 text-[10px] font-bold text-white">
+            {availableJobsCount}
+          </span>
+        )}
+      </span>
+      <span className="w-full truncate text-center">{item.label}</span>
+    </Link>
   );
 }
