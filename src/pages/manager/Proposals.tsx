@@ -355,7 +355,15 @@ export default function ManagerProposals() {
                     className="rounded-xl border p-4"
                     onClick={() => setDetailProposal(proposal)}
                   >
-                    <div className="font-medium">{proposal.client_name}</div>
+                    <div className="font-medium flex flex-wrap items-center gap-2">
+                      {proposal.client_name}
+                      {proposal.salesperson_name && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-700 dark:text-violet-300 text-[10px] font-semibold border border-violet-500/20">
+                          <Users className="h-3 w-3" />
+                          {proposal.salesperson_name}
+                        </span>
+                      )}
+                    </div>
                     <div className="mt-1 text-xs text-muted-foreground">
                       {proposal.client_email}
                     </div>
