@@ -4144,20 +4144,36 @@ export default function ManagerWeddings() {
                     key={wedding.id}
                     className="space-y-3 rounded-xl border bg-card p-4"
                   >
-                    <div className="flex flex-wrap items-center gap-2 font-medium">
+                    <div className="text-xl font-semibold leading-tight">
                       {wedding.client_name}
-                      <OffPlatformBadge
-                        status={wedding.offplatform_status}
-                        method={wedding.offplatform_method}
-                        amount={wedding.offplatform_amount}
-                        claimedAt={wedding.offplatform_claimed_at}
-                      />
+                    </div>
+                    <OffPlatformBadge
+                      status={wedding.offplatform_status}
+                      method={wedding.offplatform_method}
+                      amount={wedding.offplatform_amount}
+                      claimedAt={wedding.offplatform_claimed_at}
+                    />
+                    <div className="text-base font-semibold text-foreground">
+                      {wedding.date
+                        ? (() => {
+                            const [year, month, day] = String(wedding.date)
+                              .split("T")[0]
+                              .split("-")
+                              .map(Number);
+                            return year && month && day
+                              ? new Date(year, month - 1, day).toLocaleDateString(
+                                  "en-US",
+                                  {
+                                    weekday: "long",
+                                    month: "short",
+                                    day: "numeric",
+                                  },
+                                )
+                              : formatDisplayDate(wedding.date);
+                          })()
+                        : "No date"}
                     </div>
                     <div className="text-sm text-muted-foreground">
-                      {wedding.date
-                        ? formatDisplayDate(wedding.date)
-                        : "No date"}
-                      {" · "}
                       {packageName(wedding)}
                     </div>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
