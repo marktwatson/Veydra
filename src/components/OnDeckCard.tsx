@@ -380,3 +380,67 @@ export function OnDeckCard({
     </Card>
   );
 }
+
+const EVENT_DECK_STYLE: Record<string, { label: string; border: string; chip: string }> = {
+  engagement: { label: "Engagement", border: "border-l-amber-500", chip: "bg-amber-100 text-amber-900" },
+  bartending: { label: "Bartending", border: "border-l-emerald-500", chip: "bg-emerald-100 text-emerald-900" },
+  sangeet: { label: "Other day", border: "border-l-violet-500", chip: "bg-violet-100 text-violet-900" },
+};
+
+export function EventDeckCard({
+  wedding,
+  event,
+  daysUntil,
+}: {
+  wedding: any;
+  event: any;
+  daysUntil: number;
+}) {
+  const style = EVENT_DECK_STYLE[event.event_type] || {
+    label: event.title || "Extra date",
+    border: "border-l-sky-500",
+    chip: "bg-sky-100 text-sky-900",
+  };
+  const [year, month, day] = String(event.event_date || "").split("T")[0].split("-").map(Number);
+  const dayLabel =
+    year && month && day
+      ? new Date(year, month - 1, day).toLocaleDateString("en-US", {
+          weekday: "long",
+          month: "short",
+          day: "numeric",
+        })
+      : "Date TBD";
+  const when =
+    daysUntil < 0 ? "Past date" : daysUntil === 0 ? "Today" : daysUntil === 1 ? "Tomorrow" : `${daysUntil} days away`;
+  const place = event.venue || event.address || event.location || "Location not set";
+
+  return (
+    <Card className={`overflow-hidden border-l-4 ${style.border}`}>
+      <div className="space-y-2 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 text-lg font-semibold leading-tight">{wedding.client_name}</div>
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${style.chip}`}>
+            {style.label}
+          </span>
+        </div>
+        <div className="text-base font-semibold">
+          {dayLabel} · {when}
+        </div>
+        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <MapPin className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">{place}</span>
+        </div>
+      </div>
+      <div className="border-t bg-muted/20 p-3">
+        <ManageWeddingSheet
+          wedding={wedding}
+          trigger={
+            <Button size="sm" className="h-8 w-full text-xs font-medium">
+              Manage
+            </Button>
+          }
+        />
+      </div>
+    </Card>
+  );
+}

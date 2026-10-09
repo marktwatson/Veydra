@@ -17,12 +17,13 @@ import {
   sendPrepReminder,
   sendAttendanceReminder,
 } from "@/lib/wedding-readiness";
-import { OnDeckCard, OnDeckWeddingMeta } from "@/components/OnDeckCard";
+import { OnDeckCard, OnDeckWeddingMeta, EventDeckCard } from "@/components/OnDeckCard";
 import { OnDeckTable } from "@/components/OnDeckTable";
 import { useWeddingEventBadges } from "@/components/WeddingEventsCard";
 
 export interface OnDeckTabProps {
   onDeckSorted: any[];
+  onDeckEvents?: { wedding: any; event: any }[];
   assignments: any[];
   jobs: any[];
   today: Date;
@@ -40,6 +41,7 @@ export interface OnDeckTabProps {
 
 export function OnDeckTab({
   onDeckSorted,
+  onDeckEvents = [],
   assignments,
   jobs,
   today,
@@ -199,6 +201,19 @@ export function OnDeckTab({
     const nextTwoWeeks: OnDeckWeddingMeta[] = [];
     const upcoming: OnDeckWeddingMeta[] = [];
     const pastDue: OnDeckWeddingMeta[] = [];
+    const urgentEvents: { wedding: any; event: any }[] = [];
+    const nextEvents: { wedding: any; event: any }[] = [];
+    const upcomingEvents: { wedding: any; event: any }[] = [];
+    const pastEvents: { wedding: any; event: any }[] = [];
+
+    const bucketEvent = (item: { wedding: any; event: any }) => {
+      const target = parseLocalDate(item.event.event_date);
+      const days = Math.round((target.getTime() - today.getTime()) / 86400000);
+      if (days < 0) pastEvents.push(item);
+      else if (days <= 7) urgentEvents.push(item);
+      else if (days <= 14) nextEvents.push(item);
+      else upcomingEvents.push(item);
+    };
 
     parsedWeddings.forEach((meta) => {
       if (meta.daysUntil < 0) {
@@ -211,50 +226,62 @@ export function OnDeckTab({
         upcoming.push(meta);
       }
     });
+    onDeckEvents.forEach(bucketEvent);
+
+    const countLabel = (weddings: number, events: number) => {
+      const parts = [];
+      if (weddings) parts.push(`${weddings} wedding${weddings === 1 ? "" : "s"}`);
+      if (events) parts.push(`${events} event${events === 1 ? "" : "s"}`);
+      return parts.join(" · ") || "0";
+    };
 
     return [
       {
         id: "urgent",
         title: "Immediate & Urgent",
-        subtitle: "≤ 7 days until wedding date",
-        badge: `${urgent.length} wedding${urgent.length === 1 ? "" : "s"}`,
+        subtitle: "≤ 7 days until the date",
+        badge: countLabel(urgent.length, urgentEvents.length),
         badgeVariant: "destructive" as const,
         items: urgent,
-        emptyText: "No weddings occurring within the next 7 days.",
+        events: urgentEvents,
+        emptyText: "Nothing occurring within the next 7 days.",
       },
       {
         id: "nextTwoWeeks",
         title: "Next 2 Weeks",
         subtitle: "8 to 14 days out",
-        badge: `${nextTwoWeeks.length} wedding${nextTwoWeeks.length === 1 ? "" : "s"}`,
+        badge: countLabel(nextTwoWeeks.length, nextEvents.length),
         badgeVariant: "secondary" as const,
         items: nextTwoWeeks,
-        emptyText: "No weddings scheduled 8–14 days out.",
+        events: nextEvents,
+        emptyText: "Nothing scheduled 8–14 days out.",
       },
       {
         id: "upcoming",
         title: "Upcoming On Deck",
         subtitle: "15 to 30 days out",
-        badge: `${upcoming.length} wedding${upcoming.length === 1 ? "" : "s"}`,
+        badge: countLabel(upcoming.length, upcomingEvents.length),
         badgeVariant: "outline" as const,
         items: upcoming,
-        emptyText: "No weddings scheduled 15–30 days out.",
+        events: upcomingEvents,
+        emptyText: "Nothing scheduled 15–30 days out.",
       },
-      ...(pastDue.length > 0
+      ...(pastDue.length > 0 || pastEvents.length > 0
         ? [
             {
               id: "pastDue",
               title: "Past Dates Pending Closeout",
               subtitle: "Requires wrap-up or post-production",
-              badge: `${pastDue.length} past`,
+              badge: countLabel(pastDue.length, pastEvents.length),
               badgeVariant: "secondary" as const,
               items: pastDue,
+              events: pastEvents,
               emptyText: "",
             },
           ]
         : []),
     ];
-  }, [parsedWeddings]);
+  }, [parsedWeddings, onDeckEvents, parseLocalDate, today]);
 
   const urgentCount = parsedWeddings.filter(
     (w) => w.daysUntil >= 0 && w.daysUntil <= 7,
@@ -264,7 +291,7 @@ export function OnDeckTab({
     parsedWeddings.flatMap((w) => w.contractors.map((c) => c.id)),
   ).size;
 
-  if (onDeckSorted.length === 0) {
+  if (onDeckSorted.length === 0 && onDeckEvents.length === 0) {
     return (
       <Card className="border-border/60">
         <CardContent className="py-16 text-center">
@@ -349,7 +376,7 @@ export function OnDeckTab({
                 </div>
               </div>
 
-              {lane.items.length === 0 ? (
+              {lane.items.length === 0 && lane.events.length === 0 ? (
                 <div className="p-6 rounded-xl border border-dashed border-border/60 text-center bg-muted/10">
                   <p className="text-xs text-muted-foreground">
                     {lane.emptyText}
@@ -378,6 +405,20 @@ export function OnDeckTab({
                       onRemindAttendance={handleRemindAttendance}
                     />
                   ))}
+                  {lane.events.map((item) => {
+                    const target = parseLocalDate(item.event.event_date);
+                    const days = Math.round(
+                      (target.getTime() - today.getTime()) / 86400000,
+                    );
+                    return (
+                      <EventDeckCard
+                        key={item.event.id}
+                        wedding={item.wedding}
+                        event={item.event}
+                        daysUntil={days}
+                      />
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -387,6 +428,25 @@ export function OnDeckTab({
 
       {/* COMPACT TABLE VIEW */}
       {viewMode === "table" && (
+        <div className="space-y-4">
+          {onDeckEvents.length > 0 && (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {onDeckEvents.map((item) => {
+                const target = parseLocalDate(item.event.event_date);
+                const days = Math.round(
+                  (target.getTime() - today.getTime()) / 86400000,
+                );
+                return (
+                  <EventDeckCard
+                    key={item.event.id}
+                    wedding={item.wedding}
+                    event={item.event}
+                    daysUntil={days}
+                  />
+                );
+              })}
+            </div>
+          )}
         <OnDeckTable
           parsedWeddings={parsedWeddings}
           eventsByWedding={eventBadges}
@@ -403,6 +463,7 @@ export function OnDeckTab({
           sendingAttendanceReminder={sendingAttendanceReminder}
           onRemindAttendance={handleRemindAttendance}
         />
+        </div>
       )}
     </div>
   );

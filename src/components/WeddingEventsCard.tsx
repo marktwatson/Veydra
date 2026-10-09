@@ -66,7 +66,7 @@ export function useWeddingEventBadges(weddingIds: string[]) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("wedding_events")
-        .select("id, wedding_id, event_type, title, event_date")
+        .select("id, wedding_id, event_type, title, event_date, venue, address, location")
         .in("wedding_id", weddingIds);
       if (error) throw error;
       const map = new Map<string, any[]>();

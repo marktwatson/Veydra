@@ -3199,6 +3199,33 @@ export default function ManagerWeddings() {
     );
   });
 
+  const onDeckEvents = useMemo(() => {
+    if (!eventBadges) return [];
+    const end = new Date(today);
+    end.setDate(today.getDate() + 30);
+    const items: { wedding: any; event: any }[] = [];
+    for (const wedding of weddings) {
+      const status = String(wedding.status || "").toLowerCase();
+      if (status === "cancelled" || status === "draft") continue;
+      for (const event of eventBadges.get(wedding.id) || []) {
+        if (!event.event_date) continue;
+        const eventDate = parseLocalDate(event.event_date);
+        if (
+          eventDate.getTime() >= today.getTime() &&
+          eventDate.getTime() <= end.getTime()
+        ) {
+          items.push({ wedding, event });
+        }
+      }
+    }
+    items.sort(
+      (a, b) =>
+        parseLocalDate(a.event.event_date).getTime() -
+        parseLocalDate(b.event.event_date).getTime(),
+    );
+    return items;
+  }, [eventBadges, weddings, today]);
+
   const pastWeddings = filterBySearch(
     weddings
       .filter(
@@ -4899,7 +4926,7 @@ export default function ManagerWeddings() {
             onChange={(e) => setActiveTab(e.target.value)}
             aria-label="Wedding list"
           >
-            <option value="on-deck">On Deck ({onDeckSorted.length})</option>
+            <option value="on-deck">On Deck ({onDeckSorted.length + onDeckEvents.length})</option>
             {pendingWeddings.length > 0 && (
               <option value="needs-review">
                 Needs Review ({pendingWeddings.length})
@@ -4914,9 +4941,9 @@ export default function ManagerWeddings() {
           <TabsList className="mb-4 hidden md:inline-flex">
             <TabsTrigger value="on-deck" className="relative">
               On Deck
-              {onDeckSorted.length > 0 && (
+              {onDeckSorted.length + onDeckEvents.length > 0 && (
                 <span className="ml-2 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground font-semibold">
-                  {onDeckSorted.length}
+                  {onDeckSorted.length + onDeckEvents.length}
                 </span>
               )}
             </TabsTrigger>
@@ -4945,6 +4972,7 @@ export default function ManagerWeddings() {
           <TabsContent value="on-deck">
             <OnDeckTab
               onDeckSorted={onDeckSorted}
+              onDeckEvents={onDeckEvents}
               assignments={assignments}
               jobs={jobs}
               today={today}
