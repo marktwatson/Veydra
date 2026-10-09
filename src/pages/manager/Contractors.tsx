@@ -1511,12 +1511,7 @@ export default function ManagerContractors() {
       interview_date: fetchedInterviews[c.id] || c.interview_date,
     }));
 
-  const availableRegions = Array.from(
-    new Set([
-      ...globalRegions,
-      ...allContractors.flatMap((c: any) => parseRegions(c.region)),
-    ]),
-  ).sort();
+  const availableRegions = [...globalRegions].sort();
 
   const filteredContractors = allContractors.filter((c: any) => {
     if (ratingFilter !== "all") {
