@@ -307,7 +307,7 @@ export default function Login() {
   if (booting) return <BootScreen lines={bootLines} />;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
+    <div className="flex min-h-screen items-start justify-center bg-muted/30 p-4 pt-8 md:items-center md:pt-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4">
