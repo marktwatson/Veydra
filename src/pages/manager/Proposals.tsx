@@ -243,7 +243,7 @@ export default function ManagerProposals() {
               : "Not Set";
 
   return (
-    <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6">
+    <div className="min-w-0 p-4 md:p-8 max-w-7xl mx-auto space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-serif text-foreground">Proposals</h1>
@@ -266,9 +266,26 @@ export default function ManagerProposals() {
         </div>
       </div>
 
+      <select
+        className="h-11 w-full rounded-full border bg-background px-4 text-sm md:hidden"
+        value={activeTab}
+        onChange={(e) => setActiveTab(e.target.value as ProposalTab)}
+        aria-label="Proposal status"
+      >
+        <option value="all">All ({counts.all})</option>
+        <option value="draft">Draft ({counts.draft})</option>
+        <option value="waiting">Waiting payment ({counts.waiting})</option>
+        <option value="booked">Booked ({counts.booked})</option>
+        <option value="coverage">
+          Awaiting coverage ({counts.coverage || 0})
+        </option>
+        <option value="expired">Expired ({counts.expired || 0})</option>
+        <option value="archived">Archive ({counts.archived || 0})</option>
+      </select>
       <Tabs
         value={activeTab}
         onValueChange={(v) => setActiveTab(v as ProposalTab)}
+        className="hidden md:block"
       >
         <TabsList className="flex h-auto w-full max-w-full justify-start gap-1 overflow-x-auto [&>*]:shrink-0">
           <TabsTrigger value="all">All ({counts.all})</TabsTrigger>
