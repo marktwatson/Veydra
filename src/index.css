@@ -213,6 +213,15 @@
 
 @media (max-width: 767px) {
   .app-shell {
-    padding: 12px 8px 16px;
+    max-width: none !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding: 12px 8px 16px !important;
+  }
+}
+
+@media (min-width: 768px) {
+  .app-shell {
+    padding: 2rem;
   }
 }
