@@ -247,6 +247,7 @@ export default function PositionsTab() {
   const [editRole, setEditRole] = useState<string>("");
   const [editHours, setEditHours] = useState<string>("");
   const [editRate, setEditRate] = useState<string>("");
+  const [positionTab, setPositionTab] = useState("open");
 
   const { data: settings } = useQuery({
     queryKey: ["portalSettings"],
@@ -666,8 +667,18 @@ export default function PositionsTab() {
         </Dialog>
       </div>
 
-      <Tabs defaultValue="open" className="w-full">
-        <TabsList className="mb-4">
+      <Tabs value={positionTab} onValueChange={setPositionTab} className="w-full">
+        <select
+          className="mb-4 h-11 w-full rounded-full border bg-background px-4 text-sm md:hidden"
+          value={positionTab}
+          onChange={(e) => setPositionTab(e.target.value)}
+          aria-label="Position list"
+        >
+          <option value="open">Open Positions ({openJobs.length})</option>
+          <option value="filled">Filled / Completed</option>
+          <option value="all">All Positions</option>
+        </select>
+        <TabsList className="mb-4 hidden md:inline-flex">
           <TabsTrigger value="open" className="relative">
             Open Positions
             {openJobs.length > 0 && (
@@ -686,11 +697,11 @@ export default function PositionsTab() {
           { value: "all", data: jobs, title: "All Positions" },
         ].map((tab) => (
           <TabsContent key={tab.value} value={tab.value}>
-            <Card>
-              <CardHeader>
+            <Card className="border-0 bg-transparent shadow-none md:border md:bg-card md:shadow-sm">
+              <CardHeader className="hidden md:flex">
                 <CardTitle>{tab.title}</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-0 md:p-6">
                 {jobsError ? (
                   <div className="flex flex-col items-center justify-center py-8 text-center text-destructive">
                     <AlertCircle className="h-8 w-8 mb-2" />
@@ -701,6 +712,127 @@ export default function PositionsTab() {
                     </p>
                   </div>
                 ) : (
+                  <>
+                  <div className="space-y-3 md:hidden">
+                    {isLoadingJobs ? (
+                      <div className="flex justify-center p-8">
+                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : tab.data.length === 0 ? (
+                      <div className="p-8 text-center text-muted-foreground">
+                        No positions found in this category.
+                      </div>
+                    ) : (
+                      tab.data.map((job: any) => {
+                        const eventInfo = eventByJob[job.id];
+                        const isUrgent =
+                          job.status === "open" &&
+                          (eventInfo?.event_date || job.weddings?.date) &&
+                          new Date(eventInfo?.event_date || job.weddings.date).getTime() -
+                            new Date().getTime() <
+                            14 * 24 * 60 * 60 * 1000;
+                        const drone =
+                          (job.drone_required === true ||
+                            job.drone_required === "true") &&
+                          !(
+                            job.role?.toLowerCase().includes("photo") &&
+                            !job.role?.toLowerCase().includes("video")
+                          );
+                        return (
+                          <div
+                            key={job.id}
+                            className={cn(
+                              "space-y-3 rounded-xl border bg-card p-4",
+                              job.status === "open" &&
+                                "border-amber-200 bg-amber-50/50",
+                            )}
+                          >
+                            <div className="flex flex-wrap items-center gap-2 font-medium">
+                              {job.weddings?.client_name || "Unknown Wedding"}
+                              {eventInfo?.title ? ` · ${eventInfo.title}` : ""}
+                              {isUrgent && (
+                                <Badge
+                                  variant="destructive"
+                                  className="h-5 px-1.5 text-[10px]"
+                                >
+                                  Urgent
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 text-sm">
+                              <span>{job.role}</span>
+                              {drone && (
+                                <Badge
+                                  variant="outline"
+                                  className="border-blue-200 bg-blue-50/50 text-[10px] text-blue-600"
+                                >
+                                  Drone Required
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+                              <span>
+                                {formatDisplayDate(
+                                  eventInfo?.event_date || job.weddings?.date,
+                                )}
+                              </span>
+                              <span>{job.hours ? `${job.hours} hrs` : "—"}</span>
+                              <span className="font-medium text-foreground">
+                                {job.pay_type === "bidding"
+                                  ? job.status === "filled" ||
+                                    job.status === "completed"
+                                    ? `$${job.pay_rate} (Bid)`
+                                    : "Bidding"
+                                  : `$${job.pay_rate}`}
+                              </span>
+                              <Badge
+                                variant={
+                                  job.status === "open" ? "default" : "secondary"
+                                }
+                              >
+                                {job.status}
+                              </Badge>
+                            </div>
+                            <div className="flex flex-wrap justify-end gap-2">
+                              {job.status === "open" && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => setResendJobId(job.id)}
+                                >
+                                  <Send className="mr-2 h-4 w-4" />
+                                  Send Alerts
+                                </Button>
+                              )}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setEditingJob(job);
+                                  setEditRole(job.role || "");
+                                  setEditHours(
+                                    job.hours ? job.hours.toString() : "",
+                                  );
+                                  setEditRate(
+                                    job.pay_rate ? job.pay_rate.toString() : "",
+                                  );
+                                  setEditPayType(job.pay_type || "flat");
+                                  setEditDroneRequired(
+                                    job.drone_required === true ||
+                                      job.drone_required === "true",
+                                  );
+                                  setEditAddons(job.addons || []);
+                                }}
+                              >
+                                Edit
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                  <div className="hidden md:block">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -855,6 +987,8 @@ export default function PositionsTab() {
                       )}
                     </TableBody>
                   </Table>
+                  </div>
+                  </>
                 )}
               </CardContent>
             </Card>
