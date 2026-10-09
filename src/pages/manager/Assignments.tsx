@@ -56,6 +56,7 @@ export default function ManagerAssignments() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [upcomingPage, setUpcomingPage] = useState(1);
   const [completedPage, setCompletedPage] = useState(1);
+  const [assignmentTab, setAssignmentTab] = useState("upcoming");
   const itemsPerPage = 10;
 
   const { data: assignments = [], isLoading } = useQuery({
@@ -172,14 +173,120 @@ export default function ManagerAssignments() {
       setSelectedIds(newSelected);
     };
 
+    const assignmentMenu = (assg: any, wedding: any) => (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" className="h-8 w-8 p-0">
+            <span className="sr-only">Open menu</span>
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuLabel>Actions</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={async () => {
+              const link = `${window.location.origin}/feedback/${wedding?.id}`;
+              try {
+                if (navigator.clipboard && window.isSecureContext) {
+                  await navigator.clipboard.writeText(link);
+                  toast({
+                    title: "Link Copied",
+                    description: "Feedback link copied to clipboard.",
+                  });
+                } else {
+                  throw new Error("Clipboard API not available");
+                }
+              } catch (err) {
+                const textArea = document.createElement("textarea");
+                textArea.value = link;
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                  document.execCommand("copy");
+                  toast({
+                    title: "Link Copied",
+                    description: "Feedback link copied to clipboard.",
+                  });
+                } catch (err2) {
+                  toast({
+                    title: "Failed to copy",
+                    description: "Please copy the link manually: " + link,
+                    variant: "destructive",
+                  });
+                }
+                document.body.removeChild(textArea);
+              }
+            }}
+          >
+            <Link2 className="mr-2 h-4 w-4" />
+            Copy Feedback Link
+          </DropdownMenuItem>
+          {assg.status !== "Completed" && (
+            <DropdownMenuItem
+              onClick={() =>
+                updateStatusMutation.mutate({
+                  id: assg.id,
+                  status: "Completed",
+                })
+              }
+            >
+              <Check className="mr-2 h-4 w-4" />
+              Mark Completed
+            </DropdownMenuItem>
+          )}
+          {assg.status !== "Upcoming" && assg.status !== "Completed" && (
+            <DropdownMenuItem
+              onClick={() =>
+                updateStatusMutation.mutate({
+                  id: assg.id,
+                  status: "Upcoming",
+                })
+              }
+            >
+              <Clock className="mr-2 h-4 w-4" />
+              Mark Upcoming
+            </DropdownMenuItem>
+          )}
+          {assg.status === "Pending Payout" && (
+            <DropdownMenuItem
+              onClick={() =>
+                updateStatusMutation.mutate({
+                  id: assg.id,
+                  status: "Action Required",
+                })
+              }
+            >
+              <Undo className="mr-2 h-4 w-4" />
+              Reject back to contractor
+            </DropdownMenuItem>
+          )}
+          {assg.status !== "Cancelled" && (
+            <DropdownMenuItem
+              onClick={() =>
+                updateStatusMutation.mutate({
+                  id: assg.id,
+                  status: "Cancelled",
+                })
+              }
+              className="text-destructive focus:bg-destructive focus:text-destructive-foreground"
+            >
+              <X className="mr-2 h-4 w-4" />
+              Cancel Assignment
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+
     return (
       <div className="space-y-4">
         {isSomeSelected && (
-          <div className="flex items-center gap-2 p-2 bg-muted/50 rounded-md border">
-            <span className="text-sm font-medium ml-2">
+          <div className="flex flex-col gap-2 rounded-md border bg-muted/50 p-2 sm:flex-row sm:items-center">
+            <span className="ml-2 text-sm font-medium">
               {data.filter((a) => selectedIds.has(a.id)).length} selected
             </span>
-            <div className="ml-auto flex items-center gap-2">
+            <div className="flex flex-col gap-2 sm:ml-auto sm:flex-row sm:items-center">
               <Button
                 variant="outline"
                 size="sm"
@@ -225,6 +332,70 @@ export default function ManagerAssignments() {
             </div>
           </div>
         )}
+        <div className="space-y-3 md:hidden">
+          {isLoading ? (
+            <div className="flex justify-center p-8">
+              <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : paginatedData.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground">No assignments found.</div>
+          ) : (
+            paginatedData.map((assg: any) => {
+              const job = assg.jobs;
+              const wedding = job?.weddings;
+              const contractor = assg.contractors;
+              const isSelected = selectedIds.has(assg.id);
+              let displayStatus = assg.status;
+              if (assg.status?.toLowerCase() === "upcoming" && wedding?.date) {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const datePart = wedding.date.split("T")[0];
+                const [year, month, day] = datePart.split("-").map(Number);
+                const wDate = new Date(year, month - 1, day);
+                if (wDate.getTime() === today.getTime()) displayStatus = "Today";
+                else if (wDate.getTime() < today.getTime()) displayStatus = "Past";
+              }
+              const upcoming = ["upcoming", "accepted", "confirmed", "assigned"].includes(assg.status?.toLowerCase());
+              return (
+                <div key={assg.id} className="space-y-3 rounded-xl border bg-card p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => toggleRow(assg.id)}
+                        aria-label={`Select assignment ${assg.id}`}
+                      />
+                      <div>
+                        <div className="font-medium">{wedding?.client_name || "Wedding"}</div>
+                        <div className="mt-1 text-sm text-muted-foreground">
+                          {job?.role || "Role"} · {contractor?.first_name} {contractor?.last_name}
+                        </div>
+                        <div className="text-sm text-muted-foreground">{formatDisplayDate(wedding?.date)}</div>
+                      </div>
+                    </div>
+                    {assignmentMenu(assg, wedding)}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary">{displayStatus}</Badge>
+                    {upcoming ? (
+                      assg.attendance_confirmed ? (
+                        <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">Confirmed</Badge>
+                      ) : (
+                        <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">Unconfirmed</Badge>
+                      )
+                    ) : null}
+                    {assg.client_rating ? (
+                      <span className="flex items-center text-sm font-medium text-yellow-500">
+                        {assg.client_rating} <Star className="ml-0.5 h-3 w-3 fill-yellow-500" />
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+        <div className="hidden md:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -386,120 +557,7 @@ export default function ManagerAssignments() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" className="h-8 w-8 p-0">
-                            <span className="sr-only">Open menu</span>
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onClick={async () => {
-                              const link = `${window.location.origin}/feedback/${wedding?.id}`;
-                              try {
-                                if (
-                                  navigator.clipboard &&
-                                  window.isSecureContext
-                                ) {
-                                  await navigator.clipboard.writeText(link);
-                                  toast({
-                                    title: "Link Copied",
-                                    description:
-                                      "Feedback link copied to clipboard.",
-                                  });
-                                } else {
-                                  throw new Error(
-                                    "Clipboard API not available",
-                                  );
-                                }
-                              } catch (err) {
-                                // Fallback for blocked clipboard API
-                                const textArea =
-                                  document.createElement("textarea");
-                                textArea.value = link;
-                                document.body.appendChild(textArea);
-                                textArea.select();
-                                try {
-                                  document.execCommand("copy");
-                                  toast({
-                                    title: "Link Copied",
-                                    description:
-                                      "Feedback link copied to clipboard.",
-                                  });
-                                } catch (err2) {
-                                  toast({
-                                    title: "Failed to copy",
-                                    description:
-                                      "Please copy the link manually: " + link,
-                                    variant: "destructive",
-                                  });
-                                }
-                                document.body.removeChild(textArea);
-                              }
-                            }}
-                          >
-                            <Link2 className="mr-2 h-4 w-4" />
-                            Copy Feedback Link
-                          </DropdownMenuItem>
-                          {assg.status !== "Completed" && (
-                            <DropdownMenuItem
-                              onClick={() =>
-                                updateStatusMutation.mutate({
-                                  id: assg.id,
-                                  status: "Completed",
-                                })
-                              }
-                            >
-                              <Check className="mr-2 h-4 w-4" />
-                              Mark Completed
-                            </DropdownMenuItem>
-                          )}
-                          {assg.status !== "Upcoming" &&
-                            assg.status !== "Completed" && (
-                              <DropdownMenuItem
-                                onClick={() =>
-                                  updateStatusMutation.mutate({
-                                    id: assg.id,
-                                    status: "Upcoming",
-                                  })
-                                }
-                              >
-                                <Clock className="mr-2 h-4 w-4" />
-                                Mark Upcoming
-                              </DropdownMenuItem>
-                            )}
-                          {assg.status === "Pending Payout" && (
-                            <DropdownMenuItem
-                              onClick={() =>
-                                updateStatusMutation.mutate({
-                                  id: assg.id,
-                                  status: "Action Required",
-                                })
-                              }
-                            >
-                              <Undo className="mr-2 h-4 w-4" />
-                              Reject back to contractor
-                            </DropdownMenuItem>
-                          )}
-                          {assg.status !== "Cancelled" && (
-                            <DropdownMenuItem
-                              onClick={() =>
-                                updateStatusMutation.mutate({
-                                  id: assg.id,
-                                  status: "Cancelled",
-                                })
-                              }
-                              className="text-destructive focus:bg-destructive focus:text-destructive-foreground"
-                            >
-                              <X className="mr-2 h-4 w-4" />
-                              Cancel Assignment
-                            </DropdownMenuItem>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      {assignmentMenu(assg, wedding)}
                     </TableCell>
                   </TableRow>
                 );
@@ -507,6 +565,7 @@ export default function ManagerAssignments() {
             )}
           </TableBody>
         </Table>
+        </div>
 
         {totalPages > 1 && (
           <div className="mt-4 flex justify-end">
@@ -562,8 +621,18 @@ export default function ManagerAssignments() {
         </div>
       </div>
 
-      <Tabs defaultValue="upcoming" className="space-y-4">
-        <TabsList>
+      <Tabs value={assignmentTab} onValueChange={setAssignmentTab} className="space-y-4">
+        <select
+          className="h-11 w-full rounded-full border bg-background px-4 text-sm md:hidden"
+          value={assignmentTab}
+          onChange={(e) => setAssignmentTab(e.target.value)}
+          aria-label="Assignment list"
+        >
+          <option value="upcoming">Upcoming & Active</option>
+          <option value="completed">Completed & Cancelled</option>
+          <option value="calendar">Calendar View</option>
+        </select>
+        <TabsList className="hidden md:inline-flex">
           <TabsTrigger value="upcoming">Upcoming & Active</TabsTrigger>
           <TabsTrigger value="completed">Completed & Cancelled</TabsTrigger>
           <TabsTrigger value="calendar">Calendar View</TabsTrigger>
