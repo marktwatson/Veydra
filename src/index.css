@@ -210,3 +210,9 @@
 .bride-portal .text-\[\#1a1a1a\]\/70 {
   color: hsl(0 0% 10% / 0.85) !important;
 }
+
+@media (max-width: 767px) {
+  .app-shell {
+    padding: 12px 8px 16px;
+  }
+}

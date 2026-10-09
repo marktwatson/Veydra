@@ -715,7 +715,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               payouts.
             </div>
           )}
-          <div className="container mx-auto flex w-full max-w-6xl flex-1 flex-col !px-3 !py-4 md:!px-8 md:!py-8">
+          <div className="app-shell mx-auto flex w-full max-w-6xl flex-1 flex-col md:px-8 md:py-8">
             {children}
           </div>
         </div>

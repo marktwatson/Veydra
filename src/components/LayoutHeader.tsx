@@ -122,7 +122,7 @@ export function LayoutHeader({
           </Button>
         </div>
       )}
-      <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between border-b border-border/40 bg-background/80 backdrop-blur-xl px-4">
+      <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between border-b border-border/40 bg-background/80 px-2 backdrop-blur-xl md:px-4">
         <div className="flex items-center gap-2">
           {role !== "editor" && (
             <SidebarTrigger className="-ml-2 hidden md:flex" />
