@@ -243,7 +243,7 @@ export default function ManagerProposals() {
               : "Not Set";
 
   return (
-    <div className="min-w-0 p-4 md:p-8 max-w-7xl mx-auto space-y-6">
+    <div className="min-w-0 max-w-7xl mx-auto space-y-4 md:space-y-6 md:p-8">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-serif text-foreground">Proposals</h1>
@@ -306,8 +306,8 @@ export default function ManagerProposals() {
         </TabsList>
       </Tabs>
 
-      <Card>
-        <CardHeader>
+      <Card className="border-0 bg-transparent shadow-none md:border md:bg-card md:shadow-sm">
+        <CardHeader className="hidden md:flex">
           <CardTitle>
             {activeTab === "all"
               ? "All Proposals"
@@ -326,7 +326,7 @@ export default function ManagerProposals() {
                           : "Superseded"}
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0 md:p-6">
           {loading ? (
             <div className="flex justify-center p-8 text-muted-foreground">
               Loading proposals...
