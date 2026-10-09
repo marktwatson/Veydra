@@ -84,6 +84,33 @@ export function OnDeckCard({
     isUrgent,
   } = meta;
 
+  const when =
+    daysUntil < 0
+      ? "Past date"
+      : daysUntil === 0
+        ? "Today"
+        : daysUntil === 1
+          ? "Tomorrow"
+          : `${daysUntil} days away`;
+  const whenClass =
+    daysUntil < 0
+      ? "text-muted-foreground"
+      : daysUntil <= 7
+        ? "text-destructive"
+        : daysUntil <= 14
+          ? "text-amber-600 dark:text-amber-400"
+          : "text-emerald-600 dark:text-emerald-400";
+  const dateOnly = String(wedding.date || "").trim().split("T")[0];
+  const [year, month, day] = dateOnly.split("-").map(Number);
+  const dayLabel =
+    year && month && day
+      ? new Date(year, month - 1, day).toLocaleDateString("en-US", {
+          weekday: "long",
+          month: "short",
+          day: "numeric",
+        })
+      : formatDisplayDate(wedding.date);
+
   return (
     <Card
       className={`overflow-hidden transition-all duration-200 border-border/60 hover:shadow-md hover:border-border ${
@@ -93,55 +120,35 @@ export function OnDeckCard({
       }`}
     >
       {/* Top bar with names & countdown badge */}
-      <div className="p-4 pb-3 border-b border-border/40 bg-muted/20 flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-3 border-b border-border/40 bg-muted/20 p-4 pb-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-sm truncate text-foreground">
-              {wedding.client_name}
-            </span>
-            {isUrgent && (
-              <Badge
-                variant="destructive"
-                className="text-[9px] h-4 px-1.5 uppercase tracking-wide font-bold"
-              >
-                Urgent
-              </Badge>
-            )}
-            <Badge
-              variant={wedding.status === "upcoming" ? "default" : "secondary"}
-              className="text-[9px] h-4 px-1.5 uppercase"
-            >
-              {wedding.status || "pending"}
-            </Badge>
+          <div className="truncate text-lg font-semibold leading-tight text-foreground">
+            {wedding.client_name}
           </div>
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1 truncate">
+          <div className="mt-1 text-sm font-medium text-foreground">
+            {dayLabel}
+            <span className={`font-semibold ${whenClass}`}> · {when}</span>
+          </div>
+          <div className="mt-1 flex items-center gap-1.5 truncate text-xs text-muted-foreground">
             <MapPin className="h-3 w-3 shrink-0" />
             <span className="truncate">{wedding.location || "Venue TBD"}</span>
           </div>
         </div>
-
-        {/* Date / Countdown chip */}
-        <div className="text-right shrink-0">
-          <span className="text-xs font-semibold block text-foreground">
-            {formatDisplayDate(wedding.date)}
-          </span>
-          <span
-            className={`text-[11px] font-bold ${
-              daysUntil < 0
-                ? "text-muted-foreground"
-                : daysUntil <= 7
-                  ? "text-destructive"
-                  : daysUntil <= 14
-                    ? "text-amber-600 dark:text-amber-400"
-                    : "text-emerald-600 dark:text-emerald-400"
-            }`}
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          {isUrgent && (
+            <Badge
+              variant="destructive"
+              className="h-4 px-1.5 text-[9px] font-bold uppercase tracking-wide"
+            >
+              Urgent
+            </Badge>
+          )}
+          <Badge
+            variant={wedding.status === "upcoming" ? "default" : "secondary"}
+            className="h-4 px-1.5 text-[9px] uppercase"
           >
-            {daysUntil < 0
-              ? "Past date"
-              : daysUntil === 0
-                ? "Today"
-                : `${daysUntil} days away`}
-          </span>
+            {wedding.status || "pending"}
+          </Badge>
         </div>
       </div>
 
