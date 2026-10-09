@@ -19,6 +19,7 @@ interface TeamMemberActionsProps {
   onOpenOwnPassword: () => void;
   onImpersonate: (manager: any) => void;
   isDeleting: boolean;
+  className?: string;
 }
 
 export function TeamMemberActions({
@@ -32,13 +33,14 @@ export function TeamMemberActions({
   onOpenOwnPassword,
   onImpersonate,
   isDeleting,
+  className,
 }: TeamMemberActionsProps) {
   const isSuperAdmin = user?.role === "super_admin";
   const isSelf = manager.id === user?.id;
 
   if (manager.status === "invited") {
     return (
-      <div className="flex justify-end gap-2 items-center">
+      <div className={className || "flex items-center justify-end gap-2"}>
         <Button
           variant="ghost"
           size="icon"
@@ -75,7 +77,7 @@ export function TeamMemberActions({
   const canEdit = manager.role !== "owner" || isSelf || isSuperAdmin;
 
   return (
-    <div className="flex justify-end gap-2 items-center">
+    <div className={className || "flex items-center justify-end gap-2"}>
       {!isSelf && (
         <Button
           variant="ghost"

@@ -449,39 +449,28 @@ export default function ManagerTeam() {
             <>
             <div className="space-y-3 md:hidden">
               {allManagers.map((manager: any) => (
-                <div key={manager.id} className="space-y-3 rounded-xl border p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-medium">
-                        {manager.name}
-                        {manager.id === user?.id ? " · You" : ""}
-                      </div>
-                      <div className="text-sm text-muted-foreground">{manager.email}</div>
+                <div key={manager.id} className="min-w-0 space-y-3 overflow-hidden rounded-xl border p-4">
+                  <div className="min-w-0">
+                    <div className="font-medium">
+                      {manager.name}
+                      {manager.id === user?.id ? " · You" : ""}
                     </div>
-                    <TeamMemberActions
-                      manager={manager}
-                      user={user}
-                      onEdit={(m) => {
-                        setEditingAdmin(m);
-                        setIsEditDialogOpen(true);
-                      }}
-                      onDelete={handleDeleteAdmin}
-                      onResendInvite={handleResendInvite}
-                      onDeleteInvite={handleDeleteInvite}
-                      onSendResetEmail={handleSendResetEmail}
-                      onOpenOwnPassword={() => setIsPasswordDialogOpen(true)}
-                      onImpersonate={handleImpersonate}
-                      isDeleting={deleteMutation.isPending}
-                    />
+                    <div className="break-all text-sm text-muted-foreground">{manager.email}</div>
                   </div>
                   <div className="flex flex-wrap gap-2 text-xs">
-                    <span className="rounded-md border px-2 py-1">
-                      {isSuperAdminEmail(manager.email)
-                        ? "All Areas"
-                        : Array.isArray(manager.territory_ids) && manager.territory_ids.length > 1
-                          ? manager.territory_ids.map((tid: string) => territoryNameById(tid)).join(", ")
-                          : territoryNameById(manager.territory_id)}
-                    </span>
+                    {isSuperAdminEmail(manager.email) ? (
+                      <span className="rounded-md border px-2 py-1">All Areas</span>
+                    ) : Array.isArray(manager.territory_ids) && manager.territory_ids.length > 0 ? (
+                      manager.territory_ids.map((tid: string) => (
+                        <span key={tid} className="rounded-md border px-2 py-1">
+                          {territoryNameById(tid)}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="rounded-md border px-2 py-1">
+                        {territoryNameById(manager.territory_id)}
+                      </span>
+                    )}
                     <span className="rounded-md border px-2 py-1">
                       {manager.role === "super_admin" || isSuperAdminEmail(manager.email)
                         ? "Super Admin"
@@ -511,6 +500,22 @@ export default function ManagerTeam() {
                   <div className="text-xs text-muted-foreground">
                     Added {new Date(manager.created_at).toLocaleDateString()}
                   </div>
+                  <TeamMemberActions
+                    className="flex flex-wrap items-center gap-1"
+                    manager={manager}
+                    user={user}
+                    onEdit={(m) => {
+                      setEditingAdmin(m);
+                      setIsEditDialogOpen(true);
+                    }}
+                    onDelete={handleDeleteAdmin}
+                    onResendInvite={handleResendInvite}
+                    onDeleteInvite={handleDeleteInvite}
+                    onSendResetEmail={handleSendResetEmail}
+                    onOpenOwnPassword={() => setIsPasswordDialogOpen(true)}
+                    onImpersonate={handleImpersonate}
+                    isDeleting={deleteMutation.isPending}
+                  />
                 </div>
               ))}
             </div>
