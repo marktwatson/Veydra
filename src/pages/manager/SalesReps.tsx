@@ -19,7 +19,7 @@ export default function SalesRepsPage() {
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-serif text-foreground">Sales Reps</h1>
+          <h1 className="text-2xl font-serif text-foreground md:text-3xl">Sales Reps</h1>
           <p className="text-muted-foreground mt-1">
             Ranked by proposals sent. Close ratios and pipeline for proposals
             built by your salespeople.

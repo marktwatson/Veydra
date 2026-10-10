@@ -283,7 +283,7 @@ export function ProposalSalesRepsTab({ proposals, onRefresh }: Props) {
         <Calendar className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm text-muted-foreground">Period:</span>
         <Select value={range} onValueChange={(v) => setRange(v as RangeKey)}>
-          <SelectTrigger className="w-[180px] h-8">
+          <SelectTrigger className="h-8 w-full flex-1 md:w-[180px] md:flex-none">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -330,7 +330,7 @@ export function ProposalSalesRepsTab({ proposals, onRefresh }: Props) {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-amber-500/20">
+        <Card className="col-span-2 border-amber-500/20 md:col-span-1">
           <CardContent className="pt-4">
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <DollarSign className="h-3.5 w-3.5" />
@@ -354,7 +354,139 @@ export function ProposalSalesRepsTab({ proposals, onRefresh }: Props) {
         </div>
       )}
 
-      <Card>
+      <div className="space-y-3 md:hidden">
+        {reps.map((rep, rankIndex) => {
+          const ratio = rep.sent > 0 ? Math.round((rep.booked / rep.sent) * 100) : 0;
+          const isOpen = expanded === rep.key;
+          const rank = rankIndex + 1;
+          const proposalsSorted = [...rep.proposals].sort(
+            (a, b) =>
+              new Date(b.created_at || 0).getTime() -
+              new Date(a.created_at || 0).getTime(),
+          );
+          return (
+            <div key={rep.key} className="space-y-3 rounded-xl border bg-card p-4">
+              <button
+                type="button"
+                className="flex w-full items-start justify-between gap-3 text-left"
+                onClick={() =>
+                  setExpanded((cur) => (cur === rep.key ? null : rep.key))
+                }
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg font-semibold">{rank}</span>
+                    <span className="truncate text-lg font-semibold">{rep.name}</span>
+                  </div>
+                  <div className="truncate text-sm text-muted-foreground">{rep.email}</div>
+                </div>
+                {isOpen ? (
+                  <ChevronDown className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
+                )}
+              </button>
+              {(awardByRep.get(rep.key) || []).length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {(awardByRep.get(rep.key) || []).map((aid) => (
+                    <span
+                      key={aid}
+                      className="inline-flex items-center rounded-full border px-1.5 py-0 text-[10px] font-medium text-muted-foreground"
+                    >
+                      {AWARD_LABELS[aid]}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                  <div className="text-xs text-muted-foreground">Sent</div>
+                  <div className="font-semibold">{rep.sent}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Booked</div>
+                  <div className="font-semibold text-green-600">{rep.booked}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Close ratio</div>
+                  <div className="font-semibold">{ratio}%</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Booked value</div>
+                  <div className="font-semibold">${rep.bookedValue.toLocaleString()}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Pipeline</div>
+                  <div className="font-semibold">${rep.totalValue.toLocaleString()}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Owed</div>
+                  <div className="font-semibold text-amber-600">${rep.owed.toLocaleString()}</div>
+                </div>
+              </div>
+              <Button
+                className={
+                  rep.owed === 0
+                    ? "h-11 w-full bg-muted text-muted-foreground"
+                    : "h-11 w-full bg-green-600 text-white hover:bg-green-700"
+                }
+                disabled={rep.owed === 0}
+                onClick={() => setConfirmRep(rep)}
+              >
+                <CheckCircle className="mr-1 h-4 w-4" />
+                {rep.owed > 0 ? `Mark $${rep.owed.toLocaleString()} paid` : "Paid"}
+              </Button>
+              {isOpen && (
+                <div className="space-y-2 border-t pt-3">
+                  <div className="text-sm font-medium text-muted-foreground">
+                    {rep.name}'s proposals
+                  </div>
+                  {proposalsSorted.map((p) => {
+                    const booked = isBooked(p);
+                    return (
+                      <div key={p.id} className="space-y-1 rounded-lg border p-3">
+                        <div className="font-medium">{p.client_name}</div>
+                        <div className="truncate text-xs text-muted-foreground">
+                          {p.client_email}
+                        </div>
+                        <div className="text-sm">
+                          {formatDisplayDate(p.wedding_date)} · $
+                          {Number(p.total_amount || 0).toLocaleString()}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {booked ? (
+                            <Badge className="border-green-500/20 bg-green-500/10 text-green-700">
+                              Booked
+                            </Badge>
+                          ) : p.status === "superseded" ? (
+                            <Badge className="border-slate-500/20 bg-slate-500/10 text-slate-600">
+                              Superseded
+                            </Badge>
+                          ) : (
+                            <Badge className="border-blue-500/20 bg-blue-500/10 text-blue-700">
+                              Pending
+                            </Badge>
+                          )}
+                          <ProposalCountdownBadge proposal={p} />
+                        </div>
+                        <Button
+                          variant="outline"
+                          className="h-10 w-full"
+                          onClick={() => window.open(`/proposal/${p.id}`, "_blank")}
+                        >
+                          Open
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <Card className="hidden md:block">
         <CardHeader>
           <CardTitle>Sales Reps</CardTitle>
         </CardHeader>
