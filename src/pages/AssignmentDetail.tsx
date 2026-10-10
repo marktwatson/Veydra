@@ -103,7 +103,11 @@ export default function AssignmentDetail() {
   });
 
   const assignment = assignments.find((a: any) => a.id === id);
-  const job = assignment?.jobs;
+  const job = Array.isArray(assignment?.jobs) ? assignment.jobs[0] : assignment?.jobs;
+  const [todoDraft, setTodoDraft] = useState<any[] | null>(null);
+  useEffect(() => {
+    setTodoDraft(null);
+  }, [assignment?.id, job?.contractor_todos]);
   const wedding = job?.weddings;
   const { data: eventDay } = useQuery({
     queryKey: ["assignment-event-day", job?.event_id],
@@ -844,22 +848,38 @@ export default function AssignmentDetail() {
                     },
                   ];
 
-                  const currentTodos =
+                  const currentTodos = todoDraft || (
                     job?.contractor_todos &&
                     Array.isArray(job.contractor_todos) &&
                     job.contractor_todos.length > 0
                       ? job.contractor_todos
-                      : defaultTodos;
+                      : defaultTodos
+                  );
 
                   const handleToggle = (todoId: string, checked: boolean) => {
+                    if (!job?.id) return;
                     const newTodos = currentTodos.map((t: any) =>
                       t.id === todoId ? { ...t, completed: checked } : t,
                     );
-                    api.updateJobTodos(job.id, newTodos).then(() => {
-                      queryClient.invalidateQueries({
-                        queryKey: ["assignments"],
+                    setTodoDraft(newTodos);
+                    api
+                      .updateJobTodos(job.id, newTodos)
+                      .then(() => {
+                        queryClient.invalidateQueries({
+                          queryKey: ["assignment-detail"],
+                        });
+                        queryClient.invalidateQueries({
+                          queryKey: ["assignments"],
+                        });
+                      })
+                      .catch((error: any) => {
+                        setTodoDraft(null);
+                        toast({
+                          variant: "destructive",
+                          title: "Could not save the checklist",
+                          description: error.message,
+                        });
                       });
-                    });
                   };
 
                   return (
