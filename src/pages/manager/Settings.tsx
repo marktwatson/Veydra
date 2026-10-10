@@ -4046,8 +4046,8 @@ export default function ManagerSettings() {
               {/* PACKAGES */}
               <Card>
                 <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
                       <CardTitle>Wedding Packages</CardTitle>
                       <CardDescription>
                         Core packages shown on the booking page and proposal
@@ -4056,6 +4056,7 @@ export default function ManagerSettings() {
                     </div>
                     <Button
                       size="sm"
+                      className="shrink-0 self-start"
                       onClick={() =>
                         setEditingPackage({
                           name: "",
@@ -4078,9 +4079,9 @@ export default function ManagerSettings() {
                     .map((pkg) => (
                       <div
                         key={pkg.id}
-                        className="flex items-center gap-4 bg-muted/30 p-4 rounded-lg border"
+                        className="flex flex-col gap-3 rounded-lg border bg-muted/30 p-4 md:flex-row md:items-center md:gap-4"
                       >
-                        <div className="flex-1">
+                        <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className="font-semibold">{pkg.name}</span>
                             {pkg.isArchived && (
@@ -4088,37 +4089,38 @@ export default function ManagerSettings() {
                             )}
                           </div>
                           <p className="text-sm text-muted-foreground">
-                            {pkg.desc} &middot; Both: ${pkg.priceBoth} &middot;
-                            Single: ${pkg.priceSingle}
+                            {pkg.desc} · Both ${pkg.priceBoth} · Single $
+                            {pkg.priceSingle}
                           </p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {pkg.photoFeatures?.length || 0} photo features
-                            &middot; {pkg.videoFeatures?.length || 0} video
-                            features
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {pkg.photoFeatures?.length || 0} photo features ·{" "}
+                            {pkg.videoFeatures?.length || 0} video features
                           </p>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setEditingPackage({ ...pkg })}
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDuplicatePackage(pkg)}
-                        >
-                          <Copy className="h-4 w-4 mr-1" /> Duplicate
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-destructive"
-                          onClick={() => handleDeletePackage(pkg.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center gap-1 border-t pt-2 md:border-0 md:pt-0">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setEditingPackage({ ...pkg })}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDuplicatePackage(pkg)}
+                          >
+                            <Copy className="mr-1 h-4 w-4" /> Duplicate
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="ml-auto text-destructive md:ml-0"
+                            onClick={() => handleDeletePackage(pkg.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   {pricingPackages.filter(
@@ -4134,8 +4136,8 @@ export default function ManagerSettings() {
               {/* ADDONS */}
               <Card>
                 <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
                       <CardTitle>Add-Ons</CardTitle>
                       <CardDescription>
                         Optional extras brides can add to their package.
@@ -4143,6 +4145,7 @@ export default function ManagerSettings() {
                     </div>
                     <Button
                       size="sm"
+                      className="shrink-0 self-start"
                       onClick={() =>
                         setEditingAddon({
                           name: "",
@@ -4163,10 +4166,10 @@ export default function ManagerSettings() {
                     .map((addon) => (
                       <div
                         key={addon.id}
-                        className="flex items-center gap-4 bg-muted/30 p-4 rounded-lg border"
+                        className="flex flex-col gap-3 rounded-lg border bg-muted/30 p-4 md:flex-row md:items-center md:gap-4"
                       >
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="font-semibold">{addon.name}</span>
                             {addon.isArchived && (
                               <Badge variant="secondary">Archived</Badge>
@@ -4190,21 +4193,23 @@ export default function ManagerSettings() {
                               : ""}
                           </p>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setEditingAddon({ ...addon })}
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-destructive"
-                          onClick={() => handleDeleteAddon(addon.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center gap-1 border-t pt-2 md:border-0 md:pt-0">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setEditingAddon({ ...addon })}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="ml-auto text-destructive md:ml-0"
+                            onClick={() => handleDeleteAddon(addon.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   {pricingAddons.filter(
