@@ -513,6 +513,7 @@ export default function ManagerSettings() {
   const [isCheckingStripe, setIsCheckingStripe] = useState(false);
   const [isTestingSms, setIsTestingSms] = useState(false);
   const [companyName, setCompanyName] = useState("");
+  const [settingsTab, setSettingsTab] = useState("general");
   const [appUrl, setAppUrl] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
   const [uploadEmail, setUploadEmail] = useState("");
@@ -3051,7 +3052,7 @@ export default function ManagerSettings() {
                   </p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Discount Type</Label>
                     <Select
@@ -3087,7 +3088,7 @@ export default function ManagerSettings() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Maximum Uses (Optional)</Label>
                     <Input
@@ -3128,6 +3129,54 @@ export default function ManagerSettings() {
           </Dialog>
         </CardHeader>
         <CardContent className="p-0">
+          <div className="space-y-3 p-4 md:hidden">
+            {coupons.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No coupons yet.</p>
+            ) : (
+              coupons.map((coupon) => (
+                <div key={coupon.id} className="space-y-2 rounded-xl border p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-mono text-base font-semibold uppercase">
+                        {coupon.code}
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        {coupon.discount_type === "percentage"
+                          ? `${coupon.discount_value}%`
+                          : `$${coupon.discount_value}`}
+                        {" · "}
+                        {coupon.current_uses}{" "}
+                        {coupon.max_uses ? `/ ${coupon.max_uses}` : ""} uses
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        Expires{" "}
+                        {coupon.expires_at
+                          ? new Date(coupon.expires_at).toLocaleDateString()
+                          : "never"}
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleDeleteCoupon(coupon.id)}
+                    >
+                      <Trash2 className="h-4 w-4 text-red-500" />
+                    </Button>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Active</span>
+                    <Switch
+                      checked={coupon.is_active}
+                      onCheckedChange={() =>
+                        toggleCouponStatus(coupon.id, coupon.is_active)
+                      }
+                    />
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow className="bg-stone-50/50 dark:bg-stone-900/20 hover:bg-stone-50/50 dark:hover:bg-stone-900/20">
@@ -3191,6 +3240,7 @@ export default function ManagerSettings() {
               )}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -3209,8 +3259,27 @@ export default function ManagerSettings() {
         </div>
       </div>
 
-      <Tabs defaultValue="general" className="w-full space-y-6">
-        <TabsList className="mb-8 overflow-x-auto overflow-y-hidden flex-nowrap w-full justify-start border-b border-stone-200 dark:border-stone-800 rounded-none bg-transparent h-auto p-0">
+      <Tabs
+        value={settingsTab}
+        onValueChange={setSettingsTab}
+        className="w-full space-y-6"
+      >
+        <select
+          className="h-11 w-full rounded-full border bg-background px-4 text-sm md:hidden"
+          value={settingsTab}
+          onChange={(e) => setSettingsTab(e.target.value)}
+          aria-label="Settings section"
+        >
+          <option value="general">General</option>
+          <option value="rates">Rates & Regions</option>
+          <option value="pricing">Packages & Pricing</option>
+          <option value="notifications">Notifications</option>
+          <option value="coupons">Coupons</option>
+          <option value="integrations">Integrations</option>
+          <option value="legal">Legal</option>
+          <option value="logs">Outbox & Logs</option>
+        </select>
+        <TabsList className="mb-8 hidden w-full flex-nowrap justify-start overflow-x-auto overflow-y-hidden rounded-none border-b border-stone-200 bg-transparent p-0 h-auto md:flex dark:border-stone-800">
           <TabsTrigger
             value="general"
             className="rounded-none border-b-2 border-transparent data-[state=active]:border-stone-900 dark:data-[state=active]:border-stone-100 data-[state=active]:bg-transparent px-4 py-3 shrink-0"
@@ -4259,7 +4328,7 @@ export default function ManagerSettings() {
                     Same on every area. Default contact.proposal_link.
                   </p>
                 </div>
-                <div className="flex gap-2 mt-4">
+                <div className="flex flex-wrap gap-2 mt-4">
                   <Button
                     onClick={handleSaveIntegrations}
                     disabled={isSavingIntegrations}
@@ -4553,7 +4622,7 @@ export default function ManagerSettings() {
                       </Badge>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
                       <div className="space-y-1">
                         <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
                           Account ID
@@ -7511,7 +7580,7 @@ export default function ManagerSettings() {
 
                 {emailDeliveryMethod === "smtp" && (
                   <>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <div className="grid gap-2">
                         <Label htmlFor="smtp-host">SMTP Host</Label>
                         <Input
@@ -7537,7 +7606,7 @@ export default function ManagerSettings() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <div className="grid gap-2">
                         <Label htmlFor="smtp-user">Username / Email</Label>
                         <Input
@@ -7561,7 +7630,7 @@ export default function ManagerSettings() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <div className="grid gap-2">
                         <Label htmlFor="smtp-from-name">From Name</Label>
                         <Input
@@ -7609,7 +7678,7 @@ export default function ManagerSettings() {
             {/* Wedding Contract Template */}
             <Card className="max-w-4xl">
               <CardHeader>
-                <CardTitle className="text-xl flex items-center justify-between">
+                <CardTitle className="flex flex-col gap-3 text-xl sm:flex-row sm:items-center sm:justify-between">
                   <span>Wedding Photography & Videography Agreement</span>
                   <div className="flex items-center gap-2">
                     <Button
@@ -7846,7 +7915,7 @@ export default function ManagerSettings() {
             {/* Contractor Agreement */}
             <Card className="max-w-4xl">
               <CardHeader>
-                <CardTitle className="text-xl flex items-center justify-between">
+                <CardTitle className="flex flex-col gap-3 text-xl sm:flex-row sm:items-center sm:justify-between">
                   <span>Independent Contractor Agreement</span>
                   <div className="flex items-center gap-2">
                     <Button
@@ -7990,7 +8059,7 @@ export default function ManagerSettings() {
         <TabsContent value="coupons">{renderCouponsTab()}</TabsContent>
         <TabsContent value="logs" className="space-y-6">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col gap-4 space-y-0 md:flex-row md:items-center md:justify-between">
               <div>
                 <CardTitle>Outbox & System Logs</CardTitle>
                 <CardDescription>
@@ -7998,11 +8067,11 @@ export default function ManagerSettings() {
                   requests. Retry failed messages here.
                 </CardDescription>
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center md:w-auto">
                 <Tabs
                   value={logsTab}
                   onValueChange={(v: any) => setLogsTab(v)}
-                  className="w-[300px]"
+                  className="w-full sm:w-[300px]"
                 >
                   <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="sms">Sent</TabsTrigger>
@@ -8022,6 +8091,7 @@ export default function ManagerSettings() {
             </CardHeader>
             <CardContent>
               {logsTab === "upcoming" ? (
+                <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -8071,6 +8141,7 @@ export default function ManagerSettings() {
                     )}
                   </TableBody>
                 </Table>
+                </div>
               ) : logsTab === "sms" ? (
                 <div className="space-y-4">
                   <div className="flex justify-end">
@@ -8078,7 +8149,7 @@ export default function ManagerSettings() {
                       value={messageFilter}
                       onValueChange={(v: any) => setMessageFilter(v)}
                     >
-                      <SelectTrigger className="w-[180px]">
+                      <SelectTrigger className="w-full sm:w-[180px]">
                         <SelectValue placeholder="Filter by status" />
                       </SelectTrigger>
                       <SelectContent>
@@ -8090,6 +8161,7 @@ export default function ManagerSettings() {
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -8197,8 +8269,10 @@ export default function ManagerSettings() {
                       )}
                     </TableBody>
                   </Table>
+                  </div>
                 </div>
               ) : (
+                <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -8295,6 +8369,7 @@ export default function ManagerSettings() {
                     )}
                   </TableBody>
                 </Table>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -8367,7 +8442,7 @@ function PackageEditor({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="grid gap-2">
           <Label>Package Name</Label>
           <Input
@@ -8385,7 +8460,7 @@ function PackageEditor({
           />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="grid gap-2">
           <Label>Price (Photo & Video)</Label>
           <Input
@@ -8589,7 +8664,7 @@ function AddonEditor({
           placeholder="e.g. Aerial Drone Footage"
         />
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="grid gap-2">
           <Label>Price ($)</Label>
           <Input
