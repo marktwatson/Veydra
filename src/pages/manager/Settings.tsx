@@ -4,6 +4,7 @@ import { ClockSchedulerSection } from "@/components/ClockSchedulerCard";
 import { InvoiceLinkDomainCard } from "@/components/InvoiceLinkDomainCard";
 import { OffPlatformPaymentCard } from "@/components/OffPlatformPaymentCard";
 import { ProposalSendSettingsCard } from "@/components/ProposalSendSettingsCard";
+import { InterviewCalendarSetting } from "@/components/InterviewCalendarSetting";
 import {
   Card,
   CardContent,
@@ -4350,6 +4351,7 @@ export default function ManagerSettings() {
                     {isTestingApi ? "Testing..." : "Test Connection"}
                   </Button>
                 </div>
+                <InterviewCalendarSetting />
 
                 <div className="grid gap-2 pt-4 border-t mt-4">
                   <Label htmlFor="test-sms-email">Test Automated SMS</Label>

@@ -24,10 +24,12 @@ const LOCATION_ID = "76EKIVBXrGYIny0RbqcE";
 
 export function BookingCalendar({
   calendarId,
+  locationId,
   contractor,
   onBookingComplete,
 }: {
   calendarId: string;
+  locationId?: string;
   contractor: any;
   onBookingComplete?: () => void;
 }) {
@@ -94,7 +96,7 @@ export function BookingCalendar({
     try {
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
       const payload = {
-        locationId: LOCATION_ID,
+        locationId: locationId || LOCATION_ID,
         calendarId: calendarId,
         firstName: contractor.first_name,
         lastName: contractor.last_name || "",

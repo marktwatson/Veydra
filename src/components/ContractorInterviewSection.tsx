@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   Card,
   CardContent,
@@ -7,13 +8,42 @@ import {
 } from "@/components/ui/card";
 import { Calendar as CalendarIcon } from "lucide-react";
 import { BookingCalendar } from "@/components/BookingCalendar";
+import { supabase } from "@/lib/supabase";
+
+const FALLBACK_CALENDAR = "XFbKwnR3PtbdQoZPMAFi";
+const FALLBACK_LOCATION = "76EKIVBXrGYIny0RbqcE";
 
 export function ContractorInterviewSection({
   contractor,
 }: {
   contractor: any;
 }) {
+  const [calendarId, setCalendarId] = useState(FALLBACK_CALENDAR);
+  const [locationId, setLocationId] = useState(FALLBACK_LOCATION);
+
+  useEffect(() => {
+    if (!contractor?.territory_id) return;
+    supabase
+      .from("portal_settings")
+      .select("interview_calendar_id, hl_location_id")
+      .eq("territory_id", contractor.territory_id)
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.interview_calendar_id) setCalendarId(data.interview_calendar_id);
+        if (data?.hl_location_id) setLocationId(data.hl_location_id);
+      });
+  }, [contractor?.territory_id]);
+
   if (!contractor) return null;
+
+  const calendar = (
+    <BookingCalendar
+      calendarId={calendarId}
+      locationId={locationId}
+      contractor={contractor}
+    />
+  );
 
   if (contractor.interview_date) {
     return (
@@ -47,12 +77,7 @@ export function ContractorInterviewSection({
             Need to reschedule? Select a new time slot below to update your
             appointment.
           </p>
-          <div className="pt-2">
-            <BookingCalendar
-              calendarId="XFbKwnR3PtbdQoZPMAFi"
-              contractor={contractor}
-            />
-          </div>
+          <div className="pt-2">{calendar}</div>
         </CardContent>
       </Card>
     );
@@ -66,12 +91,7 @@ export function ContractorInterviewSection({
           Select a time below to complete your intro call with our team.
         </CardDescription>
       </CardHeader>
-      <CardContent className="pt-8 pb-10">
-        <BookingCalendar
-          calendarId="XFbKwnR3PtbdQoZPMAFi"
-          contractor={contractor}
-        />
-      </CardContent>
+      <CardContent className="pt-8 pb-10">{calendar}</CardContent>
     </Card>
   );
 }

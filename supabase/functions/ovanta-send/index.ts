@@ -56,6 +56,7 @@ Deno.serve(async (req) => {
   if (action === "test-connection") {
     return testConnection(db, user, body.apiKey, body.locationId);
   }
+  if (action === "calendars") return listCalendars(db, user, body.territoryId);
 
   const channel = action === "email" ? "email" : "sms";
   const email = String(body.email || "").trim();
@@ -598,4 +599,27 @@ async function testConnection(db: any, user: any, apiKey: string, locationId: st
     );
   }
   return jsonResp({ ok: true, locationId: loc });
+}
+
+async function listCalendars(db: any, user: any, territoryId: string) {
+  const staff = await staffTerritories(db, user);
+  if (!staff) return jsonResp({ error: "Not allowed" }, 403);
+  if (!territoryId) return jsonResp({ calendars: [] });
+  if (staff !== "super" && !staff.has(territoryId)) {
+    return jsonResp({ error: "Not allowed" }, 403);
+  }
+  const settings = await loadSettings(db, territoryId);
+  if (!settings) return jsonResp({ error: "This area has no Ovanta connection." }, 400);
+  const res = await fetch(
+    `https://services.leadconnectorhq.com/calendars/?locationId=${settings.hl_location_id}`,
+    { headers: await crmHeaders(settings.hl_api_key) },
+  );
+  if (!res.ok) {
+    return jsonResp({ error: `Could not load calendars: ${await res.text()}` }, 500);
+  }
+  const json = await res.json();
+  const calendars = (json.calendars || json.data || [])
+    .map((c: any) => ({ id: c.id, name: c.name || c.id }))
+    .filter((c: any) => c.id);
+  return jsonResp({ calendars });
 }
