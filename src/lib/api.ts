@@ -1241,6 +1241,51 @@ function isPlaceholderTimeline(timeline: any): boolean {
   return /photographer arrives/i.test(String(rows[0]?.event || ""));
 }
 
+async function readBrideWedding(id: string) {
+  const { data, error } = await supabase.rpc("get_bride_wedding", { p_id: id });
+  if (error) throw error;
+  return data;
+}
+
+function normalizeBrideWedding(data: any) {
+  if (!data) return data;
+  const parseJson = (value: any) => {
+    if (typeof value !== "string") return value;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  };
+  return {
+    ...data,
+    questionnaire_data: parseJson(data.questionnaire_data),
+    custom_payment_plan: parseJson(data.custom_payment_plan),
+    highlight_songs: parseJson(data.highlight_songs) || [],
+  };
+}
+
+async function saveBrideWedding(id: string, updates: Record<string, any>) {
+  const payload = await keepSavedQuestionnaire(id, { ...updates });
+  const patch: Record<string, any> = { ...payload };
+  if (patch.timeline && typeof patch.timeline !== "string") {
+    patch.timeline = JSON.stringify(patch.timeline);
+  }
+  if (typeof patch.highlight_songs === "string") {
+    try {
+      patch.highlight_songs = JSON.parse(patch.highlight_songs);
+    } catch {
+      delete patch.highlight_songs;
+    }
+  }
+  const { data, error } = await supabase.rpc("save_bride_wedding", {
+    p_id: id,
+    p_patch: patch,
+  });
+  if (error) throw error;
+  return normalizeBrideWedding(data) as DbWedding;
+}
+
 async function keepSavedQuestionnaire(
   id: string,
   payload: Record<string, any>,
@@ -1255,11 +1300,9 @@ async function keepSavedQuestionnaire(
   );
   if (!touchesQuestionnaire && !touchesTimeline) return payload;
 
-  const { data: current } = await supabase
-    .from("weddings")
-    .select("questionnaire_data, timeline")
-    .eq("id", id)
-    .maybeSingle();
+  const { data: current } = await readBrideWedding(id)
+    .then((row) => ({ data: row }))
+    .catch(() => ({ data: null }));
   if (!current) return payload;
 
   if (
@@ -4109,6 +4152,12 @@ export const api = {
     } as Partial<DbWedding>;
   },
 
+  async getBrideWedding(id: string) {
+    const data = await readBrideWedding(id);
+    if (!data) throw new Error("Wedding not found");
+    return normalizeBrideWedding(data) as Partial<DbWedding>;
+  },
+
   async getPublicWeddingTeam(weddingId: string) {
     const { data, error } = await supabase.rpc("get_public_wedding_team", {
       p_wedding_id: weddingId,
@@ -4121,58 +4170,24 @@ export const api = {
   },
 
   async submitWeddingQuestionnaire(id: string, updates: Partial<DbWedding>) {
-    const payload = await keepSavedQuestionnaire(id, {
+    return saveBrideWedding(id, {
       ...updates,
       questionnaire_completed: true,
     });
-    if (payload.timeline && typeof payload.timeline !== "string")
-      payload.timeline = JSON.stringify(payload.timeline) as any;
-
-    const { data, error } = await supabase
-      .from("weddings")
-      .update(payload)
-      .eq("id", id)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data as DbWedding;
   },
 
   async saveWeddingQuestionnaireProgress(
     id: string,
     updates: Partial<DbWedding>,
   ) {
-    const payload = await keepSavedQuestionnaire(id, { ...updates });
-    if (payload.timeline && typeof payload.timeline !== "string")
-      payload.timeline = JSON.stringify(payload.timeline) as any;
-
-    const { data, error } = await supabase
-      .from("weddings")
-      .update(payload)
-      .eq("id", id)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data as DbWedding;
+    return saveBrideWedding(id, updates);
   },
 
   async saveHighlightSongs(id: string, songs: any[]) {
-    const payload: any = {
+    return saveBrideWedding(id, {
       highlight_songs: songs,
       songs_submitted_at: new Date().toISOString(),
-    };
-    if (Array.isArray(payload.highlight_songs))
-      payload.highlight_songs = JSON.stringify(payload.highlight_songs) as any;
-    const { data, error } = await supabase
-      .from("weddings")
-      .update(payload)
-      .eq("id", id)
-      .select()
-      .single();
-    if (error) throw error;
-    return data as DbWedding;
+    });
   },
 
   async markSongsReminderSent(id: string) {

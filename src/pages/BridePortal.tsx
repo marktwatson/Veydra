@@ -527,7 +527,7 @@ export default function BridePortal() {
       if (!id) return;
       try {
         setLoading(true);
-        const data = await api.getPublicWedding(id);
+        const data = await api.getBrideWedding(id);
         setWedding(data);
 
         // Branding scoped by the wedding's territory (not logged-in user's).
