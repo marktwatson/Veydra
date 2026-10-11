@@ -38,6 +38,7 @@ import { getContractorByEmail } from "@/lib/contractor-by-email";
 import { fetchOpenJobsForTerritory } from "@/lib/api-territory-scoped";
 import { contractorCanSeeJob } from "@/lib/contractor-job-visibility";
 import { useEffect, useState } from "react";
+import { AreaAssistant } from "@/components/AreaAssistant";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -720,6 +721,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </SidebarInset>
+
+      {isManagerOrAdmin && <AreaAssistant />}
 
       {/* Mobile Bottom Nav */}
       {user?.role !== "editor" && (
