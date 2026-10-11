@@ -214,7 +214,7 @@ export default function Apply() {
         }).catch(() => {});
       }
 
-      if (portalSettings?.hl_api_key && portalSettings?.hl_location_id) {
+      if (newContractor?.id) {
         try {
           await api.syncContractorCRM(newContractor.id);
         } catch (e) {
@@ -230,6 +230,8 @@ export default function Apply() {
         email,
         companyName,
         logoUrl,
+        territoryId,
+        contractorId: newContractor?.id,
       });
 
       // 🔔 Push: new contractor application received

@@ -2,6 +2,7 @@ import {
   getScopedCrmCredentials,
   getScopedPortalSettingsFull,
   getScopedPortalSettings,
+  resolveTerritoryIdForSettings,
 } from "./portal-settings-scoped";
 import type { DbPortalSettings } from "./portal-settings-types";
 import { supabase, supabaseUrl, supabaseAnonKey } from "./supabase";
@@ -822,156 +823,61 @@ async function sendJobAlerts(
   return sentCount;
 }
 
+async function callOvantaSend(body: Record<string, unknown>) {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const token = session?.access_token || supabaseAnonKey;
+  const res = await fetch(`${supabaseUrl}/functions/v1/ovanta-send`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      apikey: supabaseAnonKey,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || `Ovanta send failed (${res.status})`);
+  }
+  return data;
+}
+
 export async function sendOvantaSms(
   email: string,
   message: string,
   name?: string,
   force: boolean = false,
   territoryId?: string | null,
+  weddingId?: string | null,
+  contractorId?: string | null,
 ) {
   const maxRetries = 3;
   let lastError: any;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const settings = await getScopedCrmCredentials({ territoryId });
-      if (!settings?.hl_api_key || !settings?.hl_location_id) {
-        throw new Error(
-          "Missing Ovanta API credentials for this wedding's company. Check Settings → Integrations for that area.",
-        );
-      }
-
-      // Try to find phone number in our DB
-      let dbPhone = null;
-      const { data: contractor } = await supabase
-        .from("contractors")
-        .select("phone")
-        .eq("email", email)
-        .maybeSingle();
-      if (contractor?.phone) {
-        dbPhone = contractor.phone;
-      } else {
-        // Try to check weddings table just in case they are a client
-        const { data: wedding } = await supabase
-          .from("weddings")
-          .select("questionnaire_data, client_phone")
-          .eq("client_email", email)
-          .maybeSingle();
-        if (wedding?.client_phone) {
-          dbPhone = wedding.client_phone;
-        } else if (wedding?.questionnaire_data?.contact_info?.phone) {
-          dbPhone = wedding.questionnaire_data.contact_info.phone;
-        } else if (wedding?.questionnaire_data?.contact_info?.phone_bride) {
-          dbPhone = wedding.questionnaire_data.contact_info.phone_bride;
-        } else if (wedding?.questionnaire_data?.contact_info?.phone_groom) {
-          dbPhone = wedding.questionnaire_data.contact_info.phone_groom;
-        }
-      }
-
-      const searchRes = await fetch(
-        `https://services.leadconnectorhq.com/contacts/?locationId=${settings.hl_location_id}&query=${encodeURIComponent(email)}`,
-        {
-          headers: {
-            Authorization: `Bearer ${settings.hl_api_key}`,
-            Version: "2021-07-28",
-          },
-        },
-      );
-
-      let contactId = null;
-      let existingPhone = null;
-
-      if (searchRes.ok) {
-        const searchData = await searchRes.json();
-        contactId = searchData.contacts?.[0]?.id;
-        existingPhone = searchData.contacts?.[0]?.phone;
-      }
-
-      if (!contactId) {
-        const createPayload: any = {
-          locationId: settings.hl_location_id,
-          email,
-          tags: ["portal-auto-created"],
-        };
-        if (name) {
-          const parts = name.trim().split(" ");
-          createPayload.firstName = parts[0];
-          if (parts.length > 1)
-            createPayload.lastName = parts.slice(1).join(" ");
-        }
-        if (dbPhone) createPayload.phone = dbPhone;
-
-        const createRes = await fetch(
-          `https://services.leadconnectorhq.com/contacts/`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${settings.hl_api_key}`,
-              Version: "2021-07-28",
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(createPayload),
-          },
-        );
-        if (createRes.ok) {
-          const createData = await createRes.json();
-          contactId = createData.contact?.id;
-        } else {
-          const errData = await createRes.text();
-          throw new Error(`Failed to auto-create contact in CRM: ${errData}`);
-        }
-      } else if (!existingPhone && dbPhone) {
-        // Update existing contact with phone number
-        await fetch(
-          `https://services.leadconnectorhq.com/contacts/${contactId}`,
-          {
-            method: "PUT",
-            headers: {
-              Authorization: `Bearer ${settings.hl_api_key}`,
-              Version: "2021-07-28",
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ phone: dbPhone }),
-          },
-        );
-      }
-      if (contactId) {
-        const sendRes = await fetch(
-          "https://services.leadconnectorhq.com/conversations/messages",
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${settings.hl_api_key}`,
-              Version: "2021-04-15",
-              "Content-Type": "application/json",
-              Accept: "application/json",
-            },
-            body: JSON.stringify({
-              type: "SMS",
-              contactId: contactId,
-              message: message,
-            }),
-          },
-        );
-        if (!sendRes.ok) {
-          const errData = await sendRes.text();
-          if (
-            errData.includes("CONVERSATIONS_MSG_NO_PHONE") ||
-            errData.includes("Missing phone number")
-          ) {
-            throw new Error(
-              `Contact does not have a phone number in the CRM or portal.`,
-            );
-          }
-          throw new Error(`Failed to send SMS via CRM: ${errData}`);
-        }
-        await supabase.from("sms_logs").insert({
-          recipient_email: email,
-          message: message,
-          status: "success",
-        });
-      }
-
+      const tid =
+        territoryId ||
+        (await resolveTerritoryIdForSettings({
+          weddingId: weddingId || null,
+          contractorId: contractorId || null,
+        }));
+      await callOvantaSend({
+        action: "sms",
+        email,
+        message,
+        name,
+        territoryId: tid,
+        weddingId: weddingId || null,
+        contractorId: contractorId || null,
+      });
+      await supabase.from("sms_logs").insert({
+        recipient_email: email,
+        message: message,
+        status: "success",
+      });
       return true;
     } catch (err: any) {
       console.error(`Attempt ${attempt} failed to send Ovanta SMS:`, err);
@@ -997,6 +903,8 @@ export async function sendOvantaEmail(
   name?: string,
   force: boolean = false,
   territoryId?: string | null,
+  weddingId?: string | null,
+  contractorId?: string | null,
 ) {
   // Safeguard: detect hardcoded Ovanta/CRM URLs in email body that should be bride portal links
   const ovantaUrlPattern = /https?:\/\/app\.ovanta\.io\/[^\s"'<>]+/gi;
@@ -1040,90 +948,27 @@ export async function sendOvantaEmail(
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const settings = await getScopedCrmCredentials({ territoryId });
-      if (!settings?.hl_api_key || !settings?.hl_location_id) {
-        throw new Error(
-          "Missing Ovanta API credentials for this wedding's company. Check Settings → Integrations for that area.",
-        );
-      }
-
-      const searchRes = await fetch(
-        `https://services.leadconnectorhq.com/contacts/?locationId=${settings.hl_location_id}&query=${encodeURIComponent(email)}`,
-        {
-          headers: {
-            Authorization: `Bearer ${settings.hl_api_key}`,
-            Version: "2021-07-28",
-          },
-        },
-      );
-      let contactId = null;
-      if (searchRes.ok) {
-        const searchData = await searchRes.json();
-        contactId = searchData.contacts?.[0]?.id;
-      }
-      if (!contactId) {
-        const createPayload: any = {
-          locationId: settings.hl_location_id,
-          email,
-          tags: ["portal-auto-created"],
-        };
-        if (name) {
-          const parts = name.trim().split(" ");
-          createPayload.firstName = parts[0];
-          if (parts.length > 1)
-            createPayload.lastName = parts.slice(1).join(" ");
-        }
-        const createRes = await fetch(
-          `https://services.leadconnectorhq.com/contacts/`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${settings.hl_api_key}`,
-              Version: "2021-07-28",
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(createPayload),
-          },
-        );
-        if (createRes.ok) {
-          const createData = await createRes.json();
-          contactId = createData.contact?.id;
-        } else {
-          const errData = await createRes.text();
-          throw new Error(`Failed to auto-create contact in CRM: ${errData}`);
-        }
-      }
-      if (contactId) {
-        const sendRes = await fetch(
-          "https://services.leadconnectorhq.com/conversations/messages",
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${settings.hl_api_key}`,
-              Version: "2021-04-15",
-              "Content-Type": "application/json",
-              Accept: "application/json",
-            },
-            body: JSON.stringify({
-              type: "Email",
-              contactId: contactId,
-              subject: subject,
-              html: htmlContent,
-              message: "Please view the HTML version of this email.",
-            }),
-          },
-        );
-        if (!sendRes.ok) {
-          const errData = await sendRes.text();
-          throw new Error(`Failed to send Email via CRM: ${errData}`);
-        }
-        await supabase.from("sms_logs").insert({
-          recipient_email: email,
-          message: `[EMAIL: ${subject}]\n${htmlContent}`,
-          status: "success",
-        });
-      }
-
+      const tid =
+        territoryId ||
+        (await resolveTerritoryIdForSettings({
+          weddingId: weddingId || null,
+          contractorId: contractorId || null,
+        }));
+      await callOvantaSend({
+        action: "email",
+        email,
+        subject,
+        message: htmlContent,
+        name,
+        territoryId: tid,
+        weddingId: weddingId || null,
+        contractorId: contractorId || null,
+      });
+      await supabase.from("sms_logs").insert({
+        recipient_email: email,
+        message: `[EMAIL: ${subject}]\n${htmlContent}`,
+        status: "success",
+      });
       return true;
     } catch (err: any) {
       console.error(`Attempt ${attempt} failed to send Ovanta Email:`, err);
@@ -1328,171 +1173,13 @@ export const api = {
   sendAdminNotification,
   async syncContractorCRM(contractorId: string) {
     try {
-      const settings = await getScopedCrmCredentials({ contractorId });
-      if (!settings?.hl_api_key || !settings?.hl_location_id) {
-        throw new Error(
-          "CRM credentials (API Key or Location ID) are missing in settings.",
-        );
-      }
-
-      const { data: contractor } = await supabase
-        .from("contractors")
-        .select("*")
-        .eq("id", contractorId)
-        .single();
-      if (!contractor) return;
-
-      const { data: assignments } = await supabase
-        .from("assignments")
-        .select("status, jobs(contractor_todos, weddings(date))")
-        .eq("contractor_id", contractorId)
-        .in("status", [
-          "Upcoming",
-          "upcoming",
-          "Accepted",
-          "accepted",
-          "Confirmed",
-          "confirmed",
-          "Assigned",
-          "assigned",
-          "Action Required",
-          "action required",
-        ]);
-
-      let nextWeddingDate = "";
-      let hasPendingTodos = "False";
-
-      if (assignments && assignments.length > 0) {
-        const sorted = (assignments as any[])
-          .filter((a) => a.jobs?.weddings?.date)
-          .sort(
-            (a, b) =>
-              new Date(a.jobs.weddings.date).getTime() -
-              new Date(b.jobs.weddings.date).getTime(),
-          );
-
-        if (sorted.length > 0) {
-          const nextAssg = sorted[0];
-          nextWeddingDate = nextAssg.jobs.weddings.date.split("T")[0];
-
-          const todos = nextAssg.jobs.contractor_todos;
-          if (todos) {
-            let parsedTodos = [];
-            if (typeof todos === "string") {
-              try {
-                parsedTodos = JSON.parse(todos);
-              } catch (e) {}
-            } else if (Array.isArray(todos)) {
-              parsedTodos = todos;
-            }
-            const hasIncomplete = parsedTodos.some((t: any) => !t.completed);
-            if (hasIncomplete) hasPendingTodos = "True";
-          }
-        }
-      }
-
-      const payload: any = {
-        locationId: settings.hl_location_id,
-        email: contractor.email,
-        firstName: contractor.first_name,
-        lastName: contractor.last_name,
-        phone: contractor.phone || undefined,
-        website: contractor.portfolio_url || undefined,
-        tags:
-          hasPendingTodos === "True"
-            ? ["missing-action-items"]
-            : ["all-action-items-complete"],
-      };
-
-      if (
-        contractor.status === "applied" ||
-        contractor.status === "interview" ||
-        contractor.status === "paperwork"
-      ) {
-        payload.tags.push("applicant");
-      } else if (["active", "hired"].includes(contractor.status)) {
-        payload.tags.push("contractor");
-      }
-
-      const searchRes = await fetch(
-        `https://services.leadconnectorhq.com/contacts/?locationId=${settings.hl_location_id}&query=${encodeURIComponent(contractor.email)}`,
-        {
-          headers: {
-            Authorization: `Bearer ${settings.hl_api_key}`,
-            Version: "2021-07-28",
-          },
-        },
-      );
-
-      let contactId = null;
-      if (searchRes.ok) {
-        const searchData = await searchRes.json();
-        contactId = searchData.contacts?.[0]?.id;
-      }
-
-      let finalContactId = contactId;
-      if (contactId) {
-        const updateRes = await fetch(
-          `https://services.leadconnectorhq.com/contacts/${contactId}`,
-          {
-            method: "PUT",
-            headers: {
-              Authorization: `Bearer ${settings.hl_api_key}`,
-              Version: "2021-07-28",
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(payload),
-          },
-        );
-        if (!updateRes.ok) {
-          const errText = await updateRes.text();
-          throw new Error(`Failed to update contact: ${errText}`);
-        }
-      } else {
-        const createRes = await fetch(
-          `https://services.leadconnectorhq.com/contacts/`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${settings.hl_api_key}`,
-              Version: "2021-07-28",
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(payload),
-          },
-        );
-        if (createRes.ok) {
-          const createData = await createRes.json();
-          finalContactId = createData.contact?.id;
-        } else {
-          const errText = await createRes.text();
-          throw new Error(`Failed to create contact: ${errText}`);
-        }
-      }
-
-      if (finalContactId) {
-        const noteBody = `Application Info:\nSpecialty: ${contractor.specialty || "N/A"}\nRegions: ${Array.isArray(contractor.region) ? contractor.region.join(", ") : contractor.region || "N/A"}\nPortfolio: ${contractor.portfolio_url || "N/A"}\nGear List & Experience:\n${contractor.gear_list || "N/A"}`;
-        const noteRes = await fetch(
-          `https://services.leadconnectorhq.com/contacts/${finalContactId}/notes`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${settings.hl_api_key}`,
-              Version: "2021-07-28",
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ body: noteBody }),
-          },
-        );
-        if (!noteRes.ok) {
-          console.error("Failed to add note:", await noteRes.text());
-        }
-      }
+      await callOvantaSend({ action: "sync-contractor", contractorId });
     } catch (err: any) {
       console.error("Failed to sync contractor to CRM", err);
       throw err;
     }
   },
+
 
   async executeAutomations(settings: any, now: Date) {
     console.log("Executing daily automations...");
@@ -5614,8 +5301,18 @@ export const api = {
     name?: string,
     force: boolean = false,
     territoryId?: string | null,
+    weddingId?: string | null,
+    contractorId?: string | null,
   ) {
-    return sendOvantaSms(email, message, name, force, territoryId);
+    return sendOvantaSms(
+      email,
+      message,
+      name,
+      force,
+      territoryId,
+      weddingId,
+      contractorId,
+    );
   },
 
   async sendOvantaEmail(
@@ -5625,8 +5322,19 @@ export const api = {
     name?: string,
     force: boolean = false,
     territoryId?: string | null,
+    weddingId?: string | null,
+    contractorId?: string | null,
   ) {
-    return sendOvantaEmail(email, subject, message, name, force, territoryId);
+    return sendOvantaEmail(
+      email,
+      subject,
+      message,
+      name,
+      force,
+      territoryId,
+      weddingId,
+      contractorId,
+    );
   },
 
   // CRM methods (_getCrmCustomFieldMap, _extractVenueLocation, _extractVenueName,

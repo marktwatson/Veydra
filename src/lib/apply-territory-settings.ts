@@ -38,7 +38,9 @@ export async function getPortalSettingsForTerritory(
   try {
     const { data, error } = await supabase
       .from("portal_settings")
-      .select("*")
+      .select(
+        "company_name, logo_url, app_url, regions, hl_location_id, email_pipeline_rejected_enabled, email_pipeline_rejected_subject, email_pipeline_rejected_template, sms_pipeline_rejected_enabled, sms_pipeline_rejected_template, email_applicant_welcome_enabled, email_applicant_welcome_subject, email_applicant_welcome_template, sms_applicant_welcome_enabled, sms_applicant_welcome_template",
+      )
       .eq("territory_id", territoryId)
       .limit(1);
     if (error && error.code !== "42P01") throw error;

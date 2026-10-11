@@ -24,6 +24,8 @@ interface SendArgs {
   email: string;
   companyName: string;
   logoUrl?: string | null;
+  territoryId?: string | null;
+  contractorId?: string | null;
 }
 
 /**
@@ -38,6 +40,8 @@ export async function sendApplicantNotifications({
   email,
   companyName,
   logoUrl,
+  territoryId,
+  contractorId,
 }: SendArgs): Promise<void> {
   try {
     const appUrl = (portalSettings?.app_url || window.location.origin).replace(
@@ -62,7 +66,16 @@ export async function sendApplicantNotifications({
           .replace(/{{contractor_name}}/g, firstName)
           .replace(/{{portal_link}}/g, appUrl);
 
-        await sendOvantaEmail(email, subject, content);
+        await sendOvantaEmail(
+          email,
+          subject,
+          content,
+          firstName,
+          false,
+          territoryId,
+          null,
+          contractorId,
+        );
       }
       if (
         portalSettings?.sms_pipeline_rejected_enabled &&
@@ -73,7 +86,15 @@ export async function sendApplicantNotifications({
           .replace(/{{contractor_name}}/g, firstName)
           .replace(/{{portal_link}}/g, appUrl);
 
-        await sendOvantaSms(email, message);
+        await sendOvantaSms(
+          email,
+          message,
+          firstName,
+          false,
+          territoryId,
+          null,
+          contractorId,
+        );
       }
     } else {
       if (
@@ -93,7 +114,16 @@ export async function sendApplicantNotifications({
           .replace(/{{contractor_name}}/g, firstName)
           .replace(/{{portal_link}}/g, appUrl);
 
-        await sendOvantaEmail(email, subject, content);
+        await sendOvantaEmail(
+          email,
+          subject,
+          content,
+          firstName,
+          false,
+          territoryId,
+          null,
+          contractorId,
+        );
       }
 
       if (
@@ -105,7 +135,15 @@ export async function sendApplicantNotifications({
           .replace(/{{contractor_name}}/g, firstName)
           .replace(/{{portal_link}}/g, appUrl);
 
-        await sendOvantaSms(email, message);
+        await sendOvantaSms(
+          email,
+          message,
+          firstName,
+          false,
+          territoryId,
+          null,
+          contractorId,
+        );
       }
     }
   } catch (e) {

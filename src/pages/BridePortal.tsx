@@ -886,6 +886,10 @@ export default function BridePortal() {
             manager.email,
             `New Message from Bride: ${wedding.client_name}`,
             `You have received a new message from ${wedding.client_name} via the Bride Portal:<br><br>${contactMessage.replace(/\n/g, "<br>")}`,
+            wedding.client_name,
+            true,
+            wedding.territory_id,
+            id,
           )
           .catch(() => {}); // fire and forget email
       }

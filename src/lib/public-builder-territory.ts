@@ -57,13 +57,20 @@ export async function loadPublicBuilderTerritory(
   // Does a PIN exist for this area? head/count query — the value never ships.
   let hasPin = false;
   try {
-    const { count } = await supabase
-      .from("portal_settings")
-      .select("id", { count: "exact", head: true })
-      .eq("territory_id", resolved.id)
-      .not("sales_pin", "is", null)
-      .neq("sales_pin", "");
-    hasPin = (count ?? 0) > 0;
+    const { data, error } = await supabase.rpc("territory_has_sales_pin", {
+      p_territory_id: resolved.id,
+    });
+    if (!error && typeof data === "boolean") {
+      hasPin = data;
+    } else {
+      const { count } = await supabase
+        .from("portal_settings")
+        .select("id", { count: "exact", head: true })
+        .eq("territory_id", resolved.id)
+        .not("sales_pin", "is", null)
+        .neq("sales_pin", "");
+      hasPin = (count ?? 0) > 0;
+    }
   } catch {
     /* assume no pin → open access */
   }
