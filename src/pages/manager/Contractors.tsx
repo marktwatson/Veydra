@@ -100,7 +100,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { toast as sonnerToast } from "sonner";
 import { ToastAction } from "@/components/ui/toast";
-import { api, DbContractor } from "@/lib/api";
+import { api, callOvantaSend, DbContractor } from "@/lib/api";
 import { addContractorWithTerritory } from "@/lib/contractor-territory";
 import { parseRegions } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -689,59 +689,11 @@ export default function ManagerContractors() {
 
   const syncInterviewFromCRM = async (contractor: any, isAutoSync = false) => {
     try {
-      const tid = await currentTerritoryId();
-      const { data: settings } = await supabase
-        .from("portal_settings")
-        .select("hl_api_key, hl_location_id")
-        .eq("territory_id", tid || "")
-        .limit(1)
-        .maybeSingle();
-      if (!settings?.hl_api_key || !settings?.hl_location_id) {
-        if (!isAutoSync)
-          toast({
-            title: "Error",
-            description: "CRM credentials missing.",
-            variant: "destructive",
-          });
-        return;
-      }
-
-      const headers = {
-        Authorization: `Bearer ${settings.hl_api_key}`,
-        Version: "2021-07-28",
-        Accept: "application/json",
-      };
-
-      const searchRes = await fetch(
-        `https://services.leadconnectorhq.com/contacts/?locationId=${settings.hl_location_id}&query=${encodeURIComponent(contractor.email)}`,
-        { headers },
-      );
-      if (!searchRes.ok) throw new Error("Contact not found in CRM");
-      const searchData = await searchRes.json();
-      const contactId = searchData.contacts?.[0]?.id;
-      if (!contactId) throw new Error("Contact not found in CRM");
-
-      let eventsData: any = {};
-      const eventsRes = await fetch(
-        `https://services.leadconnectorhq.com/calendars/events?locationId=${settings.hl_location_id}&contactId=${contactId}`,
-        { headers },
-      );
-
-      if (eventsRes.ok) {
-        eventsData = await eventsRes.json();
-      } else {
-        const fallbackRes = await fetch(
-          `https://services.leadconnectorhq.com/contacts/${contactId}/appointments`,
-          { headers },
-        );
-        if (fallbackRes.ok) {
-          eventsData = await fallbackRes.json();
-        } else {
-          throw new Error("Failed to fetch appointments");
-        }
-      }
-
-      const events = eventsData.events || eventsData.appointments || [];
+      const data = await callOvantaSend({
+        action: "interview",
+        contractorId: contractor.id,
+      });
+      const events = data?.events || [];
       if (events.length > 0) {
         const upcoming = events
           .filter(

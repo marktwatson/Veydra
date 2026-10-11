@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import { api } from "./api";
+import { api, callOvantaSend, sendOvantaEmail } from "./api";
 
 /**
  * Manually mark a proposal as booked: create/update the wedding, set proposal
@@ -105,8 +105,7 @@ export async function markProposalAsBooked(
         !proposal.is_upgrade &&
         settings?.email_bride_welcome_enabled &&
         settings?.email_bride_welcome_template &&
-        proposal.client_email &&
-        settings?.hl_api_key
+        proposal.client_email
       ) {
         const companyName = settings.company_name || "Company";
         let subject = (
@@ -120,83 +119,27 @@ export async function markProposalAsBooked(
             /{{portal_link}}/g,
             `${settings.app_url || window.location.origin}/bride-portal/${weddingId}`,
           );
-        await fetch(
-          `https://services.leadconnectorhq.com/conversations/messages`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${settings.hl_api_key}`,
-              Version: "2021-04-15",
-              "Content-Type": "application/json",
-              Accept: "application/json",
-            },
-            body: JSON.stringify({
-              email: proposal.client_email,
-              type: "Email",
-              subject,
-              html: msg,
-            }),
-          },
+        await sendOvantaEmail(
+          proposal.client_email,
+          subject,
+          msg,
+          proposal.client_name,
+          true,
+          proposal.territory_id,
+          weddingId,
         ).catch(console.error);
       }
 
-      if (
-        settings?.hl_api_key &&
-        settings?.hl_location_id &&
-        proposal.client_email
-      ) {
-        const headers = {
-          Authorization: `Bearer ${settings.hl_api_key}`,
-          Version: "2021-07-28",
-          "Content-Type": "application/json",
-        };
+      if (proposal.client_email) {
         try {
-          const searchRes = await fetch(
-            `https://services.leadconnectorhq.com/contacts/?locationId=${settings.hl_location_id}&query=${encodeURIComponent(proposal.client_email)}`,
-            { headers },
-          );
-          const searchData = await searchRes.json();
-          let contactId = searchData.contacts?.[0]?.id;
-          if (!contactId) {
-            const createPayload: any = {
-              locationId: settings.hl_location_id,
-              email: proposal.client_email,
-              name: proposal.client_name || "",
-              tags: ["booked", "payment-received"],
-            };
-            if (proposal.client_name) {
-              const parts = proposal.client_name.trim().split(" ");
-              createPayload.firstName = parts[0];
-              if (parts.length > 1)
-                createPayload.lastName = parts.slice(1).join(" ");
-            }
-            const createRes = await fetch(
-              `https://services.leadconnectorhq.com/contacts/`,
-              {
-                method: "POST",
-                headers,
-                body: JSON.stringify(createPayload),
-              },
-            );
-            const createData = await createRes.json();
-            contactId = createData.contact?.id;
-          }
-          if (contactId) {
-            const existingTags = searchData.contacts?.[0]?.tags || [];
-            const newTags = Array.from(
-              new Set([...existingTags, "booked", "payment-received"]),
-            );
-            const putRes = await fetch(
-              `https://services.leadconnectorhq.com/contacts/${contactId}`,
-              {
-                method: "PUT",
-                headers,
-                body: JSON.stringify({ tags: newTags }),
-              },
-            );
-            if (!putRes.ok)
-              console.error("CRM Sync Error on PUT:", await putRes.text());
-          }
+          await callOvantaSend({
+            action: "tag-contact",
+            proposalId: proposal.id,
+            territoryId: proposal.territory_id,
+            email: proposal.client_email,
+            name: proposal.client_name || "",
+            tags: ["booked", "payment-received"],
+          });
         } catch (e) {
           console.error("CRM Sync Error:", e);
         }

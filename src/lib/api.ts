@@ -1,5 +1,4 @@
 import {
-  getScopedCrmCredentials,
   getScopedPortalSettingsFull,
   getScopedPortalSettings,
   resolveTerritoryIdForSettings,
@@ -823,7 +822,7 @@ async function sendJobAlerts(
   return sentCount;
 }
 
-async function callOvantaSend(body: Record<string, unknown>) {
+export async function callOvantaSend(body: Record<string, unknown>) {
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -2851,64 +2850,21 @@ export const api = {
     // For bookings via /book or /proposal, the Stripe webhook handles CRM tagging AFTER payment succeeds.
     if (syncToCrmOnCreate && data.client_email) {
       try {
-        const settings = await getScopedCrmCredentials({ weddingId: data.id });
-        if (settings?.hl_api_key && settings?.hl_location_id) {
-          const headers = {
-            Authorization: `Bearer ${settings.hl_api_key}`,
-            Version: "2021-07-28",
-            "Content-Type": "application/json",
-          };
-
-          const searchRes = await fetch(
-            `https://services.leadconnectorhq.com/contacts/?locationId=${settings.hl_location_id}&query=${encodeURIComponent(data.client_email)}`,
-            { headers },
-          );
-          const searchData = await searchRes.json();
-          let contactId = searchData.contacts?.[0]?.id;
-
-          const tags = ["booked"];
-
-          if (!contactId) {
-            const createPayload: any = {
-              locationId: settings.hl_location_id,
-              email: data.client_email,
-              name: data.client_name || "",
-              tags,
-            };
-            if (data.client_name) {
-              const parts = data.client_name.trim().split(" ");
-              createPayload.firstName = parts[0];
-              if (parts.length > 1)
-                createPayload.lastName = parts.slice(1).join(" ");
-            }
-            if (wedding.notes) {
-              const phoneMatch = wedding.notes.match(/Phone:\s*([^\n]+)/);
-              if (phoneMatch && phoneMatch[1] !== "N/A")
-                createPayload.phone = phoneMatch[1];
-            }
-            const createRes = await fetch(
-              `https://services.leadconnectorhq.com/contacts/`,
-              {
-                method: "POST",
-                headers,
-                body: JSON.stringify(createPayload),
-              },
-            );
-            const createData = await createRes.json();
-            contactId = createData.contact?.id;
-          } else {
-            const existingTags = searchData.contacts?.[0]?.tags || [];
-            const newTags = Array.from(new Set([...existingTags, "booked"]));
-            await fetch(
-              `https://services.leadconnectorhq.com/contacts/${contactId}`,
-              {
-                method: "PUT",
-                headers,
-                body: JSON.stringify({ tags: newTags }),
-              },
-            );
-          }
-        }
+        await callOvantaSend({
+          action: "tag-contact",
+          weddingId: data.id,
+          territoryId: data.territory_id,
+          email: data.client_email,
+          name: data.client_name || "",
+          phone:
+            typeof wedding.notes === "string"
+              ? (wedding.notes.match(/Phone:\s*([^\n]+)/)?.[1] || "").replace(
+                  "N/A",
+                  "",
+                )
+              : "",
+          tags: ["booked"],
+        });
       } catch (e) {
         console.error("Failed to sync new wedding to CRM:", e);
       }
@@ -5667,60 +5623,17 @@ export const api = {
           .select("*")
           .eq("id", weddingId)
           .single();
-        if (updatedWedding) {
-          const settings = await getScopedPortalSettingsFull({ weddingId });
-          if (
-            settings?.hl_api_key &&
-            settings?.hl_location_id &&
-            updatedWedding.client_email
-          ) {
-            try {
-              const headers = {
-                Authorization: `Bearer ${settings.hl_api_key}`,
-                Version: "2021-07-28",
-                "Content-Type": "application/json",
-              };
-              const searchRes = await fetch(
-                `https://services.leadconnectorhq.com/contacts/?locationId=${settings.hl_location_id}&query=${encodeURIComponent(updatedWedding.client_email)}`,
-                { headers },
-              );
-              const searchData = await searchRes.json();
-              let contactId = searchData.contacts?.[0]?.id;
-
-              if (!contactId) {
-                const createRes = await fetch(
-                  `https://services.leadconnectorhq.com/contacts/`,
-                  {
-                    method: "POST",
-                    headers,
-                    body: JSON.stringify({
-                      locationId: settings.hl_location_id,
-                      email: updatedWedding.client_email,
-                      name: updatedWedding.client_name || "",
-                      tags: ["booked", "payment-received"],
-                    }),
-                  },
-                );
-                const createData = await createRes.json();
-                contactId = createData.contact?.id;
-              } else {
-                const existingTags = searchData.contacts?.[0]?.tags || [];
-                const newTags = new Set([
-                  ...existingTags,
-                  "booked",
-                  "payment-received",
-                ]);
-                await fetch(
-                  `https://services.leadconnectorhq.com/contacts/${contactId}`,
-                  {
-                    method: "PUT",
-                    headers,
-                    body: JSON.stringify({ tags: Array.from(newTags) }),
-                  },
-                );
-              }
-            } catch (e) {}
-          }
+        if (updatedWedding?.client_email) {
+          try {
+            await callOvantaSend({
+              action: "tag-contact",
+              weddingId,
+              territoryId: updatedWedding.territory_id,
+              email: updatedWedding.client_email,
+              name: updatedWedding.client_name || "",
+              tags: ["booked", "payment-received"],
+            });
+          } catch (e) {}
         }
       }
       return true;
@@ -5780,55 +5693,16 @@ export const api = {
 
       // Send CRM Sync
 
-      const settings = await getScopedPortalSettingsFull({ weddingId });
-      if (
-        settings?.hl_api_key &&
-        settings?.hl_location_id &&
-        wedding.client_email
-      ) {
+      if (wedding.client_email) {
         try {
-          const headers = {
-            Authorization: `Bearer ${settings.hl_api_key}`,
-            Version: "2021-07-28",
-            "Content-Type": "application/json",
-          };
-          const searchRes = await fetch(
-            `https://services.leadconnectorhq.com/contacts/?locationId=${settings.hl_location_id}&query=${encodeURIComponent(wedding.client_email)}`,
-            { headers },
-          );
-          const searchData = await searchRes.json();
-          let contactId = searchData.contacts?.[0]?.id;
-
-          if (!contactId) {
-            const createRes = await fetch(
-              `https://services.leadconnectorhq.com/contacts/`,
-              {
-                method: "POST",
-                headers,
-                body: JSON.stringify({
-                  locationId: settings.hl_location_id,
-                  email: wedding.client_email,
-                  name: wedding.client_name,
-                  tags: ["booked", "direct-booking"],
-                }),
-              },
-            );
-            const createData = await createRes.json();
-            contactId = createData.contact?.id;
-          }
-
-          if (contactId) {
-            await fetch(
-              `https://services.leadconnectorhq.com/contacts/${contactId}/tags`,
-              {
-                method: "POST",
-                headers,
-                body: JSON.stringify({
-                  tags: ["booked", "direct-booking", "payment-received"],
-                }),
-              },
-            );
-          }
+          await callOvantaSend({
+            action: "tag-contact",
+            weddingId,
+            territoryId: wedding.territory_id,
+            email: wedding.client_email,
+            name: wedding.client_name,
+            tags: ["booked", "direct-booking", "payment-received"],
+          });
         } catch (crmErr) {
           console.error("CRM Sync Error in Direct Booking:", crmErr);
         }
@@ -6312,31 +6186,12 @@ export const api = {
 
   async _getCrmCustomFieldMap(): Promise<Record<string, string>> {
     try {
-      const settings = await getScopedCrmCredentials({});
-      if (!settings?.hl_api_key || !settings?.hl_location_id) return {};
-
-      const headers = {
-        Authorization: `Bearer ${settings.hl_api_key}`,
-        Version: "v3",
-        "Content-Type": "application/json",
-      };
-
-      const res = await fetch(
-        `https://services.leadconnectorhq.com/contacts/customFields?locationId=${settings.hl_location_id}`,
-        { headers },
-      );
-      if (!res.ok) {
-        console.error(`[API] Custom fields fetch failed: ${res.status}`);
-        return {};
-      }
-      const json = await res.json();
-      const fields = json.customFields || json.fields || [];
-      console.log(
-        `[API] Custom field definitions received:`,
-        fields.length,
-        "fields",
-      );
-
+      const territoryId = await resolveTerritoryIdForSettings({});
+      const data = await callOvantaSend({
+        action: "custom-fields",
+        territoryId,
+      });
+      const fields = (data?.fields || []) as any[];
       const map: Record<string, string> = {};
       fields.forEach((f: any) => {
         if (!f.id) return;
@@ -6353,8 +6208,6 @@ export const api = {
         }
         map[f.id] = f.id;
       });
-
-      console.log("[API] Field map keys:", Object.keys(map));
       return map;
     } catch (e) {
       console.error("[API] Failed to fetch CRM custom fields:", e);
@@ -6462,51 +6315,9 @@ export const api = {
   /** Fetch leads from CRM. Paginates through up to 500 contacts using v3 API. */
   async getOvantaLeads(tagFilter?: string) {
     try {
-      const settings = await getScopedCrmCredentials({});
-      if (!settings?.hl_api_key || !settings?.hl_location_id) return [];
-
-      const headers = {
-        Authorization: `Bearer ${settings.hl_api_key}`,
-        Version: "v3",
-        "Content-Type": "application/json",
-      };
-
-      let allContacts: any[] = [];
-      let startAfter = "";
-      let hasNext = true;
-      let page = 0;
-
-      console.log("[API] Fetching CRM contacts with v3 API...");
-
-      while (hasNext && allContacts.length < 500) {
-        page++;
-        let url = `https://services.leadconnectorhq.com/contacts/?locationId=${settings.hl_location_id}&limit=100`;
-        if (startAfter) url += `&startAfter=${encodeURIComponent(startAfter)}`;
-
-        console.log(
-          `[API] CRM fetch page ${page}, total so far: ${allContacts.length}`,
-        );
-
-        const res = await fetch(url, { headers });
-        if (!res.ok) {
-          console.error(
-            `[API] CRM fetch failed: ${res.status} ${res.statusText}`,
-          );
-          break;
-        }
-
-        const json = await res.json();
-        const batch = json.contacts || [];
-        console.log(`[API] Page ${page} returned ${batch.length} contacts`);
-        allContacts = allContacts.concat(batch);
-
-        hasNext = !!json.meta?.nextPageToken;
-        startAfter = json.meta?.nextPageToken || "";
-
-        if (batch.length === 0) break;
-      }
-
-      console.log(`[API] Total CRM contacts fetched: ${allContacts.length}`);
+      const territoryId = await resolveTerritoryIdForSettings({});
+      const data = await callOvantaSend({ action: "leads", territoryId });
+      const allContacts: any[] = data?.contacts || [];
 
       const fieldMap = await this._getCrmCustomFieldMap();
 
