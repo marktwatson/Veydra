@@ -24,7 +24,15 @@ import { Loader2, KeyRound, ShieldCheck } from "lucide-react";
  * The key is scoped to the currently viewed territory (currentTerritoryId),
  * never written to portal_settings or the shared Veydra edge secret.
  */
-export function EditorPayoutStripeKeyCard() {
+export function EditorPayoutStripeKeyCard({
+  column = "editor_payout_stripe_key",
+  title = "Editor Payout Stripe Secret",
+  who = "Editors",
+}: {
+  column?: "editor_payout_stripe_key" | "contractor_payout_stripe_key";
+  title?: string;
+  who?: string;
+} = {}) {
   const { user } = useAuth();
   const { toast } = useToast();
   const role = user?.role;
@@ -51,7 +59,7 @@ export function EditorPayoutStripeKeyCard() {
       }
       const { data, error } = await supabase
         .from("territories")
-        .select("name, editor_payout_stripe_key")
+        .select(`name, ${column}`)
         .eq("id", tid)
         .maybeSingle();
       if (!active) return;
@@ -65,7 +73,7 @@ export function EditorPayoutStripeKeyCard() {
         return;
       }
       setTerritoryName(data?.name || "");
-      setHasKey(!!data?.editor_payout_stripe_key);
+      setHasKey(!!data?.[column]);
       setLoading(false);
     })();
     return () => {
@@ -88,7 +96,7 @@ export function EditorPayoutStripeKeyCard() {
     setSaving(true);
     const { error } = await supabase
       .from("territories")
-      .update({ editor_payout_stripe_key: trimmed })
+      .update({ [column]: trimmed })
       .eq("id", territoryId);
     setSaving(false);
     if (error) {
@@ -103,7 +111,7 @@ export function EditorPayoutStripeKeyCard() {
     setKeyValue("");
     toast({
       title: "Editor payout Stripe key saved",
-      description: `Editors in ${territoryName || "this area"} will use this area's key.`,
+      description: `${who} in ${territoryName || "this area"} will use this area's key.`,
     });
   };
 
@@ -112,10 +120,10 @@ export function EditorPayoutStripeKeyCard() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <KeyRound className="h-4 w-4" />
-          Editor Payout Stripe Secret
+          {title}
         </CardTitle>
         <CardDescription>
-          The Stripe secret editors in this area use to connect and receive
+          The Stripe secret {who.toLowerCase()} in this area use to connect and receive
           payouts. Scoped to{" "}
           <span className="font-medium text-foreground">
             {territoryName || "this area"}
@@ -130,7 +138,7 @@ export function EditorPayoutStripeKeyCard() {
           </div>
         ) : !territoryId ? (
           <p className="text-sm text-muted-foreground">
-            Pick an area before setting its editor payout key.
+            Pick an area before setting its payout key.
           </p>
         ) : (
           <>
@@ -147,11 +155,11 @@ export function EditorPayoutStripeKeyCard() {
               )}
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="editor-payout-stripe-key">
+              <Label htmlFor={`${column}-input`}>
                 Stripe Secret Key {hasKey ? "(replace)" : ""}
               </Label>
               <Input
-                id="editor-payout-stripe-key"
+                id={`${column}-input`}
                 type="password"
                 placeholder={hasKey ? "•••••••••••• (saved)" : "sk_live_..."}
                 value={keyValue}
@@ -176,5 +184,15 @@ export function EditorPayoutStripeKeyCard() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+export function ContractorPayoutStripeKeyCard() {
+  return (
+    <EditorPayoutStripeKeyCard
+      column="contractor_payout_stripe_key"
+      title="Contractor Payout Stripe Secret"
+      who="Contractors"
+    />
   );
 }

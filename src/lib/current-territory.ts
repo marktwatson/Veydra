@@ -212,6 +212,41 @@ export async function loadManagerTerritory(): Promise<{
   return null;
 }
 
+async function loadContractorOrEditorTerritory(
+  id: string | null,
+  email: string | null,
+): Promise<string | null> {
+  try {
+    if (id) {
+      const { data: byId } = await supabase
+        .from("contractors")
+        .select("territory_id")
+        .eq("id", id)
+        .maybeSingle();
+      if (byId?.territory_id) return byId.territory_id;
+    }
+    if (email) {
+      const { data: byEmail } = await supabase
+        .from("contractors")
+        .select("territory_id")
+        .ilike("email", email)
+        .limit(1)
+        .maybeSingle();
+      if (byEmail?.territory_id) return byEmail.territory_id;
+      const { data: editor } = await supabase
+        .from("editors")
+        .select("territory_id")
+        .ilike("email", email)
+        .limit(1)
+        .maybeSingle();
+      if (editor?.territory_id) return editor.territory_id;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 /**
  * The set of areas the current user is allowed to switch between.
  *
@@ -316,6 +351,13 @@ export async function currentTerritoryId(): Promise<string | null> {
     // Default to home area. Never null for a non-super-admin.
     if (home) return home;
     if (allowed.size > 0) return Array.from(allowed)[0];
+
+    const personTerritory = await loadContractorOrEditorTerritory(
+      impersonated?.id || user?.id || null,
+      email,
+    );
+    if (personTerritory) return personTerritory;
+
     return HONEYSUCKLE_TERRITORY_ID;
   } catch {
     return HONEYSUCKLE_TERRITORY_ID;

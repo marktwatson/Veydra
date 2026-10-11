@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { EditorPayoutStripeKeyCard } from "@/components/EditorPayoutStripeKeyCard";
+import { ContractorPayoutStripeKeyCard, EditorPayoutStripeKeyCard } from "@/components/EditorPayoutStripeKeyCard";
 import {
   Card,
   CardHeader,
@@ -201,6 +201,7 @@ export function OffPlatformPaymentCard({ saved }: { saved?: any }) {
         </CardContent>
       </Card>
       <EditorPayoutStripeKeyCard />
+      <ContractorPayoutStripeKeyCard />
     </>
   );
 }

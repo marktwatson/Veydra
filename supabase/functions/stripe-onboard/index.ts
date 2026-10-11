@@ -71,9 +71,34 @@ serve(async (req) => {
         );
       }
     } else {
-      stripeKey = Deno.env.get("Veydra") || Deno.env.get("STRIPE_SECRET_KEY");
-      if (!stripeKey) {
-        throw new Error("Veydra secret key is missing");
+      const { data: contractor } = await supabase
+        .from("contractors")
+        .select("territory_id")
+        .eq("id", targetId)
+        .maybeSingle();
+      resolvedTerritoryId = contractor?.territory_id || null;
+      const HONEYSUCKLE = "0bbaebfc-1c51-4ebe-98b4-e2e9697ef33d";
+      if (resolvedTerritoryId) {
+        const { data: terr } = await supabase
+          .from("territories")
+          .select("name, contractor_payout_stripe_key")
+          .eq("id", resolvedTerritoryId)
+          .maybeSingle();
+        stripeKey = terr?.contractor_payout_stripe_key || undefined;
+        if (!stripeKey && resolvedTerritoryId === HONEYSUCKLE) {
+          stripeKey = Deno.env.get("Veydra") || Deno.env.get("STRIPE_SECRET_KEY");
+        }
+        if (!stripeKey) {
+          return new Response(
+            JSON.stringify({
+              error: `${terr?.name || "This area"} has not added its contractor Stripe key. Add it in Settings before connecting.`,
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 },
+          );
+        }
+      } else {
+        stripeKey = Deno.env.get("Veydra") || Deno.env.get("STRIPE_SECRET_KEY");
+        if (!stripeKey) throw new Error("Veydra secret key is missing");
       }
     }
 
@@ -149,6 +174,28 @@ serve(async (req) => {
       refresh_url: refresh_url,
       return_url: return_url,
       type: "account_onboarding",
+    }).catch(async (linkError: any) => {
+      const missing = /no such account|resource_missing/i.test(String(linkError?.message || ""));
+      if (!missing || user_type === "editor") throw linkError;
+      const capabilities: any = { transfers: { requested: true } };
+      const accountCountry = country || "US";
+      const accountParams: any = { type: "express", country: accountCountry, email };
+      if (accountCountry === "US") capabilities.card_payments = { requested: true };
+      else accountParams.tos_acceptance = { service_agreement: "recipient" };
+      accountParams.capabilities = capabilities;
+      const account = await stripe.accounts.create(accountParams);
+      accountId = account.id;
+      const { error: updateError } = await supabase
+        .from(targetTable)
+        .update({ stripe_account_id: accountId })
+        .eq("id", targetId);
+      if (updateError) throw new Error(`Failed to save Stripe ID: ${updateError.message}`);
+      return stripe.accountLinks.create({
+        account: accountId,
+        refresh_url: refresh_url,
+        return_url: return_url,
+        type: "account_onboarding",
+      });
     });
 
     return new Response(JSON.stringify({ url: accountLink.url }), {

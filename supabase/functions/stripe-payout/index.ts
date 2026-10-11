@@ -133,9 +133,29 @@ serve(async (req) => {
         );
       }
     } else {
-      stripeKey = Deno.env.get("Veydra") || Deno.env.get("STRIPE_SECRET_KEY");
+      const HONEYSUCKLE = "0bbaebfc-1c51-4ebe-98b4-e2e9697ef33d";
+      let territoryId: string | null = null;
+      if (destination_account && supabase) {
+        const { data: contractor } = await supabase
+          .from("contractors")
+          .select("territory_id")
+          .eq("stripe_account_id", destination_account)
+          .maybeSingle();
+        territoryId = contractor?.territory_id || null;
+      }
+      if (territoryId && supabase) {
+        const { data: terr } = await supabase
+          .from("territories")
+          .select("contractor_payout_stripe_key")
+          .eq("id", territoryId)
+          .maybeSingle();
+        stripeKey = terr?.contractor_payout_stripe_key || undefined;
+      }
+      if (!stripeKey && (!territoryId || territoryId === HONEYSUCKLE)) {
+        stripeKey = Deno.env.get("Veydra") || Deno.env.get("STRIPE_SECRET_KEY");
+      }
       if (!stripeKey) {
-        throw new Error("STRIPE_SECRET_KEY or Veydra secret is missing");
+        throw new Error("This area has no contractor Stripe key, so the payout was not sent.");
       }
     }
 
