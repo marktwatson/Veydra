@@ -1387,8 +1387,6 @@ export default function ManagerSettings() {
       if (savedLogoUrl) setLogoUrl(savedLogoUrl);
       const savedCompanyName = localStorage.getItem("veydra_company_name");
       if (savedCompanyName) setCompanyName(savedCompanyName);
-      const savedAppUrl = localStorage.getItem("veydra_app_url");
-      if (savedAppUrl) setAppUrl(savedAppUrl);
     } catch (e) {}
 
     // Try to load from Supabase
@@ -1399,12 +1397,14 @@ export default function ManagerSettings() {
           if (settings.company_name) {
             setCompanyName(settings.company_name);
           }
-          if (settings.app_url) {
-            setAppUrl(settings.app_url);
-            try {
+          setAppUrl(settings.app_url || "");
+          try {
+            if (settings.app_url) {
               localStorage.setItem("veydra_app_url", settings.app_url);
-            } catch (e) {}
-          }
+            } else {
+              localStorage.removeItem("veydra_app_url");
+            }
+          } catch (e) {}
           const logo = settings.logo_url || DEFAULT_LOGO_URL;
           setLogoUrl(logo);
           try {
