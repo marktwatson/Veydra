@@ -117,40 +117,6 @@ export function TeamAddAdminDialog({
       return;
     }
 
-    // CRM tracking (external form submission event).
-    const trackingPayload = {
-      type: "external_form_submission",
-      timestamp: Date.now(),
-      formId: "Add Admin Form",
-      formData: {
-        first_name: newAdmin.name.split(" ")[0] || "",
-        last_name: newAdmin.name.split(" ").slice(1).join(" ") || "",
-        email: newAdmin.email,
-      },
-      formLabels: {
-        first_name: "First Name",
-        last_name: "Last Name",
-        email: "Email",
-      },
-      url: window.location.href,
-      title: document.title,
-      path: window.location.pathname,
-      userAgent: navigator.userAgent,
-      trackingId: "tk_02f0b02f7766475e8e0dd257bf546895",
-      locationId: "fkA7m9pf9sdKd1sNoKJv",
-      sessionId: crypto.randomUUID(),
-      properties: {
-        deviceType: /Mobile|Android|iPhone/i.test(navigator.userAgent)
-          ? "mobile"
-          : "desktop",
-      },
-    };
-    fetch("https://backend.leadconnectorhq.com/external-tracking/events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", version: "2021-07-28" },
-      body: JSON.stringify(trackingPayload),
-    }).catch(() => {});
-
     const pendingUser = {
       id: crypto.randomUUID(),
       name: newAdmin.name,

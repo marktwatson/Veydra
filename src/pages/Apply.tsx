@@ -162,58 +162,6 @@ export default function Apply() {
 
       await api.addContractor(newContractor);
 
-      // Send to CRM tracking — only when the territory-scoped settings row
-      // has CRM credentials. If no row exists, skip tracking; the contractor
-      // is already saved above.
-      const trackingPayload = {
-        type: "external_form_submission",
-        timestamp: Date.now(),
-        formId: "Contractor Application",
-        formData: {
-          first_name: firstName,
-          last_name: lastName,
-          email: email,
-          phone: phone,
-          website: portfolioUrl,
-          "contact.specialty": specialty,
-          "contact.regions": selectedRegions.join(", "),
-        },
-        formLabels: {
-          first_name: "First Name",
-          last_name: "Last Name",
-          email: "Email",
-          phone: "Phone",
-          website: "Portfolio URL",
-          "contact.specialty": "Specialty",
-          "contact.regions": "Regions",
-        },
-        url: window.location.href,
-        title: document.title,
-        path: window.location.pathname,
-        userAgent: navigator.userAgent,
-        trackingId: portalSettings?.hl_location_id
-          ? "tk_02f0b02f7766475e8e0dd257bf546895"
-          : undefined,
-        locationId: portalSettings?.hl_location_id,
-        sessionId: crypto.randomUUID(),
-        properties: {
-          deviceType: /Mobile|Android|iPhone/i.test(navigator.userAgent)
-            ? "mobile"
-            : "desktop",
-        },
-      };
-
-      if (portalSettings?.hl_location_id) {
-        fetch("https://backend.leadconnectorhq.com/external-tracking/events", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            version: "2021-07-28",
-          },
-          body: JSON.stringify(trackingPayload),
-        }).catch(() => {});
-      }
-
       if (newContractor?.id) {
         try {
           await api.syncContractorCRM(newContractor.id);
