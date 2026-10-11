@@ -1,58 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js";
+import { ARTICLES } from "./knowledge.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-const HELP = [
-  {
-    title: "How to add a wedding",
-    where: "Weddings → Add Wedding, or Proposals",
-    text: "There are two ways. To type a wedding in yourself: open Weddings and click Add Wedding. Enter the couple, the date, and the venue, then save. It stays in that area. To sell one: open Proposals, build the package, and send the link. When the couple pays, the wedding is booked and lands in Review Wedding. Do not describe only one of these paths.",
-  },
-  {
-    title: "How to add an event to an existing wedding",
-    where: "Weddings → open the wedding → Events",
-    text: "Open the wedding, add the extra date (engagement, bartending, sangeet, or another day), then add the position on that date. Saving an unassigned position posts it like any other open job for that area and region. Training video: How to add an event to an existing wedding.",
-  },
-  {
-    title: "How to build a proposal",
-    where: "Proposals",
-    text: "Open Proposals and start a new one. The client name needs a first and last name. Pick the package and add-ons, check the payment plan, then send the share link. Do not delete a proposal. Archive it from the list. Archived ones stay in the Archive tab for that area and can be restored. Training video: How to build a proposal in Veydra.",
-  },
-  {
-    title: "How to read the dashboard",
-    where: "Home",
-    text: "The home dashboard is action items for the area selected in the header. The area picker does not have an All Areas total. Training video: How to read the dashboard in Veydra.",
-  },
-  {
-    title: "Post-production",
-    where: "Post Production",
-    text: "Rows are sorted with the next date first. A wedding moves from awaiting raw media, to ready to edit, in progress, client review, revisions, then delivered. An extra event that needs an early edit gets its own row. Training video: How to process a wedding post production.",
-  },
-  {
-    title: "Bartending upsell",
-    where: "The booked wedding",
-    text: "Offer bartending from the booked wedding. It sends its own invoice and adds the bartender job. Training video: Bartending Upsell Tutorial.",
-  },
-  {
-    title: "Area picker and branding",
-    where: "Header area picker, then Settings → Branding",
-    text: "Each area has its own company name, logo, and Public App URL. Select the area first, then save. The Public App URL box only shows the selected area.",
-  },
-  {
-    title: "Contractor Stripe",
-    where: "Settings → Contractor Payout Stripe Secret",
-    text: "Select the area, then paste that company's Stripe secret. Contractors in that area connect from their own profile. Until the key is saved, Connect Stripe refuses instead of opening another company's Stripe. Honeysuckle is the only area that still falls back to the shared key.",
-  },
-  {
-    title: "Ovanta connection",
-    where: "Settings → Integrations",
-    text: "The Ovanta key stays on the server. Test Connection checks the selected area and shows the company and area name. Texts, tags, and applicant sync use that area's key.",
-  },
-];
 
 function jsonResp(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -209,16 +162,33 @@ async function findWedding(db: any, territoryId: string, name: string) {
 
 function findHelp(query: string) {
   const words = query.toLowerCase().split(/\W+/).filter((word) => word.length > 2);
-  const ranked = HELP.map((article) => {
-    const hay = `${article.title} ${article.where} ${article.text}`.toLowerCase();
-    const score = words.reduce((sum, word) => sum + (hay.includes(word) ? 1 : 0), 0);
+  const ranked = ARTICLES.map((article) => {
+    const title = article.title.toLowerCase();
+    const screen = article.screen.toLowerCase();
+    const keys = article.keywords.toLowerCase();
+    const steps = article.steps.toLowerCase();
+    const score = words.reduce((sum, word) => {
+      if (title.includes(word)) return sum + 3;
+      if (screen.includes(word) || keys.includes(word)) return sum + 2;
+      if (steps.includes(word)) return sum + 1;
+      return sum;
+    }, 0);
     return { article, score };
   })
     .filter((row) => row.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 3)
+    .slice(0, 2)
     .map((row) => row.article);
-  return { articles: ranked.length ? ranked : HELP.slice(0, 3) };
+  if (!ranked.length) {
+    return {
+      note: "No written steps matched. Say you do not have steps for that. Do not guess a screen.",
+      topics: ARTICLES.map((article) => article.title),
+    };
+  }
+  return {
+    note: "Answer from these steps only. Do not add a button that is not written here.",
+    articles: ranked,
+  };
 }
 
 const TOOLS = [
@@ -323,7 +293,7 @@ serve(async (req) => {
 
 Answer the question that was asked. Do not give a one-line brush-off.
 
-How-to questions: call help first. Then give the real steps, name the button, and name the training video if the note includes one. Adding a wedding is not the same as building a proposal. Say both paths when they ask how to add a wedding.
+How-to questions: call help. Follow the returned steps and name the screen they name. Do not invent a menu. If the tool says nothing matched, say you do not have written steps for that.
 
 Number questions: call area_snapshot. If they say this week, this month, or a date range, pass that period. The tool result says whether the numbers are this week or all-time. Repeat that range in your answer. Never present all-time bookings as this week's sales. If the range has weddings, name them. If it has none, say none were booked in that range.
 
