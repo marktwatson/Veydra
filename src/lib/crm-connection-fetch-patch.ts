@@ -60,13 +60,14 @@ async function testThroughFunction(
     .replace(/^Bearer\s+/i, "")
     .trim();
   try {
-    await callOvantaSend({
+    const data = await callOvantaSend({
       action: "test-connection",
       apiKey,
       locationId,
     });
+    const name = data?.name || locationId;
     return new Response(
-      JSON.stringify({ location: { name: locationId }, contacts: [] }),
+      JSON.stringify({ location: { name }, contacts: [] }),
       { status: 200, headers: { "Content-Type": "application/json" } },
     );
   } catch (error: any) {

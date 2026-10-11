@@ -598,7 +598,36 @@ async function testConnection(db: any, user: any, apiKey: string, locationId: st
       res.status,
     );
   }
-  return jsonResp({ ok: true, locationId: loc });
+  let name = "";
+  try {
+    const locRes = await fetch(`https://services.leadconnectorhq.com/locations/${loc}`, {
+      headers: await crmHeaders(key),
+    });
+    if (locRes.ok) {
+      const locJson = await locRes.json();
+      name = String(locJson?.location?.name || locJson?.name || "").trim();
+    }
+  } catch {
+    name = "";
+  }
+  const { data: settingsRow } = await db
+    .from("portal_settings")
+    .select("company_name, territory_id")
+    .eq("hl_location_id", loc)
+    .limit(1)
+    .maybeSingle();
+  let areaName = "";
+  if (settingsRow?.territory_id) {
+    const { data: area } = await db
+      .from("territories")
+      .select("name")
+      .eq("id", settingsRow.territory_id)
+      .maybeSingle();
+    areaName = String(area?.name || "").trim();
+  }
+  const company = String(settingsRow?.company_name || "").trim();
+  const label = [company, areaName].filter(Boolean).join(" — ") || name || loc;
+  return jsonResp({ ok: true, locationId: loc, name: label });
 }
 
 async function listCalendars(db: any, user: any, territoryId: string) {
