@@ -30,10 +30,25 @@ import { AuthLoadingScreen } from "@/components/AuthLoadingScreen";
 const LOGIN_LOGO_URL =
   "https://assets.cdn.filesafe.space/76EKIVBXrGYIny0RbqcE/media/6abaa38a7ef452865a26c67d.gif";
 
-const BOOT_CAPTION: Record<"manager" | "contractor" | "editor", string> = {
-  editor: "Loading the editor",
-  manager: "Loading your dashboard",
-  contractor: "Loading your workspace",
+const BOOT_LINES: Record<"manager" | "contractor" | "editor", string[]> = {
+  editor: [
+    "Loading the editor",
+    "Checking your companies",
+    "Sorting the edit queue",
+    "Opening invoices",
+  ],
+  manager: [
+    "Loading your dashboard",
+    "Checking today's weddings",
+    "Opening your area",
+    "Ready",
+  ],
+  contractor: [
+    "Loading your workspace",
+    "Checking open jobs",
+    "Matching your area",
+    "Opening assignments",
+  ],
 };
 
 export default function Login() {
@@ -49,7 +64,7 @@ export default function Login() {
   // Boot sequence state.
   const [booting, setBooting] = useState(false);
   const [bootDest, setBootDest] = useState("/");
-  const [bootCaption, setBootCaption] = useState(BOOT_CAPTION.contractor);
+  const [bootLines, setBootLines] = useState(BOOT_LINES.contractor);
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -62,7 +77,7 @@ export default function Login() {
     if (!booting) return;
     const t = setTimeout(() => {
       navigate(bootDest, { replace: true });
-    }, 1600);
+    }, 4000);
     return () => clearTimeout(t);
   }, [booting, bootDest, navigate]);
 
@@ -92,15 +107,15 @@ export default function Login() {
               : from
             : from;
 
-      const caption =
+      const lines =
         type === "editor"
-          ? BOOT_CAPTION.editor
+          ? BOOT_LINES.editor
           : type === "manager" || isSuperAdminEmail(email)
-            ? BOOT_CAPTION.manager
-            : BOOT_CAPTION.contractor;
+            ? BOOT_LINES.manager
+            : BOOT_LINES.contractor;
 
       setBootDest(dest);
-      setBootCaption(caption);
+      setBootLines(lines);
       setBooting(true);
     } catch (error: any) {
       toast({
@@ -149,7 +164,7 @@ export default function Login() {
   };
 
   if (booting) {
-    return <AuthLoadingScreen caption={bootCaption} showReset={false} />;
+    return <AuthLoadingScreen lines={bootLines} showReset={false} />;
   }
 
   return (
