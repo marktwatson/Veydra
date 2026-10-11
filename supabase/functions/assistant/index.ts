@@ -8,14 +8,19 @@ const corsHeaders = {
 
 const HELP = [
   {
+    title: "How to add a wedding",
+    where: "Weddings → Add Wedding, or Proposals",
+    text: "There are two ways. To type a wedding in yourself: open Weddings and click Add Wedding. Enter the couple, the date, and the venue, then save. It stays in that area. To sell one: open Proposals, build the package, and send the link. When the couple pays, the wedding is booked and lands in Review Wedding. Do not describe only one of these paths.",
+  },
+  {
     title: "How to add an event to an existing wedding",
     where: "Weddings → open the wedding → Events",
-    text: "Add the extra date (engagement, bartending, sangeet, or another day) on the wedding. Then add the position on that date. Saving an unassigned position posts it like any other open job for that area and region. Training video: How to add an event to an existing wedding.",
+    text: "Open the wedding, add the extra date (engagement, bartending, sangeet, or another day), then add the position on that date. Saving an unassigned position posts it like any other open job for that area and region. Training video: How to add an event to an existing wedding.",
   },
   {
     title: "How to build a proposal",
     where: "Proposals",
-    text: "Create the proposal, pick the package and add-ons, and send the share link. Do not delete a proposal. Archive it. Archived proposals stay in the Archive tab for that area and can be restored. The client name needs a first and last name. Training video: How to build a proposal in Veydra.",
+    text: "Open Proposals and start a new one. The client name needs a first and last name. Pick the package and add-ons, check the payment plan, then send the share link. Do not delete a proposal. Archive it from the list. Archived ones stay in the Archive tab for that area and can be restored. Training video: How to build a proposal in Veydra.",
   },
   {
     title: "How to read the dashboard",
@@ -79,40 +84,103 @@ function isBooked(wedding: any) {
   return Number(wedding.paid_amount) > 0 && wedding.status !== "pending";
 }
 
-async function areaSnapshot(db: any, territoryId: string) {
+function dayInZone(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || "";
+  return {
+    iso: `${get("year")}-${get("month")}-${get("day")}`,
+    weekday: get("weekday"),
+  };
+}
+
+function shiftIso(iso: string, days: number) {
+  const [year, month, day] = iso.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function periodRange(period: string, timeZone: string, from?: string, to?: string) {
+  const today = dayInZone(new Date(), timeZone).iso;
+  if (period === "custom" && from && to) return { from, to, label: `${from} to ${to}` };
+  if (period === "this_month") return { from: today.slice(0, 8) + "01", to: today, label: "this month" };
+  if (period === "this_week") {
+    const weekday = dayInZone(new Date(), timeZone).weekday;
+    const index = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekday);
+    const sinceMonday = index === 0 ? 6 : index - 1;
+    return { from: shiftIso(today, -sinceMonday), to: today, label: "this week" };
+  }
+  return { from: null, to: null, label: "all time" };
+}
+
+function bookedOn(wedding: any) {
+  return String(wedding.contract_signed_at || wedding.created_at || "").slice(0, 10);
+}
+
+function summarize(rows: any[]) {
+  const value = rows.reduce((sum, row) => sum + Number(row.total_amount || 0), 0);
+  const collected = rows.reduce((sum, row) => sum + Number(row.paid_amount || 0), 0);
+  return {
+    booked_count: rows.length,
+    booked_value: Math.round(value * 100) / 100,
+    collected: Math.round(collected * 100) / 100,
+    still_owed: Math.round(Math.max(0, value - collected) * 100) / 100,
+    weddings: rows.slice(0, 12).map((row) => ({
+      name: row.client_name,
+      wedding_date: row.date,
+      booked_on: bookedOn(row),
+      total: Number(row.total_amount || 0),
+      paid: Number(row.paid_amount || 0),
+    })),
+  };
+}
+
+async function areaSnapshot(db: any, territoryId: string, args: any) {
   const [{ data: area }, { data: settings }, { data: weddings }, { data: jobs }] = await Promise.all([
     db.from("territories").select("name").eq("id", territoryId).maybeSingle(),
-    db.from("portal_settings").select("company_name").eq("territory_id", territoryId).limit(1).maybeSingle(),
-    db.from("weddings").select("client_name, date, status, total_amount, paid_amount, editing_status").eq("territory_id", territoryId).limit(2000),
+    db.from("portal_settings").select("company_name, timezone").eq("territory_id", territoryId).limit(1).maybeSingle(),
+    db.from("weddings").select("client_name, date, status, total_amount, paid_amount, editing_status, created_at, contract_signed_at").eq("territory_id", territoryId).limit(2000),
     db.from("jobs").select("role").eq("territory_id", territoryId).eq("status", "open"),
   ]);
   const rows = weddings || [];
   const booked = rows.filter(isBooked);
-  const bookedValue = booked.reduce((sum: number, row: any) => sum + Number(row.total_amount || 0), 0);
-  const collected = booked.reduce((sum: number, row: any) => sum + Number(row.paid_amount || 0), 0);
+  const range = periodRange(String(args?.period || "all"), settings?.timezone || "America/New_York", args?.from, args?.to);
+  const inRange = range.from
+    ? booked.filter((row: any) => {
+      const day = bookedOn(row);
+      return !!day && day >= range.from && day <= range.to;
+    })
+    : booked;
   const editing = ["ready_to_edit", "in_progress", "revisions_requested", "client_review"];
-  const today = new Date().toISOString().slice(0, 10);
-  const upcoming = booked
-    .filter((row: any) => row.date >= today && row.status !== "completed")
-    .sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)))
-    .slice(0, 5)
-    .map((row: any) => ({ name: row.client_name, date: row.date, location_status: row.status }));
+  const today = dayInZone(new Date(), settings?.timezone || "America/New_York").iso;
   return {
     area: area?.name || territoryId,
     company: settings?.company_name || null,
+    range: range.label,
+    from: range.from,
+    to: range.to,
+    instruction: range.from
+      ? "These numbers are only weddings booked in the range. Say the range in the answer. Do not call this all-time sales."
+      : "These numbers are all booked weddings, not a week or a month. Say that they are all-time.",
     definitions: {
-      booked: "upcoming or completed weddings in this area, excluding drafts and cancelled",
-      booked_value: "sum of package total_amount, not the amount collected",
-      collected: "sum of paid_amount on those booked weddings",
+      booked: "upcoming or completed weddings in this area",
+      booked_on: "contract signed date, or the day the wedding record was created",
+      booked_value: "package total, not cash collected",
     },
-    booked_count: booked.length,
-    booked_value: Math.round(bookedValue * 100) / 100,
-    collected: Math.round(collected * 100) / 100,
-    still_owed: Math.round(Math.max(0, bookedValue - collected) * 100) / 100,
+    ...summarize(inRange),
     open_jobs: (jobs || []).length,
     editing_now: booked.filter((row: any) => editing.includes(row.editing_status)).length,
-    awaiting_files: booked.filter((row: any) => !row.editing_status || row.editing_status === "awaiting_raw_media").length,
-    next_weddings: upcoming,
+    next_weddings: booked
+      .filter((row: any) => row.date >= today && row.status !== "completed")
+      .sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)))
+      .slice(0, 5)
+      .map((row: any) => ({ name: row.client_name, date: row.date })),
   };
 }
 
@@ -158,8 +226,15 @@ const TOOLS = [
     type: "function",
     function: {
       name: "area_snapshot",
-      description: "Counts and money for the selected area only. Use this before stating any number.",
-      parameters: { type: "object", properties: {}, additionalProperties: false },
+      description: "Money and counts for the selected area. Pass this_week or this_month when the question names a time. Use all only when they ask for everything.",
+      parameters: {
+        type: "object",
+        properties: {
+          period: { type: "string", enum: ["this_week", "this_month", "all", "custom"] },
+          from: { type: "string", description: "YYYY-MM-DD, only with custom" },
+          to: { type: "string", description: "YYYY-MM-DD, only with custom" },
+        },
+      },
     },
   },
   {
@@ -189,7 +264,7 @@ const TOOLS = [
 ];
 
 async function runTool(db: any, territoryId: string, name: string, args: any) {
-  if (name === "area_snapshot") return areaSnapshot(db, territoryId);
+  if (name === "area_snapshot") return areaSnapshot(db, territoryId, args);
   if (name === "find_wedding") return findWedding(db, territoryId, String(args?.name || ""));
   if (name === "help") return findHelp(String(args?.query || ""));
   return { error: "Unknown tool" };
@@ -244,7 +319,15 @@ serve(async (req) => {
     const chat: any[] = [
       {
         role: "system",
-        content: `You are the Veydra assistant for ${settings?.company_name || "this company"} in ${area?.name || "the selected area"}. You can only see this area. Never claim to know another area. Never invent a number, a name, or a date. Call area_snapshot before any count or dollar amount, find_wedding before talking about a couple, and help before giving steps. If a tool returns nothing, say you do not know. You cannot change records, send messages, or pay anyone. Tell the person which screen to use instead. Keep the answer short.`,
+        content: `You are the Veydra assistant for ${settings?.company_name || "this company"} in ${area?.name || "the selected area"}. You can only see this area. Today is ${new Date().toISOString().slice(0, 10)}.
+
+Answer the question that was asked. Do not give a one-line brush-off.
+
+How-to questions: call help first. Then give the real steps, name the button, and name the training video if the note includes one. Adding a wedding is not the same as building a proposal. Say both paths when they ask how to add a wedding.
+
+Number questions: call area_snapshot. If they say this week, this month, or a date range, pass that period. The tool result says whether the numbers are this week or all-time. Repeat that range in your answer. Never present all-time bookings as this week's sales. If the range has weddings, name them. If it has none, say none were booked in that range.
+
+Never invent a number, a name, or a date. You cannot change records, send messages, or pay anyone.`,
       },
       ...history,
     ];
