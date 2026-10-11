@@ -3356,7 +3356,12 @@ export default function ManagerSettings() {
 
                 <div className="grid gap-2">
                   <Label htmlFor="app-url">Public App URL</Label>
-                  <Input id="app-url" placeholder="https://your-domain.com" />
+                  <Input
+                    id="app-url"
+                    placeholder="https://your-domain.com"
+                    value={appUrl}
+                    onChange={(e) => setAppUrl(e.target.value)}
+                  />
                   <p className="text-xs text-muted-foreground">
                     Your published site URL. Used for bride portal links,
                     feedback links, and setup links in all emails/SMS. Must be
