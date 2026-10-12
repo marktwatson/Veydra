@@ -12,6 +12,7 @@ import { largestCities, peopleLabel, studioNameIdeas, timezoneFor } from "@/lib/
 
 const STEPS = ["You", "Name", "Cities", "Mark", "Ovanta", "Stripe", "Facebook", "Pricing", "Done"];
 const OVANTA_OFFER = "https://ovanta.io/wedding-biz-offer-page";
+const ONBOARDING_CALL = "https://links.ovanta.io/widget/bookings/new-territory-onboarding";
 const MARK_EMAIL = "mark@kavoddigital.com";
 
 type Draft = {
@@ -806,10 +807,20 @@ export default function OwnerWelcome() {
             <AssistantSays>
               {finished
                 ? draft.packageSkipped
-                  ? "Setup can move on. Pricing is still a conversation with Nik before those packages go out."
-                  : "That's everything I need from you. The dashboard is yours."
+                  ? "The setup steps are done. Pricing still needs a conversation with Nik. Last thing: book the onboarding call."
+                  : "That's everything in the setup. Last thing: book the onboarding call."
                 : "These are still open. Go back to the step and finish it. Stripe and Facebook have to be marked before you leave."}
             </AssistantSays>
+            {finished && (
+              <div className="space-y-3 pl-11">
+                <div className="overflow-hidden rounded-2xl border border-stone-200 dark:border-stone-800">
+                  <iframe title="Onboarding call" src={ONBOARDING_CALL} className="h-[720px] w-full bg-white" />
+                </div>
+                <a href={ONBOARDING_CALL} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-stone-500 underline">
+                  Open the calendar in a new tab <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+              </div>
+            )}
             {!finished && (
               <div className="space-y-2 pl-11">
                 {checks.filter((item) => !item.done).map((item) => (
