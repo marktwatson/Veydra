@@ -1740,38 +1740,58 @@ serve(async (req) => {
           prompt: `A cinematic wedding photo and video logo, wide. The studio is named "${name}".${where} Bold condensed type, film-still contrast, a thin frame like a viewfinder. The only readable words are the studio name and, if it fits, the place in small type. No mockup, no people, no extra words.`,
         },
       ];
+      const failures: string[] = [];
       const made = await Promise.all(styles.map(async (style) => {
-        const res = await fetch("https://api.x.ai/v1/images/generations", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "grok-imagine-image-2.0",
-            prompt: style.prompt,
-            n: 1,
-            aspect_ratio: "16:9",
-            response_format: "url",
-          }),
-        });
-        const payload = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(payload?.error?.message || payload?.error || "The logo maker did not answer.");
-        const url = payload?.data?.[0]?.url as string | undefined;
-        return url ? { url, style: style.label } : null;
-      }));
-      const urls = made.filter((item): item is { url: string; style: string } => !!item?.url);
-      if (!urls.length) return jsonResp({ error: "No logos came back. Try once more." }, 502);
-      const saved: { url: string; style: string }[] = [];
-      for (const item of urls) {
-        const image = await fetch(item.url);
-        if (!image.ok) continue;
-        const bytes = new Uint8Array(await image.arrayBuffer());
-        const path = `owner-logos/${territoryId}/${crypto.randomUUID()}.jpg`;
-        const { error } = await db.storage.from("avatars").upload(path, bytes, { contentType: "image/jpeg", upsert: true });
-        if (error) {
-          saved.push(item);
-          continue;
+        try {
+          const res = await fetch("https://api.x.ai/v1/images/generations", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: "grok-imagine-image-2.0",
+              prompt: style.prompt,
+              n: 1,
+              aspect_ratio: "16:9",
+              response_format: "b64_json",
+            }),
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            const reason = payload?.error?.message || (typeof payload?.error === "string" ? payload.error : "");
+            failures.push(reason || "The logo maker refused that request.");
+            return null;
+          }
+          const row = payload?.data?.[0] || {};
+          const b64 = row.b64_json || row.b64;
+          if (typeof b64 === "string" && b64.length > 100) {
+            const binary = atob(b64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            return { bytes, style: style.label };
+          }
+          if (typeof row.url === "string") return { url: row.url, style: style.label };
+          failures.push("The image came back without a file.");
+          return null;
+        } catch (error: any) {
+          failures.push(error?.message || "The logo maker failed.");
+          return null;
         }
-        saved.push({ url: db.storage.from("avatars").getPublicUrl(path).data.publicUrl, style: item.style });
+      }));
+      const ready = made.filter((item) => item && (item.bytes || item.url));
+      if (!ready.length) return jsonResp({ error: failures[0] || "No logos came back. Try once more." }, 502);
+      const saved: { url: string; style: string }[] = [];
+      for (const item of ready) {
+        if (!item) continue;
+        if (item.bytes) {
+          const path = `owner-logos/${territoryId}/${crypto.randomUUID()}.jpg`;
+          const { error } = await db.storage.from("avatars").upload(path, item.bytes, { contentType: "image/jpeg", upsert: true });
+          if (!error) {
+            saved.push({ url: db.storage.from("avatars").getPublicUrl(path).data.publicUrl, style: item.style });
+            continue;
+          }
+        }
+        if (item.url) saved.push({ url: item.url, style: item.style });
       }
+      if (!saved.length) return jsonResp({ error: failures[0] || "The logos were made but could not be saved." }, 502);
       return jsonResp({ logos: saved });
     }
 

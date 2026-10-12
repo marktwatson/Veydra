@@ -460,7 +460,13 @@ export default function OwnerWelcome() {
             .map((item: any) => (typeof item === "string" ? { url: item, style: "" } : { url: item?.url, style: item?.style || "" }))
             .filter((item: { url?: string }) => !!item.url)
         : [];
-      if (!logos.length) throw new Error("No logos came back. Try once more.");
+      if (!logos.length) {
+        throw new Error(
+          payload.reply
+            ? "Logo generation is not on the server yet. Deploy the assistant function, then try again."
+            : payload.error || "No logos came back. Try once more.",
+        );
+      }
       setMarks(logos);
     } catch (error: any) {
       setNotice(error?.message || "The logos did not come back.");
