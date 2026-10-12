@@ -732,7 +732,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "ovanta",
-      description: "This area's Ovanta account. action report audits pipelines and calendars. action request calls any HighLevel path in this location. Reads run immediately. A write is saved and does not run until the user replies yes. Known paths: GET /contacts/search, GET /opportunities/search with location_id, GET /opportunities/pipelines, PUT /opportunities/{id} with pipelineId and pipelineStageId to move a deal, GET /locations/{locationId}/tasks, GET /contacts/{contactId}/tasks, POST /contacts/{contactId}/tasks. Moving a person between pipelines updates the opportunity. Never add or edit users. Never send a text or email. If you do not know a path, call api_docs first.",
+      description: "This area's Ovanta account. action report audits pipelines and calendars. action request calls any HighLevel path in this location. Reads run immediately. A write, including a text or email, is saved and does not run until the user replies yes. To text someone, find the contact, then POST /conversations/messages with { type: \"SMS\", contactId, message }. To email, use type Email plus subject, html, and message. Also: GET /contacts/search, GET /opportunities/search with location_id, GET /opportunities/pipelines, PUT /opportunities/{id} with pipelineId and pipelineStageId, GET /locations/{locationId}/tasks, GET /contacts/{contactId}/tasks, POST /contacts/{contactId}/tasks. Never add or edit users. If you do not know a path, call api_docs first.",
       parameters: {
         type: "object",
         properties: {
@@ -1234,12 +1234,13 @@ async function ovantaReport(db: any, territoryId: string) {
     deals_error: opportunities.error,
     recent_contacts: recent,
     setup_missing: missing,
-    cannot: "Cannot add or edit Ovanta users, send a text or email, or touch another location.",
+    cannot: "Cannot add or edit Ovanta users, or touch another location. A text or email waits until the user replies yes.",
   };
 }
 
 function changeRisk(method: string, path: string) {
   const normalized = path.toLowerCase();
+  if (/\/conversations\/messages/i.test(path)) return "This sends a real text or email from this company's Ovanta number. The person will receive it.";
   if (method === "DELETE") return "This deletes data. The assistant cannot undo it.";
   if (/bulk|snapshot|workflow|campaign/.test(normalized)) return "This can change many records at once, not one person.";
   if (/\/pipelines(\/|$)/.test(normalized)) return "This changes a pipeline. Deals already in it can land in the wrong stage.";
@@ -1266,16 +1267,15 @@ async function ovantaRequest(db: any, territoryId: string, args: any) {
   if (!path.startsWith("/")) path = `/${path}`;
   if (path.includes("..") || path.includes(" ")) return { error: "Path not allowed." };
   const userWrite = method !== "GET" && /\/users(\/|$|\?)/i.test(path);
-  const sendMessage = method !== "GET" && /\/conversations\/messages/i.test(path);
   const otherAccount = /\/(oauth|marketplace|saas)\b/i.test(path) || (method !== "GET" && /^\/locations(\/|$)/i.test(path));
   if (userWrite) return { error: "The assistant cannot add or edit Ovanta users." };
-  if (sendMessage) return { error: "The assistant cannot send a text or email from Ovanta." };
   if (otherAccount) return { error: "The assistant can only use this company's location." };
   const locationInPath = path.match(/\/locations\/([^/?]+)/i)?.[1];
   if (locationInPath && locationInPath !== locationId) return { error: "That location is not this company." };
   const body = args?.body && typeof args.body === "object" ? { ...args.body } : null;
   if (body && "locationId" in body) body.locationId = locationId;
   if (body && "altId" in body) body.altId = locationId;
+  if (body && /\/conversations\/messages/i.test(path)) body.locationId = locationId;
   if (method !== "GET" && args?.confirm !== true) {
     const summary = `${method} ${path}`;
     const risk = changeRisk(method, path);
@@ -1744,7 +1744,7 @@ Think, then write for a phone. Short lines. Put a blank line between ideas. When
 
 Facts still come from the desk below. overdue is already past the due date. Name those people and the amount first. incoming rows are only the next 30 days. A booked row this week is a new booking, the first payment, and the package value is not the cash collected. For how to do something, call help and repeat that article. Do not swap in a different screen. A wedding that is finished but not edited is Post-Production: Drive link, Ready to Edit, then the editor. That is not a portal reminder. If they name one couple, call find_wedding. If they say automation or workflow, those are Ovanta workflows, not pipelines and not a Veydra settings page. Name each one and say published or draft. Do not invent the steps inside a workflow. Do not answer with Settings, job posting, or Messages. If they ask about Ovanta pipelines, calendars, or leads, call ovanta. A pipeline audit names each pipeline, then each stage with open deals, the count, the money, and how many have not moved in 14 days. You cannot add or edit users, send a text or email, or touch another location. Never invent a number, a name, or a date.
 
-You cannot send a text or email, add or edit Ovanta users, or touch another location. You can change this company's Ovanta records and you can read this company's database. A write does not happen until they reply yes. When a tool says needs_confirm, explain the change in plain words and ask them to reply yes. Never say it is already done. Never say you do not have a scope. If you do not know an Ovanta path, call api_docs, then call ovanta. For action items, today's weddings, open jobs, or deadlines, call records. For Ovanta tasks, call ovanta with GET /locations/{locationId}/tasks. If an earlier message in this chat already named calls, use that message when they ask about those calls. You are not a general chatbot. If they ask about news, sports, homework, code, recipes, or anything that is not this wedding company, its clients, its team, Ovanta, or other wedding studios nearby, say you only help with this wedding company and stop.`,
+You can text or email a contact in this company's Ovanta account. Find the contact, then prepare POST /conversations/messages. It does not send until they reply yes, and the warning says the person will receive it. You cannot add or edit Ovanta users, or touch another location. You can change this company's Ovanta records and you can read this company's database. A write does not happen until they reply yes. When a tool says needs_confirm, explain the change in plain words and ask them to reply yes. Never say it is already done. Never say you cannot text. Never say you do not have a scope. If you do not know an Ovanta path, call api_docs, then call ovanta. For action items, today's weddings, open jobs, or deadlines, call records. For Ovanta tasks, call ovanta with GET /locations/{locationId}/tasks. If an earlier message in this chat already named calls, use that message when they ask about those calls. You are not a general chatbot. If they ask about news, sports, homework, code, recipes, or anything that is not this wedding company, its clients, its team, Ovanta, or other wedding studios nearby, say you only help with this wedding company and stop.`,
       },
       ...history,
     ];
