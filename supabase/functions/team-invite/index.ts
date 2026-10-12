@@ -1,6 +1,7 @@
 // Team invite email from the Veydra mailbox, not an area's Ovanta account.
 // A new area can invite an owner before Ovanta, Stripe, or templates exist.
 import { createClient } from "jsr:@supabase/supabase-js";
+import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -34,9 +35,11 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || "";
-  const resendKey = Deno.env.get("RESEND_API_KEY") || "";
-  const from =
-    Deno.env.get("SYSTEM_FROM_EMAIL") || "Veydra <invites@veydra.app>";
+  const smtpHost = Deno.env.get("SMTP_HOST") || "smtp.ionos.com";
+  const smtpPort = Number(Deno.env.get("SMTP_PORT") || "465");
+  const smtpUser = Deno.env.get("SMTP_USER") || "";
+  const smtpPass = Deno.env.get("SMTP_PASS") || "";
+  const from = Deno.env.get("SMTP_FROM") || smtpUser;
   const appUrl = (Deno.env.get("APP_URL") || "https://veydra.app").replace(
     /\/$/,
     "",
@@ -44,11 +47,11 @@ Deno.serve(async (req) => {
   if (!supabaseUrl || !serviceKey) {
     return jsonResp({ error: "Missing Supabase env" }, 500);
   }
-  if (!resendKey) {
+  if (!smtpUser || !smtpPass || !from) {
     return jsonResp(
       {
         error:
-          "System invite email is not configured yet. Add the RESEND_API_KEY secret, and verify veydra.app in Resend.",
+          "System invite email is not configured yet. Add the IONOS mailbox as SMTP_USER, SMTP_PASS, and SMTP_FROM secrets.",
       },
       500,
     );
@@ -131,33 +134,41 @@ Deno.serve(async (req) => {
 </body>
 </html>`;
 
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${resendKey}`,
-      "Content-Type": "application/json",
+  const client = new SMTPClient({
+    connection: {
+      hostname: smtpHost,
+      port: smtpPort,
+      tls: smtpPort === 465,
+      auth: { username: smtpUser, password: smtpPass },
     },
-    body: JSON.stringify({
-      from,
-      to: [email],
-      subject,
-      html,
-    }),
   });
-  if (!res.ok) {
-    const detail = await res.text();
+  try {
+    await client.send({
+      from,
+      to: email,
+      subject,
+      content: "auto",
+      html,
+    });
+  } catch (e: any) {
     return jsonResp(
-      { error: `Invite email was not sent. ${detail}`.slice(0, 500) },
+      { error: `Invite email was not sent. ${e?.message || "SMTP failed"}`.slice(0, 500) },
       502,
     );
+  } finally {
+    try {
+      await client.close();
+    } catch {
+      /* already closed */
+    }
   }
   return jsonResp({ ok: true, setupUrl, areaName });
 });
 
 function escapeHtml(value: string) {
   return value
-    .replace(/&/g, "&")
-    .replace(/</g, "<")
-    .replace(/>/g, ">")
-    .replace(/"/g, """);
+    .replace(/&/g, "\u0026amp;")
+    .replace(/</g, "\u0026lt;")
+    .replace(/>/g, "\u0026gt;")
+    .replace(/"/g, "\u0026quot;");
 }
