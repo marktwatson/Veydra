@@ -65,11 +65,13 @@ const SUGGESTIONS = [
   { label: "Ovanta workflows", question: "Audit our Ovanta workflows" },
   { label: "Money", question: "Who is past due?" },
   { label: "This week", question: "What did we book this week?" },
+  { label: "Around us", question: "Who are the other wedding studios around us, and what do they charge?" },
   { label: "After the wedding", question: "How do I get a wedding ready for editing?" },
 ];
 
 function runningLabel(question: string) {
   const asked = question.toLowerCase();
+  if (/studio|competitor|charge|pricing/.test(asked)) return "Looking up other wedding studios around you";
   if (/call/.test(asked)) return "Reading yesterday's calls and transcripts";
   if (/sales/.test(asked)) return "Checking salespeople, bookings, and the inbox";
   if (/pipeline/.test(asked)) return "Reading each pipeline and its open deals";
@@ -88,6 +90,7 @@ export function AreaAssistant() {
   const [error, setError] = useState("");
   const [company, setCompany] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const greeted = useRef(false);
   const threadRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -114,6 +117,17 @@ export function AreaAssistant() {
       cancelled = true;
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open || greeted.current || messages.length > 0 || !company) return;
+    greeted.current = true;
+    setMessages([
+      {
+        role: "assistant",
+        content: `Hey. I'm looking at ${company}.\n\nI can check who still owes you, how this week booked, or how yesterday's calls went. I can also look up the other wedding studios around you and what they publish for prices.\n\nWhat do you want to dig into?`,
+      },
+    ]);
+  }, [open, company, messages.length]);
 
   const ask = async (text?: string) => {
     const question = (text ?? draft).trim();
@@ -196,29 +210,24 @@ export function AreaAssistant() {
       </header>
 
       <div ref={threadRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
-        {messages.length === 0 && (
-          <div className="space-y-4">
-            <p className="max-w-[18rem] font-serif text-2xl leading-snug">
-              What do you need?
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Late payments, this week's bookings, or the next click. I only look at this company.
-            </p>
-            <div className="grid gap-2">
-              {SUGGESTIONS.map((suggestion) => (
-                <button
-                  key={suggestion.question}
-                  type="button"
-                  onClick={() => ask(suggestion.question)}
-                  className="rounded-2xl border border-stone-200 px-4 py-3 text-left hover:bg-stone-50 dark:border-stone-800 dark:hover:bg-stone-900"
-                >
-                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                    {suggestion.label}
-                  </span>
-                  <span className="mt-0.5 block text-sm">{suggestion.question}</span>
-                </button>
-              ))}
-            </div>
+        {messages.length === 0 && !company && (
+          <p className="text-sm text-muted-foreground">One second. I'm seeing which company this is.</p>
+        )}
+        {!messages.some((message) => message.role === "user") && (
+          <div className="grid gap-2">
+            {SUGGESTIONS.map((suggestion) => (
+              <button
+                key={suggestion.question}
+                type="button"
+                onClick={() => ask(suggestion.question)}
+                className="rounded-2xl border border-stone-200 px-4 py-3 text-left hover:bg-stone-50 dark:border-stone-800 dark:hover:bg-stone-900"
+              >
+                <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                  {suggestion.label}
+                </span>
+                <span className="mt-0.5 block text-sm">{suggestion.question}</span>
+              </button>
+            ))}
           </div>
         )}
         {messages.map((message, index) => (

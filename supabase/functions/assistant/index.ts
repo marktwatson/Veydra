@@ -1498,6 +1498,47 @@ function formatCallReport(company: string, day: string, found: number, cards: an
   return lines.join("\n");
 }
 
+function replyText(payload: any) {
+  if (typeof payload?.output_text === "string" && payload.output_text.trim()) return payload.output_text.trim();
+  const chunks: string[] = [];
+  for (const item of payload?.output || []) {
+    if (typeof item?.text === "string") chunks.push(item.text);
+    for (const part of item?.content || []) {
+      if (typeof part?.text === "string") chunks.push(part.text);
+    }
+  }
+  return chunks.join("\n").trim();
+}
+
+async function marketLook(company: string, area: string, question: string, apiKey: string) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 35000);
+  try {
+    const res = await fetch("https://api.x.ai/v1/responses", {
+      method: "POST",
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: Deno.env.get("ASSISTANT_MODEL") || "grok-4.7",
+        tools: [{ type: "web_search" }],
+        input: [
+          {
+            role: "system",
+            content: `You research other wedding photography and videography studios near ${area} for ${company}. Use the web. Only public pages. Never invent a studio or a price. If a price is not published, say it is not listed. Write for a phone. Short lines. One bullet per studio, as "- **Name**, city, what they shoot, published price". Then one line on what ${company} should notice. If this is not about wedding studios or their prices, reply with exactly: I only look up other wedding studios for this company.`,
+          },
+          { role: "user", content: question },
+        ],
+      }),
+    });
+    const payload = await res.json().catch(() => ({}));
+    return replyText(payload) || "I could not look up other studios just now. Try it once more.";
+  } catch {
+    return "The studio lookup took too long. Try it once more.";
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
@@ -1553,12 +1594,16 @@ Think, then write for a phone. Short lines. Put a blank line between ideas. When
 
 Facts still come from the desk below. overdue is already past the due date. Name those people and the amount first. incoming rows are only the next 30 days. A booked row this week is a new booking, the first payment, and the package value is not the cash collected. For how to do something, call help and repeat that article. Do not swap in a different screen. A wedding that is finished but not edited is Post-Production: Drive link, Ready to Edit, then the editor. That is not a portal reminder. If they name one couple, call find_wedding. If they say automation or workflow, those are Ovanta workflows, not pipelines and not a Veydra settings page. Name each one and say published or draft. Do not invent the steps inside a workflow. Do not answer with Settings, job posting, or Messages. If they ask about Ovanta pipelines, calendars, or leads, call ovanta. A pipeline audit names each pipeline, then each stage with open deals, the count, the money, and how many have not moved in 14 days. You cannot add or edit users, send a text or email, or touch another location. Never invent a number, a name, or a date.
 
-You cannot change records, send messages, or pay anyone. You can tell them the next click. If an earlier message in this chat already named calls, use that message when they ask about those calls. Do not claim the calls were never found.`,
+You cannot change records, send messages, or pay anyone. You can tell them the next click. If an earlier message in this chat already named calls, use that message when they ask about those calls. Do not claim the calls were never found. You are not a general chatbot. If they ask about news, sports, homework, code, recipes, or anything that is not this wedding company, its clients, its team, Ovanta, or other wedding studios nearby, say you only help with this wedding company and stop.`,
       },
       ...history,
     ];
 
     const question = history[history.length - 1]?.content || "";
+    if (/other wedding studios|competitors|what do they charge|what are they charging/i.test(question)) {
+      const reply = await marketLook(settings?.company_name || "this company", area?.name || "this area", question, apiKey);
+      return jsonResp({ reply, area: area?.name || null, company: settings?.company_name || null });
+    }
     if (/analyze yesterday'?s calls|yesterday'?s call analysis/i.test(question)) {
       try {
         const reply = await callAnalysis(db, territoryId, apiKey);
