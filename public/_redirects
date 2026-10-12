@@ -1,1 +1,2 @@
-/*    /index.html   200
+# Pages serves the app for unknown paths on its own.
+# Do not add /* /index.html 200. Cloudflare rejects that rule as a loop.
