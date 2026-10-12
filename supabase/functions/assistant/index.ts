@@ -1291,27 +1291,15 @@ async function runTool(db: any, territoryId: string, name: string, args: any, ca
   return { error: "Unknown tool" };
 }
 
-function zonedInstant(day: string, clock: string, timeZone: string) {
-  const guess = new Date(`${day}T${clock}Z`).getTime();
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).formatToParts(new Date(guess));
-  const get = (type: string) => Number(parts.find((part) => part.type === type)?.value || 0);
-  const seen = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour") % 24, get("minute"), get("second"));
-  return guess - (seen - guess);
-}
-
 function isPhoneCall(item: any) {
-  const type = item?.type ?? item?.messageType ?? item?.message_type;
-  if (type === 1 || type === "1") return true;
-  return String(type || "").toUpperCase() === "TYPE_CALL";
+  const raw = item?.type ?? item?.messageType ?? item?.message_type;
+  const label = String(item?.messageType || item?.message_type || "").toUpperCase();
+  if (["TYPE_CALL", "TYPE_PHONE", "TYPE_VOICEMAIL", "TYPE_CAMPAIGN_CALL", "TYPE_CAMPAIGN_VOICEMAIL"].includes(label)) return true;
+  if (String(raw || "").toUpperCase() === "TYPE_CALL" || String(raw || "").toUpperCase() === "TYPE_PHONE") return true;
+  const num = Number(raw);
+  if (num === 1) return true;
+  const meta = item?.meta || {};
+  return num === 2 && !!(meta.duration || meta.callDuration || meta.callTranscriptions || meta.recordingUrl || meta.recording);
 }
 
 function messageTime(item: any) {
@@ -1340,11 +1328,9 @@ async function callAnalysis(db: any, territoryId: string, apiKey: string) {
   if (!key || !locationId) return `${company} has no Ovanta key, so yesterday's calls could not be read.`;
   const today = dayInZone(new Date(), timeZone).iso;
   const day = shiftIso(today, -1);
-  const start = zonedInstant(day, "00:00:00", timeZone);
-  const end = zonedInstant(day, "23:59:59", timeZone);
   const conversations: any[] = [];
   let cursor = "";
-  for (let page = 0; page < 2; page++) {
+  for (let page = 0; page < 6; page++) {
     const params = new URLSearchParams({ locationId, limit: "100", sort: "desc" });
     if (cursor) params.set("startAfterDate", cursor);
     const res = await crmGet(key, `https://services.leadconnectorhq.com/conversations/search?${params}`);
@@ -1352,21 +1338,30 @@ async function callAnalysis(db: any, territoryId: string, apiKey: string) {
     const batch = res.body?.conversations || [];
     conversations.push(...batch);
     if (batch.length < 100) break;
+    const oldest = new Date(batch[batch.length - 1]?.lastMessageDate || batch[batch.length - 1]?.last_message_date || 0).getTime();
     cursor = String(batch[batch.length - 1]?.lastMessageDate || batch[batch.length - 1]?.last_message_date || "");
-    if (!cursor) break;
+    if (!cursor || (oldest && dayInZone(new Date(oldest), timeZone).iso < day)) break;
   }
-  const active = conversations.filter((row) => {
+  const onDay = (row: any) => {
     const at = new Date(row.lastMessageDate || row.last_message_date || 0).getTime();
-    return at >= start;
-  }).slice(0, 40);
+    return at ? dayInZone(new Date(at), timeZone).iso : "";
+  };
+  const fromThatDay = conversations.filter((row) => onDay(row) === day);
+  const continuedToday = conversations.filter((row) => onDay(row) > day);
+  const active = [...fromThatDay, ...continuedToday].slice(0, 60);
   const calls: any[] = [];
+  let unreadable = 0;
   for (let index = 0; index < active.length; index += 8) {
     const chunk = active.slice(index, index + 8);
     const pages = await Promise.all(chunk.map(async (row) => {
-      const res = await crmGet(key, `https://services.leadconnectorhq.com/conversations/${row.id}/messages?limit=50`);
-      const list = res.body?.messages?.messages || res.body?.messages || [];
+      const res = await crmGet(key, `https://services.leadconnectorhq.com/conversations/${row.id}/messages?limit=100`);
+      if (!res.ok) {
+        unreadable += 1;
+        return [];
+      }
+      const list = res.body?.messages?.messages || (Array.isArray(res.body?.messages) ? res.body.messages : []);
       return (Array.isArray(list) ? list : [])
-        .filter((item: any) => isPhoneCall(item) && messageTime(item) >= start && messageTime(item) <= end)
+        .filter((item: any) => isPhoneCall(item) && dayInZone(new Date(messageTime(item)), timeZone).iso === day)
         .map((item: any) => ({ conversation: row, message: item }));
     }));
     for (const page of pages) calls.push(...page);
@@ -1412,7 +1407,7 @@ async function callAnalysis(db: any, territoryId: string, apiKey: string) {
     };
   }));
   if (!cards.length) {
-    return `No phone calls were found for ${company} on ${day}. Looked through ${active.length} recent conversations. A call only counts when Ovanta stored it as a phone call.`;
+    return `No phone calls were found for ${company} on ${day}. Opened ${fromThatDay.length} conversations from that day and ${Math.min(continuedToday.length, Math.max(0, 60 - fromThatDay.length))} that continued after. ${unreadable ? `${unreadable} could not be read. ` : ""}A call counts only when Ovanta stored it as a phone call inside the thread.`;
   }
   const facts = {
     company,
