@@ -34,7 +34,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
-import { resolveHomeTerritoryId } from "@/lib/current-territory";
+import { resolveHomeTerritoryId, currentTerritoryId } from "@/lib/current-territory";
 import { getContractorByEmail } from "@/lib/contractor-by-email";
 import { fetchOpenJobsForTerritory } from "@/lib/api-territory-scoped";
 import { contractorCanSeeJob } from "@/lib/contractor-job-visibility";
@@ -280,17 +280,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
   }, [user, profile, location.pathname, navigate]);
 
   useEffect(() => {
-    if (!user || (user.role !== "owner" && user.role !== "owner_readonly")) return;
+    if (!user) return;
+    const isOwner = user.role === "owner" || user.role === "owner_readonly";
+    const isSuper = user.role === "super_admin";
+    if (!isOwner && !isSuper) return;
     if (location.pathname === "/manager/welcome") return;
     let cancelled = false;
     (async () => {
-      const home = await resolveHomeTerritoryId();
-      if (!home || cancelled) return;
-      if (localStorage.getItem(`veydra_owner_setup_done:${home}`) === "1") return;
+      const areaId = isSuper ? await currentTerritoryId() : await resolveHomeTerritoryId();
+      if (!areaId || cancelled) return;
+      if (localStorage.getItem(`veydra_owner_setup_done:${areaId}`) === "1") return;
       const { count } = await supabase
         .from("weddings")
         .select("id", { count: "exact", head: true })
-        .eq("territory_id", home);
+        .eq("territory_id", areaId);
       if (cancelled || (count || 0) > 0) return;
       navigate("/manager/welcome", { replace: true });
     })();
