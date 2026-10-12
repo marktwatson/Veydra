@@ -87,8 +87,61 @@ function isoDay(value: unknown, timeZone: string) {
   return dayInZone(parsed, timeZone).iso;
 }
 
+function scheduleDay(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw || raw === "TBD") return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  const parts = raw.split("/");
+  if (parts.length === 3) {
+    const [month, day, year] = parts;
+    if (year && month && day) return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+  return "";
+}
+
 function bookedOn(wedding: any) {
-  return String(wedding.contract_signed_at || wedding.created_at || "").slice(0, 10);
+  return String(wedding.contract_signed_at || wedding.booked_on || wedding.created_at || "").slice(0, 10);
+}
+
+function auditRowsFor(wedding: any, timeZone: string) {
+  const total = Number(wedding.total_amount) || 0;
+  const paid = Number(wedding.paid_amount) || 0;
+  let plan = wedding.custom_payment_plan;
+  if (typeof plan === "string") {
+    try {
+      plan = JSON.parse(plan);
+    } catch {
+      plan = null;
+    }
+  }
+  const rows: { date: string; amount: number; label: string }[] = [];
+  const start = scheduleDay(isoDay(wedding.contract_date, timeZone) || isoDay(wedding.created_at, timeZone));
+  const installments = Array.isArray(plan?.installments) ? plan.installments : [];
+  const deposit = Number(plan?.deposit) || 0;
+  if (wedding.payment_plan === "custom" || plan?.enabled || installments.length || deposit > 0) {
+    if (deposit > 0 && start) rows.push({ date: start, amount: deposit, label: "Initial Retainer" });
+    installments.forEach((inst: any, index: number) => {
+      rows.push({
+        date: scheduleDay(inst?.date),
+        amount: Number(inst?.amount) || 0,
+        label: inst?.label || `Installment #${index + 1}`,
+      });
+    });
+  }
+  let running = 0;
+  return rows.map((row) => {
+    const status = paid >= running + row.amount - 0.5 ? "paid" : paid > running + 0.5 ? "partial" : "pending";
+    running += row.amount;
+    return {
+      name: wedding.client_name,
+      label: row.label,
+      date: row.date,
+      amount: Math.round(row.amount * 100) / 100,
+      status,
+      package_total: total,
+      paid,
+    };
+  });
 }
 
 function summarize(rows: any[]) {
@@ -113,7 +166,7 @@ async function areaSnapshot(db: any, territoryId: string, args: any) {
   const [{ data: area }, { data: settings }, { data: weddings }, { data: jobs }, { data: proposals }] = await Promise.all([
     db.from("territories").select("name").eq("id", territoryId).maybeSingle(),
     db.from("portal_settings").select("company_name, timezone").eq("territory_id", territoryId).limit(1).maybeSingle(),
-    db.from("weddings").select("id, client_name, date, status, notes, total_amount, paid_amount, editing_status, created_at, contract_signed_at, contract_date, offplatform_status, offplatform_amount, offplatform_claimed_at").eq("territory_id", territoryId).limit(2000),
+    db.from("weddings").select("id, client_name, date, status, notes, total_amount, paid_amount, payment_plan, custom_payment_plan, editing_status, created_at, contract_signed_at, contract_date, offplatform_status, offplatform_amount, offplatform_claimed_at").eq("territory_id", territoryId).limit(2000),
     db.from("jobs").select("role").eq("territory_id", territoryId).eq("status", "open"),
     db.from("proposals").select("client_name, wedding_id, status, total_amount, amount_paid_so_far, contract_signed_at, wedding_date").eq("territory_id", territoryId).limit(2000),
   ]);
@@ -192,6 +245,20 @@ async function areaSnapshot(db: any, territoryId: string, args: any) {
       return { ...row, contract_signed_at: day, date: row.date, matched };
     });
   const inRange = range.from ? sales.filter((row: any) => row.matched) : sales.filter(isBooked);
+  const auditPaid = rows
+    .filter((row: any) => row.status !== "cancelled" && !String(row.notes || "").includes("[UNPAID_DRAFT]"))
+    .flatMap((row: any) => auditRowsFor(row, timeZone))
+    .filter((row: any) => row.status === "paid" && row.date && (!range.from || (row.date >= range.from && row.date <= range.to)));
+  const bookedFromAudit = auditPaid.filter((row: any) => /retainer|deposit|pay in full|package payment/i.test(row.label));
+  const summarySource = range.from
+    ? bookedFromAudit.map((row: any) => ({
+        client_name: row.name,
+        date: row.date,
+        total_amount: row.package_total,
+        paid_amount: row.paid,
+        contract_signed_at: row.date,
+      }))
+    : inRange;
   const editing = ["ready_to_edit", "in_progress", "revisions_requested", "client_review"];
   const today = dayInZone(new Date(), timeZone).iso;
   return {
@@ -201,15 +268,15 @@ async function areaSnapshot(db: any, territoryId: string, args: any) {
     from: range.from,
     to: range.to,
     instruction: range.from
-      ? "booked_count is couples whose contract, signature, or a payment falls in this range. payments_received is the Payment Audit cash in that same range. Name the couples. Do not mention open_jobs unless asked."
+      ? "audit_paid is the Paid rows on Payment Audit whose date is in this range. booked_count is only the retainers and deposits in that list. Name every person in audit_paid. If audit_paid is empty, say Payment Audit has no paid rows in the range. Do not say it was a quiet week."
       : "These numbers are all booked weddings, not a week or a month. Say that they are all-time.",
     definitions: {
-      booked: "pending, upcoming, or completed weddings, excluding unpaid drafts",
-      booked_on: "contract date, signature, first payment, or an off-platform claim",
-      payments_received: "money recorded in Payment Audit during the range: invoices, mark paid, and off-platform",
-      booked_value: "package total, not cash collected",
+      booked: "Initial retainers, deposits, and pay-in-full rows marked Paid on Payment Audit in the range",
+      audit_paid: "every Paid installment on Payment Audit in the range, including later payments",
+      booked_value: "package total of the new bookings, not the cash collected",
     },
-    ...summarize(inRange),
+    ...summarize(summarySource),
+    audit_paid: auditPaid.slice(0, 40),
     payments_received: paymentsReceived.slice(0, 30),
     payment_audit_collected_all_time: Math.round(sales.reduce((sum: number, row: any) => sum + Number(row.paid_amount || 0), 0) * 100) / 100,
     open_jobs: (jobs || []).length,
@@ -519,7 +586,7 @@ serve(async (req) => {
 
 Think. After you have the rows, say what they mean: who is uncovered, what is late, what to do next, and how this week compares with a normal week if the rows support it. Talk like a person. A few sentences, not a spreadsheet.
 
-Facts still come from tools. Call help before explaining a screen, and do not invent a button. For bookings, sales, or payments, call area_snapshot. That result includes Payment Audit: payments_received is cash recorded in the range, and booked_count is couples tied to that range. Pass this_week or this_month when they name a period. If both lists are empty, say Payment Audit has nothing in that range. Call find_wedding or area_records before you name a contractor, an open job, or one couple. Never invent a number, a name, or a date.
+Facts still come from tools. For what was booked or paid, call payment_audit with the period they asked for. The Paid rows are in audit_paid. Name those people and the dates. A retainer or deposit is a new booking. A later installment is not. If audit_paid is empty, say so and stop. Do not compare it to a normal week. Call help before explaining a screen. Never invent a number, a name, or a date.
 
 You cannot change records, send messages, or pay anyone. You can tell them the next click.`,
       },
