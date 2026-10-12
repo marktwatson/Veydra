@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Check, Download, ExternalLink, Loader2 } from "lucide-react";
 import { supabase, supabaseAnonKey, supabaseUrl } from "@/lib/supabase";
@@ -8,8 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ownerPackageKey, ownerSetupClosedKey, packageMath, pricesIn, setupChecks, setupComplete, suggestPricing, type SetupSnapshot } from "@/lib/owner-setup";
+import { largestCities, peopleLabel, studioNameIdeas, timezoneFor } from "@/lib/owner-places";
 
-const STEPS = ["You", "Studio", "Mark", "Ovanta", "Stripe", "Facebook", "Pricing", "Done"];
+const STEPS = ["You", "Name", "Cities", "Mark", "Ovanta", "Stripe", "Facebook", "Pricing", "Done"];
 const OVANTA_OFFER = "https://ovanta.io/wedding-biz-offer-page";
 const MARK_EMAIL = "mark@kavoddigital.com";
 
@@ -67,6 +68,15 @@ const emptyDraft: Draft = {
 
 function draftKey(territoryId: string) {
   return `veydra_owner_welcome:${territoryId}`;
+}
+
+function AssistantSays({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex gap-3">
+      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-stone-900 text-[11px] font-medium text-white dark:bg-stone-100 dark:text-stone-900">V</div>
+      <p className="text-lg leading-relaxed text-stone-800 dark:text-stone-100">{children}</p>
+    </div>
+  );
 }
 
 function studioCards(text: string) {
@@ -233,6 +243,8 @@ export default function OwnerWelcome() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
+  const [naming, setNaming] = useState<"ask" | "have" | "ideas">("ask");
+  const [vibe, setVibe] = useState<"classic" | "film" | "rooted" | "short">("classic");
   const [territoryId, setTerritoryId] = useState("");
   const [areaName, setAreaName] = useState("");
   const [locked, setLocked] = useState(false);
@@ -319,7 +331,7 @@ export default function OwnerWelcome() {
       if (settings?.hl_api_key && settings?.hl_location_id) next.ovantaConnected = true;
       if (settings?.owner_setup?.ovanta_signed_up) next.ovantaSignedUp = true;
       if (settings?.owner_setup?.stripe_ready) next.stripeReady = true;
-      if (settings?.owner_setup?.facebook_ready) next.facebookReady = true;
+      if (settings?.company_name && area?.name && settings.company_name !== area.name) setNaming("have");
       if (area?.contractor_payout_stripe_key) next.hasContractorStripe = true;
       if (settings?.fb_ad_account_id && settings?.fb_access_token) next.fbConnected = true;
       if ((count || 0) === 0) {
@@ -366,7 +378,7 @@ export default function OwnerWelcome() {
     setNotice("");
     localStorage.setItem(ownerPackageKey(territoryId), draft.price4.trim() && draft.price8.trim() ? draft.price8.trim() : "");
     const payload = {
-      company_name: previewName,
+      ...(draft.businessName.trim() ? { company_name: draft.businessName.trim() } : {}),
       company_state: draft.state.trim(),
       regions: cities,
       timezone: draft.timezone.trim(),
@@ -390,7 +402,7 @@ export default function OwnerWelcome() {
       const retry = await supabase
         .from("portal_settings")
         .update({
-          company_name: payload.company_name,
+          ...(draft.businessName.trim() ? { company_name: draft.businessName.trim() } : {}),
           company_state: payload.company_state,
           regions: payload.regions,
           timezone: payload.timezone,
@@ -575,7 +587,7 @@ export default function OwnerWelcome() {
   };
 
   const next = async () => {
-    if (step === 1 || step === 6) {
+    if (step === 1 || step === 2 || step === 7) {
       const ok = await saveStudio();
       if (!ok && !locked) return;
     }
@@ -594,7 +606,7 @@ export default function OwnerWelcome() {
     <div className="mx-auto max-w-3xl px-4 py-6 sm:py-10">
       <p className="text-xs uppercase tracking-[0.18em] text-stone-500">New owner setup</p>
       <h1 className="mt-2 font-serif text-4xl tracking-tight text-stone-900 dark:text-stone-50">
-        {step === 0 ? `Hey ${firstName}.` : STEPS[step]}
+        {step === 0 ? `Hey ${firstName}.` : step === 1 ? "Do you have a name yet?" : step === 2 ? "Where will you cover?" : STEPS[step]}
       </h1>
       <p className="mt-2 text-sm text-stone-500">
         Writing to <span className="font-medium text-stone-800 dark:text-stone-200">{areaName || "no area selected"}</span>
@@ -626,47 +638,126 @@ export default function OwnerWelcome() {
       <div className="mt-8 rounded-3xl border border-stone-200 bg-white p-5 shadow-sm dark:border-stone-800 dark:bg-stone-950 sm:p-8">
         {step === 0 && (
           <div className="space-y-4">
-            <p className="text-lg leading-relaxed text-stone-700 dark:text-stone-300">
-              We'll set the studio name, the cities, a first package, and a mark. You can leave and come back. Nothing goes live for brides until you publish it yourself.
-            </p>
-            <p className="text-sm text-stone-500">Signed in as {user?.email}</p>
+            <AssistantSays>
+              Hey {firstName}. I'm the Veydra assistant. I'm here to help you open this studio. We'll name it, pick the cities that are actually big enough to cover, then the logo, Ovanta, Stripe, and ads. You can leave and come back. Nothing goes live for brides until you publish it.
+            </AssistantSays>
+            <p className="pl-11 text-sm text-stone-500">Signed in as {user?.email}</p>
           </div>
         )}
 
         {step === 1 && (
-          <div className="grid gap-8 md:grid-cols-2">
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="business-name">Business name</Label>
-                <Input id="business-name" value={draft.businessName} onChange={(event) => set("businessName", event.target.value)} placeholder="The name a bride should see" />
+          <div className="space-y-5">
+            <AssistantSays>
+              {naming === "ideas"
+                ? `No name yet. That's fine. Tell me the feeling and I'll throw out a few for ${draft.state || "this state"}. Steal one, or type your own.`
+                : "If brides would already recognize the name, tell me. If you don't have one, I'll help you find it."}
+            </AssistantSays>
+            {naming === "ask" && (
+              <div className="flex flex-wrap gap-2 pl-11">
+                <Button type="button" onClick={() => setNaming("have")}>I have a name</Button>
+                <Button type="button" variant="outline" onClick={() => setNaming("ideas")}>Help me name it</Button>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="state">State</Label>
-                <Input id="state" value={draft.state} onChange={(event) => set("state", event.target.value)} />
+            )}
+            {naming === "ideas" && (
+              <div className="space-y-3 pl-11">
+                <div className="flex flex-wrap gap-2">
+                  {(["classic", "film", "rooted", "short"] as const).map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => setVibe(item)}
+                      className={`rounded-full border px-3 py-1 text-sm capitalize ${vibe === item ? "border-stone-900 bg-stone-900 text-white" : "border-stone-300 text-stone-700"}`}
+                    >
+                      {item}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {studioNameIdeas(draft.state || "Arizona", vibe).map((idea) => (
+                    <button
+                      key={idea}
+                      type="button"
+                      onClick={() => set("businessName", idea)}
+                      className={`rounded-full border px-3 py-1.5 text-sm ${draft.businessName === idea ? "border-stone-900 bg-stone-900 text-white" : "border-stone-300"}`}
+                    >
+                      {idea}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="cities">Cities, separated by commas</Label>
-                <Input id="cities" value={draft.cities} onChange={(event) => set("cities", event.target.value)} placeholder="Phoenix, Scottsdale, Tucson" />
+            )}
+            {naming !== "ask" && (
+              <div className="space-y-4 pl-11">
+                <div className="space-y-2">
+                  <Label htmlFor="business-name">Business name</Label>
+                  <Input id="business-name" value={draft.businessName} onChange={(event) => set("businessName", event.target.value)} placeholder="The name a bride should see" />
+                </div>
+                <div className="rounded-2xl bg-stone-50 p-5 dark:bg-stone-900">
+                  <p className="text-xs uppercase tracking-[0.16em] text-stone-500">A bride would see</p>
+                  <p className="mt-3 font-serif text-3xl text-stone-900 dark:text-stone-50">{previewName}</p>
+                </div>
+                {naming === "have" && (
+                  <button type="button" className="text-sm text-stone-500 underline" onClick={() => setNaming("ideas")}>I don't have one yet</button>
+                )}
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="timezone">Timezone</Label>
-                <Input id="timezone" value={draft.timezone} onChange={(event) => set("timezone", event.target.value)} placeholder="America/Phoenix" />
-              </div>
-            </div>
-            <div className="rounded-2xl bg-stone-50 p-6 dark:bg-stone-900">
-              <p className="text-xs uppercase tracking-[0.16em] text-stone-500">A bride would see</p>
-              <p className="mt-6 font-serif text-3xl text-stone-900 dark:text-stone-50">{previewName}</p>
-              <p className="mt-2 text-sm text-stone-500">{cities.join(" · ") || draft.state}</p>
-              <p className="mt-6 text-sm leading-relaxed text-stone-600 dark:text-stone-400">
-                {previewName} will not use images or video from this event for portfolio or promotional use unless the client agrees.
-              </p>
-            </div>
+            )}
           </div>
         )}
 
         {step === 2 && (
+          <div className="space-y-5">
+            <AssistantSays>
+              {largestCities(draft.state).length
+                ? `These are the largest cities in ${draft.state}. I'd start here. A new studio gets spread too thin if it tries to cover every small town.`
+                : `Tell me the state, then the cities you'll actually cover.`}
+            </AssistantSays>
+            <div className="space-y-4 pl-11">
+              <div className="space-y-2">
+                <Label htmlFor="state">State</Label>
+                <Input
+                  id="state"
+                  value={draft.state}
+                  onChange={(event) => {
+                    const state = event.target.value;
+                    set("state", state);
+                    set("timezone", timezoneFor(state, cities));
+                  }}
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {largestCities(draft.state).map((city) => {
+                  const on = cities.some((item) => item.toLowerCase() === city.name.toLowerCase());
+                  return (
+                    <button
+                      key={city.name}
+                      type="button"
+                      onClick={() => {
+                        const next = on ? cities.filter((item) => item.toLowerCase() !== city.name.toLowerCase()) : [...cities, city.name];
+                        set("cities", next.join(", "));
+                        set("timezone", timezoneFor(draft.state, next));
+                      }}
+                      className={`rounded-2xl border px-3 py-2 text-left text-sm ${on ? "border-stone-900 bg-stone-900 text-white" : "border-stone-300"}`}
+                    >
+                      <span className="block font-medium">{city.name}</span>
+                      <span className={on ? "text-stone-300" : "text-stone-500"}>about {peopleLabel(city.people)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="cities">Add a city I left off</Label>
+                <Input id="cities" value={draft.cities} onChange={(event) => set("cities", event.target.value)} placeholder="Phoenix, Scottsdale" />
+              </div>
+              <p className="text-sm text-stone-500">I'll use {draft.timezone || "the state timezone"} for texts and deadlines.</p>
+            </div>
+          </div>
+        )}
+
+        {step === 3 && (
           <div className="space-y-4">
-            <p className="text-stone-700 dark:text-stone-300">Three different directions for {previewName}{cities.length || draft.state ? ` in ${cities.join(", ") || draft.state}` : ""}. Classic, modern, and film. It is a wedding photo and video studio. Pick one, or paste a logo you already have.</p>
+            <AssistantSays>
+              I'll make three marks for {previewName}{cities.length || draft.state ? ` in ${cities.join(", ") || draft.state}` : ""}. Classic, modern, and film. This is a wedding photo and video studio. Pick one, or paste a logo you already have.
+            </AssistantSays>
             <Button type="button" variant="outline" onClick={makeMarks} disabled={making}>
               {making ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Make three logos
@@ -703,11 +794,11 @@ export default function OwnerWelcome() {
           </div>
         )}
 
-        {step === 3 && (
+        {step === 4 && (
           <div className="space-y-4">
-            <p className="text-stone-700 dark:text-stone-300">
-              Open Ovanta, create the account, and pay there. Come back to this page and confirm it. You will not see a location id or a private token. Mark connects those after you confirm.
-            </p>
+            <AssistantSays>
+              Ovanta is where the leads live. Open it, create the account, and pay there. Come back and tell me you did. You will not see a location id. Mark connects that after you confirm.
+            </AssistantSays>
             <a href={OVANTA_OFFER} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm font-medium underline">
               Launch Your Territory <ExternalLink className="h-3.5 w-3.5" />
             </a>
@@ -721,9 +812,9 @@ export default function OwnerWelcome() {
           </div>
         )}
 
-        {step === 4 && (
+        {step === 5 && (
           <div className="space-y-4 text-stone-700 dark:text-stone-300">
-            <p>Create the studio's own Stripe account and finish it so payouts can run. Do not paste any secret keys here. Mark adds those after he is on the account.</p>
+            <AssistantSays>Set up the studio's Stripe account, finish identity and payouts, turn on Connect, then invite {MARK_EMAIL} as an admin. Don't paste any secret keys. Mark adds those after he's on the account.</AssistantSays>
             <ol className="list-decimal space-y-2 pl-5 text-sm">
               <li>Create the account in the studio name. <a className="underline" href="https://dashboard.stripe.com/register" target="_blank" rel="noreferrer">Open Stripe</a>.</li>
               <li>Finish identity verification when Stripe asks for the owner and the business.</li>
@@ -741,9 +832,9 @@ export default function OwnerWelcome() {
           </div>
         )}
 
-        {step === 5 && (
+        {step === 6 && (
           <div className="space-y-4 text-stone-700 dark:text-stone-300">
-            <p>Create the Facebook ads account for this studio and put a card on it. Do not paste an ad account id or a token here.</p>
+            <AssistantSays>Facebook ads need their own account, a card on file, and {MARK_EMAIL} as an admin. Don't paste a token. I'll just mark it ready once you've done that.</AssistantSays>
             <ol className="list-decimal space-y-2 pl-5 text-sm">
               <li>Open Meta Business Suite and create a business in the studio name if you do not already have one. <a className="underline" href="https://business.facebook.com/overview" target="_blank" rel="noreferrer">Open Business Suite</a>.</li>
               <li>Create an ad account for this studio. <a className="underline" href="https://business.facebook.com/settings/ad-accounts" target="_blank" rel="noreferrer">Ad accounts</a>.</li>
@@ -760,8 +851,12 @@ export default function OwnerWelcome() {
           </div>
         )}
 
-        {step === 6 && (
-          <PricingStep
+        {step === 7 && (
+          <div className="space-y-4">
+            <AssistantSays>
+              Start low so the first bookings come in. I'll look at what couples around {cities.join(", ") || draft.state || "here"} are paying, then you tell me the two prices you want to open with.
+            </AssistantSays>
+            <PricingStep
             where={cities.join(", ") || draft.state || "this area"}
             looking={looking}
             market={market}
@@ -779,12 +874,17 @@ export default function OwnerWelcome() {
             onPrice8={(value) => set("price8", value)}
             onDeposit={(value) => set("deposit", value)}
           />
+          </div>
         )}
 
-        {step === 7 && (
-          <p className="text-stone-700 dark:text-stone-300">
-            {finished ? "Everything needed for this area is in. You can open the dashboard." : "The setup stays here until every item is checked. An owner cannot close it early."}
-          </p>
+        {step === 8 && (
+          <div className="space-y-4">
+            <AssistantSays>
+              {finished
+                ? "That's everything I need from you. The dashboard is yours."
+                : "A few things are still open. I'll keep this here until they're done. You can't skip them."}
+            </AssistantSays>
+          </div>
         )}
 
         {notice && <p className="mt-6 text-sm text-stone-600 dark:text-stone-300">{notice}</p>}
