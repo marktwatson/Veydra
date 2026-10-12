@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Sparkles, X, Loader2, ArrowUp } from "lucide-react";
+import { X, Loader2, ArrowUp } from "lucide-react";
 import { supabase, supabaseAnonKey, supabaseUrl } from "@/lib/supabase";
 import { currentTerritoryId } from "@/lib/current-territory";
 
@@ -55,10 +55,13 @@ function AssistantText({ text }: { text: string }) {
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
+const HOUSE_MARK =
+  "https://assets.cdn.filesafe.space/76EKIVBXrGYIny0RbqcE/media/6abaa38a7ef452865a26c67d.gif";
+
 const SUGGESTIONS = [
-  "How do I add a wedding?",
-  "What did we book this week?",
-  "What is still owed?",
+  { label: "Money", question: "Who is past due?" },
+  { label: "This week", question: "What did we book this week?" },
+  { label: "After the wedding", question: "How do I get a wedding ready for editing?" },
 ];
 
 export function AreaAssistant() {
@@ -119,48 +122,65 @@ export function AreaAssistant() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="fixed bottom-[4.75rem] right-4 z-30 flex h-11 items-center gap-2 rounded-full bg-stone-900 px-4 text-sm font-medium text-white shadow-md md:bottom-5"
+        className="fixed bottom-[4.75rem] right-4 z-30 flex h-12 items-center gap-2 rounded-full bg-stone-900 pl-2 pr-4 text-sm font-medium text-white shadow-lg md:bottom-5"
       >
-        <Sparkles className="h-4 w-4" />
-        Assistant
+        <img
+          src={HOUSE_MARK}
+          alt=""
+          className="h-8 w-8 rounded-full bg-stone-800 object-cover"
+        />
+        Ask
       </button>
     );
   }
 
+  const place = areaLabel || "this area";
+
   return (
-    <section className="fixed bottom-[4.75rem] left-3 right-3 z-30 flex max-h-[min(34rem,calc(100vh-8.5rem))] flex-col overflow-hidden rounded-2xl border border-border/60 bg-background shadow-xl md:bottom-5 md:left-auto md:w-[24rem]">
-      <header className="flex items-start justify-between gap-3 border-b border-border/60 px-4 py-3">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold">Area assistant</p>
-          <p className="truncate text-xs text-muted-foreground">
-            {areaLabel
-              ? `${areaLabel} only. It cannot change anything.`
-              : "Selected area only. It cannot change anything."}
+    <section className="fixed inset-0 z-50 flex flex-col bg-background md:inset-auto md:bottom-4 md:right-4 md:top-4 md:w-[32rem] md:overflow-hidden md:rounded-3xl md:border md:border-stone-200 md:shadow-2xl dark:md:border-stone-800">
+      <header className="flex items-center gap-3 border-b border-stone-200 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] dark:border-stone-800 md:pt-4">
+        <img
+          src={HOUSE_MARK}
+          alt=""
+          className="h-11 w-11 shrink-0 rounded-full bg-stone-100 object-cover"
+        />
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-serif text-lg leading-tight">{place}</p>
+          <p className="text-xs text-muted-foreground">
+            I can see this area. I cannot change it.
           </p>
         </div>
         <button
           type="button"
           onClick={() => setOpen(false)}
           aria-label="Close assistant"
-          className="rounded-full p-1.5 text-muted-foreground hover:bg-muted"
+          className="flex h-10 w-10 items-center justify-center rounded-full hover:bg-muted"
         >
-          <X className="h-4 w-4" />
+          <X className="h-5 w-5" />
         </button>
       </header>
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
         {messages.length === 0 && (
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">Ask about this area.</p>
-            <div className="flex flex-col gap-2">
+          <div className="space-y-4">
+            <p className="max-w-[18rem] font-serif text-2xl leading-snug">
+              What do you need on {place}?
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Late payments, this week's bookings, or the next click. I only look at this company.
+            </p>
+            <div className="grid gap-2">
               {SUGGESTIONS.map((suggestion) => (
                 <button
-                  key={suggestion}
+                  key={suggestion.question}
                   type="button"
-                  onClick={() => ask(suggestion)}
-                  className="rounded-xl border border-border/70 px-3 py-2 text-left text-sm hover:bg-muted"
+                  onClick={() => ask(suggestion.question)}
+                  className="rounded-2xl border border-stone-200 px-4 py-3 text-left hover:bg-stone-50 dark:border-stone-800 dark:hover:bg-stone-900"
                 >
-                  {suggestion}
+                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    {suggestion.label}
+                  </span>
+                  <span className="mt-0.5 block text-sm">{suggestion.question}</span>
                 </button>
               ))}
             </div>
@@ -171,8 +191,8 @@ export function AreaAssistant() {
             key={`${message.role}-${index}`}
             className={
               message.role === "user"
-                ? "ml-10 whitespace-pre-wrap rounded-2xl rounded-br-md bg-stone-900 px-3 py-2 text-sm leading-relaxed text-white"
-                : "mr-6 rounded-2xl rounded-bl-md bg-muted px-3 py-2 text-sm leading-relaxed"
+                ? "ml-12 whitespace-pre-wrap rounded-2xl rounded-br-md bg-stone-900 px-3.5 py-2.5 text-sm leading-relaxed text-white"
+                : "mr-8 rounded-2xl rounded-bl-md bg-stone-100 px-3.5 py-2.5 text-sm leading-relaxed dark:bg-stone-900"
             }
           >
             {message.role === "assistant" ? (
@@ -184,14 +204,14 @@ export function AreaAssistant() {
         ))}
         {pending && (
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3 w-3 animate-spin" /> Checking this area
+            <Loader2 className="h-3 w-3 animate-spin" /> Looking at {place}
           </p>
         )}
         {error && <p className="text-sm text-red-600">{error}</p>}
       </div>
 
       <form
-        className="flex items-center gap-2 border-t border-border/60 p-3"
+        className="flex items-center gap-2 border-t border-stone-200 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] dark:border-stone-800"
         onSubmit={(event) => {
           event.preventDefault();
           ask();
@@ -201,15 +221,15 @@ export function AreaAssistant() {
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           placeholder="Ask about this area"
-          className="h-10 min-w-0 flex-1 rounded-full border border-border bg-muted/40 px-4 text-sm outline-none focus:border-stone-400"
+          className="h-12 min-w-0 flex-1 rounded-full border border-stone-200 bg-stone-50 px-4 text-base outline-none focus:border-stone-400 dark:border-stone-800 dark:bg-stone-900 md:text-sm"
         />
         <button
           type="submit"
           disabled={pending || !draft.trim()}
           aria-label="Send"
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-stone-900 text-white disabled:opacity-40"
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-stone-900 text-white disabled:opacity-40"
         >
-          <ArrowUp className="h-4 w-4" />
+          <ArrowUp className="h-5 w-5" />
         </button>
       </form>
     </section>
