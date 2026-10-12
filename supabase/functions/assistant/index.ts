@@ -142,12 +142,32 @@ async function findWedding(db: any, territoryId: string, name: string) {
   if (query.length < 2) return { matches: [] };
   const { data } = await db
     .from("weddings")
-    .select("client_name, date, location, status, total_amount, paid_amount, editing_status, package")
+    .select("id, client_name, date, location, status, total_amount, paid_amount, editing_status, package")
     .eq("territory_id", territoryId)
     .ilike("client_name", `%${query}%`)
     .limit(5);
+  const weddings = data || [];
+  const ids = weddings.map((row: any) => row.id);
+  let jobs: any[] = [];
+  let assignments: any[] = [];
+  if (ids.length) {
+    const { data: jobRows } = await db
+      .from("jobs")
+      .select("id, wedding_id, role, status, pay_rate")
+      .eq("territory_id", territoryId)
+      .in("wedding_id", ids);
+    jobs = jobRows || [];
+    const jobIds = jobs.map((job) => job.id);
+    if (jobIds.length) {
+      const { data: assignmentRows } = await db
+        .from("assignments")
+        .select("job_id, status, contractors(first_name, last_name)")
+        .in("job_id", jobIds);
+      assignments = assignmentRows || [];
+    }
+  }
   return {
-    matches: (data || []).map((row: any) => ({
+    matches: weddings.map((row: any) => ({
       name: row.client_name,
       date: row.date,
       location: row.location,
@@ -155,9 +175,100 @@ async function findWedding(db: any, territoryId: string, name: string) {
       package: row.package,
       total: Number(row.total_amount || 0),
       paid: Number(row.paid_amount || 0),
+      still_owed: Math.max(0, Number(row.total_amount || 0) - Number(row.paid_amount || 0)),
       editing_status: row.editing_status || "awaiting_raw_media",
+      positions: jobs
+        .filter((job) => job.wedding_id === row.id)
+        .map((job) => {
+          const people = assignments
+            .filter((assignment) => assignment.job_id === job.id && assignment.status !== "Cancelled")
+            .map((assignment) => {
+              const person = Array.isArray(assignment.contractors) ? assignment.contractors[0] : assignment.contractors;
+              return person ? `${person.first_name || ""} ${person.last_name || ""}`.trim() : "Unnamed";
+            });
+          return { role: job.role, status: job.status, pay: Number(job.pay_rate || 0), assigned: people };
+        }),
     })),
   };
+}
+
+function countBy(rows: any[], key: string) {
+  const counts: Record<string, number> = {};
+  for (const row of rows) {
+    const label = String(row[key] || "unknown");
+    counts[label] = (counts[label] || 0) + 1;
+  }
+  return counts;
+}
+
+async function areaRecords(db: any, territoryId: string, kind: string) {
+  if (kind === "open_jobs") {
+    const { data: jobs } = await db
+      .from("jobs")
+      .select("role, pay_rate, wedding_id")
+      .eq("territory_id", territoryId)
+      .eq("status", "open")
+      .limit(40);
+    const weddingIds = [...new Set((jobs || []).map((job: any) => job.wedding_id).filter(Boolean))];
+    const { data: weddings } = weddingIds.length
+      ? await db.from("weddings").select("id, client_name, date").in("id", weddingIds)
+      : { data: [] };
+    const byId = new Map((weddings || []).map((wedding: any) => [wedding.id, wedding]));
+    return {
+      kind,
+      count: (jobs || []).length,
+      jobs: (jobs || []).map((job: any) => ({
+        role: job.role,
+        pay: Number(job.pay_rate || 0),
+        couple: byId.get(job.wedding_id)?.client_name || "Unknown",
+        date: byId.get(job.wedding_id)?.date || null,
+      })),
+    };
+  }
+  if (kind === "owed") {
+    const { data } = await db
+      .from("weddings")
+      .select("client_name, date, status, total_amount, paid_amount")
+      .eq("territory_id", territoryId)
+      .limit(2000);
+    const owed = (data || [])
+      .filter((row: any) => isBooked(row) && Number(row.paid_amount || 0) < Number(row.total_amount || 0))
+      .map((row: any) => ({
+        name: row.client_name,
+        date: row.date,
+        total: Number(row.total_amount || 0),
+        paid: Number(row.paid_amount || 0),
+        still_owed: Math.round((Number(row.total_amount || 0) - Number(row.paid_amount || 0)) * 100) / 100,
+      }))
+      .sort((a: any, b: any) => b.still_owed - a.still_owed)
+      .slice(0, 20);
+    return { kind, count: owed.length, weddings: owed };
+  }
+  if (kind === "proposals") {
+    const { data } = await db.from("proposals").select("status").eq("territory_id", territoryId).limit(2000);
+    return { kind, by_status: countBy(data || [], "status"), total: (data || []).length };
+  }
+  if (kind === "crew") {
+    const { data } = await db.from("contractors").select("status").eq("territory_id", territoryId).limit(2000);
+    return { kind, by_status: countBy(data || [], "status"), total: (data || []).length };
+  }
+  if (kind === "editing") {
+    const { data } = await db
+      .from("weddings")
+      .select("client_name, date, editing_status")
+      .eq("territory_id", territoryId)
+      .in("editing_status", ["ready_to_edit", "in_progress", "revisions_requested", "client_review"])
+      .limit(30);
+    return {
+      kind,
+      weddings: (data || []).map((row: any) => ({
+        name: row.client_name,
+        date: row.date,
+        editing_status: row.editing_status,
+      })),
+    };
+  }
+  return { error: "Unknown record type" };
 }
 
 function findHelp(query: string) {
@@ -211,11 +322,25 @@ const TOOLS = [
     type: "function",
     function: {
       name: "find_wedding",
-      description: "Find up to 5 weddings in this area by couple name.",
+      description: "One couple in this area: date, money, package, and who is assigned to each position.",
       parameters: {
         type: "object",
         properties: { name: { type: "string" } },
         required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "area_records",
+      description: "Live rows for this area only. open_jobs lists unfilled positions. owed lists couples who still owe. proposals counts proposals by status. crew counts contractors by status. editing lists films currently being edited.",
+      parameters: {
+        type: "object",
+        properties: {
+          kind: { type: "string", enum: ["open_jobs", "owed", "proposals", "crew", "editing"] },
+        },
+        required: ["kind"],
       },
     },
   },
@@ -236,6 +361,7 @@ const TOOLS = [
 async function runTool(db: any, territoryId: string, name: string, args: any) {
   if (name === "area_snapshot") return areaSnapshot(db, territoryId, args);
   if (name === "find_wedding") return findWedding(db, territoryId, String(args?.name || ""));
+  if (name === "area_records") return areaRecords(db, territoryId, String(args?.kind || ""));
   if (name === "help") return findHelp(String(args?.query || ""));
   return { error: "Unknown tool" };
 }
@@ -296,6 +422,8 @@ Answer the question that was asked. Do not give a one-line brush-off.
 How-to questions: call help. Follow the returned steps and name the screen they name. Do not invent a menu. If the tool says nothing matched, say you do not have written steps for that.
 
 Number questions: call area_snapshot. If they say this week, this month, or a date range, pass that period. The tool result says whether the numbers are this week or all-time. Repeat that range in your answer. Never present all-time bookings as this week's sales. If the range has weddings, name them. If it has none, say none were booked in that range.
+
+People, open jobs, balances, proposals, crew, and edits come from the database. Call find_wedding or area_records and quote only those rows. If a list is empty, say so.
 
 Never invent a number, a name, or a date. You cannot change records, send messages, or pay anyone.`,
       },
