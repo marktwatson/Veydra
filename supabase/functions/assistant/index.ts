@@ -596,8 +596,8 @@ async function areaRecords(db: any, territoryId: string, kind: string) {
 
 function findHelp(query: string) {
   const asked = query.toLowerCase();
-  const skip = new Set(["wedding", "weddings", "after", "what", "how", "for", "yet", "but", "with", "from", "this", "area", "you", "the", "and", "not"]);
-  const words = asked.split(/\W+/).filter((word) => word.length > 2 && !skip.has(word));
+  const skip = new Set(["wedding", "weddings", "after", "what", "how", "for", "yet", "but", "with", "from", "this", "area", "you", "the", "and", "not", "out", "any", "anyone", "those", "reached", "has", "are", "there", "new", "need", "that", "who", "did", "was", "her", "his", "she", "they"]);
+  const words = asked.split(/\W+/).filter((word) => word.length > 3 && !skip.has(word));
   const expanded = words.flatMap((word) => (/^edit/.test(word) ? [word, "edit", "editing", "edited"] : [word]));
   const ranked = ARTICLES.map((article) => {
     const title = article.title.toLowerCase();
@@ -607,14 +607,14 @@ function findHelp(query: string) {
     let score = expanded.reduce((sum, word) => {
       if (title.includes(word)) return sum + 3;
       if (screen.includes(word) || keys.includes(word)) return sum + 2;
-      if (steps.includes(word)) return sum + 1;
+      if (steps.includes(word) && word.length > 5) return sum + 1;
       return sum;
     }, 0);
     if (/edit|footage|raw media|drive link|post-production/.test(asked) && title.includes("post-production")) score += 12;
     if (/questionnaire/.test(asked) && !/edit/.test(asked) && title.includes("questionnaire")) score += 12;
     return { article, score };
   })
-    .filter((row) => row.score > 0)
+    .filter((row) => row.score >= 6)
     .sort((a, b) => b.score - a.score)
     .slice(0, 3)
     .map((row) => row.article);
@@ -1753,7 +1753,7 @@ Think, then write for a phone. Short lines. Put a blank line between ideas. When
 
 Facts still come from the desk below. overdue is already past the due date. Name those people and the amount first. incoming rows are only the next 30 days. A booked row this week is a new booking, the first payment, and the package value is not the cash collected. For how to do something, call help and repeat that article. Do not swap in a different screen. A wedding that is finished but not edited is Post-Production: Drive link, Ready to Edit, then the editor. That is not a portal reminder. If they name one couple, call find_wedding. If they say automation or workflow, those are Ovanta workflows, not pipelines and not a Veydra settings page. Name each one and say published or draft. Do not invent the steps inside a workflow. Do not answer with Settings, job posting, or Messages. If they ask about Ovanta pipelines, calendars, or leads, call ovanta. A pipeline audit names each pipeline, then each stage with open deals, the count, the money, and how many have not moved in 14 days. You cannot add or edit users, send a text or email, or touch another location. Never invent a number, a name, or a date.
 
-You can text or email a contact in this company's Ovanta account. Find the contact, then prepare POST /conversations/messages. It does not send until they reply yes, and the warning says the person will receive it. You cannot add or edit Ovanta users, or touch another location. You can change this company's Ovanta records and you can read this company's database. A write does not happen until they reply yes. When a tool says needs_confirm, explain the change in plain words and ask them to reply yes. Never say it is already done. Never say you cannot text. Never say you do not have a scope. If you do not know an Ovanta path, call api_docs, then call ovanta. For action items, today's weddings, open jobs, or deadlines, call records. For Ovanta tasks, call ovanta with GET /locations/{locationId}/tasks. If an earlier message in this chat already named calls, use that message when they ask about those calls. After the answer, offer one related next look in a single sentence. Then add exactly two lines that start with "Next: " and are specific questions they can tap. You are not a general chatbot. If they ask about news, sports, homework, code, recipes, or anything that is not this wedding company, its clients, its team, Ovanta, or other wedding studios nearby, say you only help with this wedding company and stop.`,
+You can text or email a contact in this company's Ovanta account. Find the contact, then prepare POST /conversations/messages. It does not send until they reply yes, and the warning says the person will receive it. You cannot add or edit Ovanta users, or touch another location. You can change this company's Ovanta records and you can read this company's database. A write does not happen until they reply yes. When a tool says needs_confirm, explain the change in plain words and ask them to reply yes. Never say it is already done. Never say you cannot text. Never say you do not have a scope. Never answer a question about a lead, a bride, or a text with a Settings help page. If they ask whether someone was contacted, texted, or called, use the names from the earlier message, find those contacts in Ovanta, and read the conversation. If you do not know an Ovanta path, call api_docs, then call ovanta. For action items, today's weddings, open jobs, or deadlines, call records. For Ovanta tasks, call ovanta with GET /locations/{locationId}/tasks. If an earlier message in this chat already named calls, use that message when they ask about those calls. After the answer, offer one related next look in a single sentence. Then add exactly two lines that start with "Next: " and contain only the question, under 12 words. You are not a general chatbot. If they ask about news, sports, homework, code, recipes, or anything that is not this wedding company, its clients, its team, Ovanta, or other wedding studios nearby, say you only help with this wedding company and stop.`,
       },
       ...history,
     ];
@@ -1823,9 +1823,7 @@ You can text or email a contact in this company's Ovanta account. Find the conta
         company: settings?.company_name || null,
       });
     }
-    const noteReply = Array.isArray(notes.articles)
-      ? notes.articles.map((article: any) => article.steps).join("\n\n")
-      : "";
+    const noteReply = howTo && Array.isArray(notes.articles) ? notes.articles[0].steps : "";
 
     const cache = new Map<string, Promise<any>>();
     const deskKey = "this_week||";
@@ -1856,7 +1854,7 @@ You can text or email a contact in this company's Ovanta account. Find the conta
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        if (noteReply && !aboutOvanta) {
+        if (noteReply && howTo && !aboutOvanta) {
           return jsonResp({
             reply: noteReply,
             area: area?.name || null,
@@ -1870,7 +1868,7 @@ You can text or email a contact in this company's Ovanta account. Find the conta
       const calls = message?.tool_calls || [];
       if (!calls.length) {
         return jsonResp({
-          reply: message?.content || (!aboutOvanta && noteReply) || "I could not answer that from this area.",
+          reply: message?.content || (howTo && !aboutOvanta && noteReply) || "I could not check that from this company. Ask again with the person's name.",
           area: area?.name || null,
           company: settings?.company_name || null,
         });
@@ -1896,7 +1894,7 @@ You can text or email a contact in this company's Ovanta account. Find the conta
         return jsonResp({ reply: warning, area: area?.name || null, company: settings?.company_name || null });
       }
     }
-    return jsonResp({ reply: (!aboutOvanta && noteReply) || "I could not finish that from this area's records." });
+    return jsonResp({ reply: (howTo && !aboutOvanta && noteReply) || "I could not finish that from this company's records." });
   } catch (error: any) {
     return jsonResp({ error: error?.message || "Assistant failed" }, 500);
   }
