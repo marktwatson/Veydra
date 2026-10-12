@@ -174,6 +174,7 @@ export default function OwnerWelcome() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
+  const [openedOffer, setOpenedOffer] = useState(false);
   const [making, setMaking] = useState(false);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [marks, setMarks] = useState<{ url: string; style: string }[]>([]);
@@ -286,6 +287,7 @@ export default function OwnerWelcome() {
 
   useEffect(() => {
     setNotice("");
+    if (step !== 4) setOpenedOffer(false);
   }, [step]);
 
   const firstName = (user?.name || "there").split(" ")[0];
@@ -716,18 +718,33 @@ export default function OwnerWelcome() {
         {step === 4 && (
           <div className="space-y-4">
             <AssistantSays>
-              Ovanta is where the leads live. Open it, create the account, and pay there. Come back and tell me you did. You will not see a location id. Mark connects that after you confirm.
+              Ovanta is where the leads live. Open the signup, create the account, and pay there. Mark connects it after you come back.
             </AssistantSays>
-            <a href={OVANTA_OFFER} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm font-medium underline">
-              Launch Your Territory <ExternalLink className="h-3.5 w-3.5" />
-            </a>
-            {draft.ovantaConnected ? (
-              <p className="text-sm text-stone-600 dark:text-stone-300">This area is already connected{draft.ovantaName ? ` to ${draft.ovantaName}` : ""}.</p>
-            ) : draft.ovantaSignedUp ? (
-              <p className="text-sm text-stone-600 dark:text-stone-300">You confirmed the signup. Mark still has to connect it.</p>
-            ) : (
-              <Button type="button" onClick={confirmOvanta}>I signed up</Button>
-            )}
+            <div className="space-y-3 pl-11">
+              {draft.ovantaConnected ? (
+                <p className="text-sm text-stone-600 dark:text-stone-300">This area is already connected{draft.ovantaName ? ` to ${draft.ovantaName}` : ""}.</p>
+              ) : draft.ovantaSignedUp ? (
+                <p className="rounded-2xl border border-stone-200 px-4 py-3 text-sm text-stone-600 dark:border-stone-800 dark:text-stone-300">You confirmed the signup. Mark still has to connect it.</p>
+              ) : (
+                <>
+                  <a
+                    href={OVANTA_OFFER}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() => setOpenedOffer(true)}
+                    className="inline-flex items-center gap-2 rounded-full bg-stone-900 px-5 py-2.5 text-sm font-medium text-white dark:bg-stone-100 dark:text-stone-900"
+                  >
+                    Launch Your Territory <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                  {openedOffer && (
+                    <div className="rounded-2xl border border-stone-200 px-4 py-4 dark:border-stone-800">
+                      <p className="text-sm text-stone-600 dark:text-stone-300">Once the account is created and paid, confirm it here.</p>
+                      <Button type="button" className="mt-3" onClick={confirmOvanta}>I signed up</Button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         )}
 
