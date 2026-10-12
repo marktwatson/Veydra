@@ -66,6 +66,63 @@ function drawMark(name: string, style: number) {
   return canvas.toDataURL("image/png");
 }
 
+function studioCards(text: string) {
+  const cleaned = text.replace(/\[\[\d+\]\]/g, "");
+  const cards = cleaned
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => /^[-*]/.test(line))
+    .map((line) => {
+      const url = line.match(/https?:\/\/[^\s)]+/)?.[0] || "";
+      const name = line.match(/\*\*([^*]+)\*\*/)?.[1] || line.replace(/^[-*]\s*/, "").split(",")[0];
+      const body = line
+        .replace(/^[-*]\s*/, "")
+        .replace(/\*\*[^*]+\*\*/, "")
+        .replace(url, "")
+        .replace(/[()[\]]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      const price = body.match(/\$[\d,]+/)?.[0] || "Price not listed";
+      const city = body.split(",").map((part) => part.trim()).filter(Boolean)[0] || "";
+      return { name: name.trim(), city, price, url };
+    })
+    .filter((card) => card.name);
+  const note = cleaned
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !/^[-*]/.test(line) && !/^https?:/.test(line))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return { cards, note };
+}
+
+function MarketResult({ text }: { text: string }) {
+  const { cards, note } = studioCards(text);
+  if (!cards.length) {
+    return <div className="whitespace-pre-wrap rounded-2xl bg-stone-50 p-4 text-sm leading-relaxed dark:bg-stone-900">{text.replace(/\[\[\d+\]\]/g, "")}</div>;
+  }
+  return (
+    <div className="space-y-3">
+      {cards.map((card) => (
+        <div key={card.name} className="rounded-2xl border border-stone-200 px-4 py-3 dark:border-stone-800">
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="font-medium text-stone-900 dark:text-stone-50">{card.name}</p>
+            <p className="shrink-0 text-sm font-medium">{card.price}</p>
+          </div>
+          {card.city && <p className="mt-1 text-sm text-stone-500">{card.city}</p>}
+          {card.url && (
+            <a href={card.url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs text-stone-500 underline">
+              Their prices
+            </a>
+          )}
+        </div>
+      ))}
+      {note && <p className="text-sm leading-relaxed text-stone-600 dark:text-stone-300">{note}</p>}
+    </div>
+  );
+}
+
 export default function OwnerWelcome() {
   const { user } = useAuth();
   const [step, setStep] = useState(0);
@@ -174,7 +231,7 @@ export default function OwnerWelcome() {
     setMarket("");
     setNotice("");
     try {
-      await saveStudio();
+      if (!locked) await saveStudio();
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
       if (!token) throw new Error("Sign in again.");
@@ -342,7 +399,7 @@ export default function OwnerWelcome() {
               {looking ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Look up studios
             </Button>
-            {market && <div className="whitespace-pre-wrap rounded-2xl bg-stone-50 p-4 text-sm leading-relaxed dark:bg-stone-900">{market}</div>}
+            {market && <MarketResult text={market} />}
           </div>
         )}
 

@@ -1646,7 +1646,7 @@ function agentText(payload: any) {
 async function marketLook(company: string, area: string, places: string, question: string, apiKey: string) {
   const where = [places, area.replace(/\s*\([^)]*\)/g, "").trim()].filter(Boolean).join(", ");
   const model = Deno.env.get("ASSISTANT_MODEL") || "grok-4.7";
-  const ask = `One web search only. Name up to 5 other wedding photography or videography studios near ${where}. ${question}. Only studios on a public page. If a price is not published, say not listed. One bullet each: "- **Name**, city, what they shoot, published price". Then one line on what ${company} should notice. Do not invent a studio or a price.`;
+  const ask = `One web search only. Name up to 5 other wedding studios near ${where}. Only studios on a public page. One bullet each, and nothing more on that line: "- **Name**, city, photo or video, from $price (url)". One starting price only. If no price is published, say price not listed. No citation numbers. Then one sentence on what ${company} should notice. Do not invent a studio or a price.`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 45000);
   try {
