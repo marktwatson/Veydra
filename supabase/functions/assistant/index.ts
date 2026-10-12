@@ -1498,40 +1498,39 @@ function formatCallReport(company: string, day: string, found: number, cards: an
   return lines.join("\n");
 }
 
-function replyText(payload: any) {
-  if (typeof payload?.output_text === "string" && payload.output_text.trim()) return payload.output_text.trim();
-  const chunks: string[] = [];
-  for (const item of payload?.output || []) {
-    if (typeof item?.text === "string") chunks.push(item.text);
-    for (const part of item?.content || []) {
-      if (typeof part?.text === "string") chunks.push(part.text);
-    }
-  }
-  return chunks.join("\n").trim();
-}
-
-async function marketLook(company: string, area: string, question: string, apiKey: string) {
+async function marketLook(company: string, area: string, places: string, question: string, apiKey: string) {
+  const where = [places, area.replace(/\s*\([^)]*\)/g, "").trim()].filter(Boolean).join(", ");
+  const model = Deno.env.get("ASSISTANT_MODEL") || "grok-4.7";
+  const ask = `Name up to 5 other wedding photography or videography studios near ${where}. ${question}. Only studios you found on a public page. If a price is not published, say not listed. One bullet each: "- **Name**, city, what they shoot, published price". Then one line on what ${company} should notice. Do not invent a studio or a price.`;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 35000);
+  const timer = setTimeout(() => controller.abort(), 25000);
   try {
-    const res = await fetch("https://api.x.ai/v1/responses", {
+    const res = await fetch("https://api.x.ai/v1/chat/completions", {
       method: "POST",
       signal: controller.signal,
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: Deno.env.get("ASSISTANT_MODEL") || "grok-4.7",
-        tools: [{ type: "web_search" }],
-        input: [
-          {
-            role: "system",
-            content: `You research other wedding photography and videography studios near ${area} for ${company}. Use the web. Only public pages. Never invent a studio or a price. If a price is not published, say it is not listed. Write for a phone. Short lines. One bullet per studio, as "- **Name**, city, what they shoot, published price". Then one line on what ${company} should notice. If this is not about wedding studios or their prices, reply with exactly: I only look up other wedding studios for this company.`,
-          },
-          { role: "user", content: question },
+        model,
+        temperature: 0.2,
+        max_tokens: 700,
+        search_parameters: {
+          mode: "on",
+          return_citations: false,
+          max_search_results: 5,
+          sources: [{ type: "web", country: "US" }],
+        },
+        messages: [
+          { role: "system", content: "You only look up other wedding studios. If this is not about that, say you only look up other wedding studios for this company." },
+          { role: "user", content: ask },
         ],
       }),
     });
     const payload = await res.json().catch(() => ({}));
-    return replyText(payload) || "I could not look up other studios just now. Try it once more.";
+    const written = payload?.choices?.[0]?.message?.content;
+    if (typeof written === "string" && written.trim()) return written.trim();
+    const reason = payload?.error?.message || payload?.error || "";
+    if (reason) return `I could not look up other studios. ${String(reason).slice(0, 180)}`;
+    return "I could not look up other studios just now. Try it once more.";
   } catch {
     return "The studio lookup took too long. Try it once more.";
   } finally {
@@ -1573,7 +1572,7 @@ serve(async (req) => {
 
     const [{ data: area }, { data: settings }] = await Promise.all([
       db.from("territories").select("name").eq("id", territoryId).maybeSingle(),
-      db.from("portal_settings").select("company_name").eq("territory_id", territoryId).limit(1).maybeSingle(),
+      db.from("portal_settings").select("company_name, regions").eq("territory_id", territoryId).limit(1).maybeSingle(),
     ]);
 
     const history = messages
@@ -1601,7 +1600,8 @@ You cannot change records, send messages, or pay anyone. You can tell them the n
 
     const question = history[history.length - 1]?.content || "";
     if (/other wedding studios|competitors|what do they charge|what are they charging/i.test(question)) {
-      const reply = await marketLook(settings?.company_name || "this company", area?.name || "this area", question, apiKey);
+      const places = Array.isArray(settings?.regions) ? settings.regions.filter(Boolean).join(", ") : "";
+      const reply = await marketLook(settings?.company_name || "this company", area?.name || "", places, question, apiKey);
       return jsonResp({ reply, area: area?.name || null, company: settings?.company_name || null });
     }
     if (/analyze yesterday'?s calls|yesterday'?s call analysis/i.test(question)) {
