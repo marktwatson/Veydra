@@ -930,6 +930,39 @@ async function listWorkflows(db: any, territoryId: string) {
   return { company: settings?.company_name || "this company", workflows };
 }
 
+function formatWorkflows(company: string, workflows: { name: string; status: string }[]) {
+  const published = workflows.filter((row) => String(row.status).toLowerCase() === "published");
+  const drafts = workflows.filter((row) => String(row.status).toLowerCase() !== "published");
+  const owners = ["Amy", "Jenna", "Haleigh", "Alexis", "Lisa"];
+  const ownerOf = (name: string) => owners.find((owner) => name.toLowerCase().startsWith(owner.toLowerCase())) || "Company";
+  const groups = new Map<string, typeof workflows>();
+  for (const row of published) {
+    const key = ownerOf(row.name);
+    groups.set(key, [...(groups.get(key) || []), row]);
+  }
+  const lines = [
+    `Ovanta automations for ${company}.`,
+    "",
+    `${workflows.length} workflows. ${published.length} are on. ${drafts.length} are draft and not running.`,
+    "Ovanta does not share the steps inside a workflow.",
+    "",
+    "**On**",
+  ];
+  for (const key of ["Company", ...owners]) {
+    const list = groups.get(key);
+    if (!list?.length) continue;
+    lines.push("", `**${key}**`, "", ...list.map((row) => `- **${row.name}**`));
+  }
+  if (drafts.length) {
+    lines.push("", "**Off**", "");
+    for (const row of drafts) {
+      const leftover = /copy|v\d+/i.test(row.name) ? ", old copy" : "";
+      lines.push(`- **${row.name}**${leftover}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 async function ovantaReport(db: any, territoryId: string) {
   const { data: settings } = await db
     .from("portal_settings")
@@ -1167,7 +1200,7 @@ You cannot change records, send messages, or pay anyone. You can tell them the n
       const reply = listed.error
         ? listed.error
         : listed.workflows.length
-          ? `Ovanta automations for ${listed.company}. Published is on. Draft is not running. The steps inside each one are not available from Ovanta.\n\n${listed.workflows.map((row: any) => `- **${row.name}**, ${row.status}`).join("\n")}`
+          ? formatWorkflows(listed.company, listed.workflows)
           : `Ovanta returned no automations for ${listed.company}.`;
       return jsonResp({ reply, area: area?.name || null, company: settings?.company_name || null });
     }
