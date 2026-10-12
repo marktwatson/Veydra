@@ -7,9 +7,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ownerPackageKey, ownerSetupClosedKey, setupChecks, setupComplete, type SetupSnapshot } from "@/lib/owner-setup";
+import { ownerPackageKey, ownerSetupClosedKey, packageMath, pricesIn, setupChecks, setupComplete, suggestPricing, type SetupSnapshot } from "@/lib/owner-setup";
 
-const STEPS = ["You", "Studio", "Market", "Packages", "Mark", "Ovanta", "Accounts", "Done"];
+const STEPS = ["You", "Studio", "Mark", "Ovanta", "Accounts", "Pricing", "Done"];
 const OVANTA_OFFER = "https://ovanta.io/wedding-biz-offer-page";
 
 type Draft = {
@@ -19,6 +19,9 @@ type Draft = {
   photoHours: string;
   videoHours: string;
   price: string;
+  price4: string;
+  price8: string;
+  deposit: string;
   timezone: string;
   logoUrl: string;
   locationId: string;
@@ -39,6 +42,9 @@ const emptyDraft: Draft = {
   photoHours: "8",
   videoHours: "8",
   price: "",
+  price4: "",
+  price8: "",
+  deposit: "",
   timezone: "America/Phoenix",
   logoUrl: "",
   locationId: "",
@@ -153,6 +159,94 @@ function SetupList({ checks }: { checks: { id: string; label: string; done: bool
   );
 }
 
+function money(amount: number) {
+  if (!Number.isFinite(amount)) return "—";
+  return `$${Math.round(amount).toLocaleString()}`;
+}
+
+function PricingStep({
+  where,
+  looking,
+  market,
+  suggestion,
+  price4,
+  price8,
+  deposit,
+  onLookup,
+  onUseSuggestion,
+  onPrice4,
+  onPrice8,
+  onDeposit,
+}: {
+  where: string;
+  looking: boolean;
+  market: string;
+  suggestion: { four: number; eight: number; deposit: number; marketMid: number; samples: number };
+  price4: string;
+  price8: string;
+  deposit: string;
+  onLookup: () => void;
+  onUseSuggestion: () => void;
+  onPrice4: (value: string) => void;
+  onPrice8: (value: string) => void;
+  onDeposit: (value: string) => void;
+}) {
+  const four = Number(price4);
+  const eight = Number(price8);
+  const math4 = four > 0 ? packageMath(four, 4) : null;
+  const math8 = eight > 0 ? packageMath(eight, 8) : null;
+  return (
+    <div className="space-y-5">
+      <p className="text-stone-700 dark:text-stone-300">
+        See what couples pay near {where}, then start under that so the first bookings come in. Take a {money(suggestion.deposit)} deposit and put the rest on autopay.
+      </p>
+      <Button type="button" onClick={onLookup} disabled={looking}>
+        {looking ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+        Look up studios
+      </Button>
+      {market && <MarketResult text={market} />}
+      <div className="rounded-2xl bg-stone-50 p-4 dark:bg-stone-900">
+        <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Suggested starter</p>
+        <p className="mt-2 text-sm leading-relaxed text-stone-600 dark:text-stone-300">
+          {suggestion.samples
+            ? `A typical published price nearby is about ${money(suggestion.marketMid)}. Start near 40% of that.`
+            : "Before the lookup, this is the same shape as a $1,600 / 4-hour and $1,950 / 8-hour starter."}
+        </p>
+        <p className="mt-3 text-sm font-medium">
+          4 hours {money(suggestion.four)} · 8 hours {money(suggestion.eight)} · deposit {money(suggestion.deposit)}
+        </p>
+        <Button type="button" variant="outline" className="mt-3" onClick={onUseSuggestion}>Use these prices</Button>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="space-y-2">
+          <Label htmlFor="price-4">Their 4-hour price</Label>
+          <Input id="price-4" value={price4} onChange={(event) => onPrice4(event.target.value)} placeholder={String(suggestion.four)} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="price-8">Their 8-hour price</Label>
+          <Input id="price-8" value={price8} onChange={(event) => onPrice8(event.target.value)} placeholder={String(suggestion.eight)} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="deposit">Deposit</Label>
+          <Input id="deposit" value={deposit} onChange={(event) => onDeposit(event.target.value)} placeholder={String(suggestion.deposit)} />
+        </div>
+      </div>
+      {math8 && (
+        <div className="space-y-1 rounded-2xl border border-stone-200 p-4 text-sm dark:border-stone-800">
+          <p className="mb-2 font-medium">On an 8-hour wedding at {money(eight)}</p>
+          <div className="flex justify-between gap-3"><span className="text-stone-500">Lead contractor, $50 an hour</span><span>{money(math8.contractor)}</span></div>
+          <div className="flex justify-between gap-3"><span className="text-stone-500">Edit</span><span>{money(math8.edit)}</span></div>
+          <div className="flex justify-between gap-3"><span className="text-stone-500">Sales, 5%</span><span>{money(math8.sales)}</span></div>
+          <div className="flex justify-between gap-3"><span className="text-stone-500">Royalty, 5%</span><span>{money(math8.royalty)}</span></div>
+          <div className="flex justify-between gap-3"><span className="text-stone-500">Payback, 3%</span><span>{money(math8.payback)}</span></div>
+          <div className="flex justify-between gap-3 border-t border-stone-200 pt-2 font-medium dark:border-stone-800"><span>Left for the studio</span><span>{money(math8.left)}</span></div>
+          {math4 && <p className="pt-2 text-stone-500">A 4-hour wedding at {money(four)} leaves {money(math4.left)} after the same costs. A second shooter is extra.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function OwnerWelcome() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -166,6 +260,7 @@ export default function OwnerWelcome() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const [market, setMarket] = useState("");
+  const [suggestion, setSuggestion] = useState(() => suggestPricing([]));
   const [looking, setLooking] = useState(false);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [marks, setMarks] = useState<string[]>([]);
@@ -208,6 +303,10 @@ export default function OwnerWelcome() {
         settings = fallback.data;
       }
       if (cancelled) return;
+      if ((count || 0) > 0) {
+        navigate("/manager");
+        return;
+      }
       setAreaName(area?.name || "This area");
       setLocked((count || 0) > 0);
       const regions = Array.isArray(settings?.regions) ? settings.regions.join(", ") : "";
@@ -225,6 +324,9 @@ export default function OwnerWelcome() {
         hasContractorStripe: Boolean(area?.contractor_payout_stripe_key),
         hasEditorStripe: Boolean(area?.editor_payout_stripe_key),
         price: settings?.owner_setup?.package?.price || localStorage.getItem(ownerPackageKey(id)) || "",
+        price4: settings?.owner_setup?.package?.price4 || "",
+        price8: settings?.owner_setup?.package?.price8 || settings?.owner_setup?.package?.price || localStorage.getItem(ownerPackageKey(id)) || "",
+        deposit: settings?.owner_setup?.package?.deposit || "",
         ...(saved || {}),
       };
       next.apiKey = "";
@@ -252,7 +354,7 @@ export default function OwnerWelcome() {
     if (!territoryId) return;
     const stored = { ...draft, apiKey: "", fbToken: "" };
     localStorage.setItem(draftKey(territoryId), JSON.stringify(stored));
-    localStorage.setItem(ownerPackageKey(territoryId), draft.price.trim());
+    localStorage.setItem(ownerPackageKey(territoryId), draft.price4.trim() && draft.price8.trim() ? draft.price8.trim() : "");
   }, [draft, territoryId]);
 
   const firstName = (user?.name || "there").split(" ")[0];
@@ -271,13 +373,23 @@ export default function OwnerWelcome() {
     }
     setSaving(true);
     setNotice("");
-    localStorage.setItem(ownerPackageKey(territoryId), draft.price.trim());
+    localStorage.setItem(ownerPackageKey(territoryId), draft.price4.trim() && draft.price8.trim() ? draft.price8.trim() : "");
     const payload = {
       company_name: previewName,
       company_state: draft.state.trim(),
       regions: cities,
       timezone: draft.timezone.trim(),
-      owner_setup: { started: true, package: { price: draft.price, photoHours: draft.photoHours, videoHours: draft.videoHours } },
+      owner_setup: {
+        started: true,
+        package: {
+          price: draft.price8 || draft.price,
+          price4: draft.price4,
+          price8: draft.price8,
+          deposit: draft.deposit,
+          photoHours: "4",
+          videoHours: "8",
+        },
+      },
     };
     let { error } = await supabase.from("portal_settings").update(payload).eq("territory_id", territoryId);
     if (error && /owner_setup/i.test(error.message)) {
@@ -331,6 +443,7 @@ export default function OwnerWelcome() {
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload.error || "The lookup did not finish.");
       setMarket(payload.reply || "Nothing came back. Try it once more.");
+      setSuggestion(suggestPricing(pricesIn(payload.reply || "")));
     } catch (error: any) {
       setNotice(error?.message || "The lookup did not finish.");
     } finally {
@@ -435,7 +548,7 @@ export default function OwnerWelcome() {
     hasFacebook: draft.fbConnected,
     hasContractorStripe: draft.hasContractorStripe,
     hasEditorStripe: draft.hasEditorStripe,
-    packagePrice: draft.price,
+    packagePrice: draft.price4.trim() && draft.price8.trim() ? draft.price8 : "",
   };
   const checks = setupChecks(snapshot);
   const finished = setupComplete(snapshot);
@@ -448,7 +561,7 @@ export default function OwnerWelcome() {
   };
 
   const next = async () => {
-    if (step === 1 || step === 3) {
+    if (step === 1 || step === 5) {
       const ok = await saveStudio();
       if (!ok && !locked) return;
     }
@@ -539,39 +652,6 @@ export default function OwnerWelcome() {
 
         {step === 2 && (
           <div className="space-y-4">
-            <p className="text-stone-700 dark:text-stone-300">
-              Look up other wedding studios near {cities.join(", ") || draft.state} and the prices they publish. Nothing is invented if a price is not on their site.
-            </p>
-            <Button type="button" onClick={lookUpMarket} disabled={looking}>
-              {looking ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Look up studios
-            </Button>
-            {market && <MarketResult text={market} />}
-          </div>
-        )}
-
-        {step === 3 && (
-          <div className="space-y-4">
-            <p className="text-stone-700 dark:text-stone-300">A first package. This stays in the setup for now. It is not added to the live package list until you do that in Settings.</p>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="space-y-2">
-                <Label htmlFor="photo-hours">Photo hours</Label>
-                <Input id="photo-hours" value={draft.photoHours} onChange={(event) => set("photoHours", event.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="video-hours">Video hours</Label>
-                <Input id="video-hours" value={draft.videoHours} onChange={(event) => set("videoHours", event.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="price">Price</Label>
-                <Input id="price" value={draft.price} onChange={(event) => set("price", event.target.value)} placeholder="4500" />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {step === 4 && (
-          <div className="space-y-4">
             <p className="text-stone-700 dark:text-stone-300">Three wordmarks from the business name. Download the one you like, or paste a logo URL.</p>
             <Button type="button" variant="outline" onClick={makeMarks}>Make three marks</Button>
             <div className="grid gap-3">
@@ -596,7 +676,7 @@ export default function OwnerWelcome() {
           </div>
         )}
 
-        {step === 5 && (
+        {step === 3 && (
           <div className="space-y-4">
             <p className="text-stone-700 dark:text-stone-300">
               Ovanta is where their leads live. They start it on Ovanta's page, then come back with the location id and the private integration token.
@@ -620,7 +700,7 @@ export default function OwnerWelcome() {
           </div>
         )}
 
-        {step === 6 && (
+        {step === 4 && (
           <div className="space-y-4">
             <p className="text-stone-700 dark:text-stone-300">These stay on this area. Contractor payouts, editor payouts, and the Facebook ad account.</p>
             <div className="space-y-2">
@@ -646,7 +726,28 @@ export default function OwnerWelcome() {
           </div>
         )}
 
-        {step === 7 && (
+        {step === 5 && (
+          <PricingStep
+            where={cities.join(", ") || draft.state || "this area"}
+            looking={looking}
+            market={market}
+            suggestion={suggestion}
+            price4={draft.price4}
+            price8={draft.price8}
+            deposit={draft.deposit}
+            onLookup={lookUpMarket}
+            onUseSuggestion={() => {
+              set("price4", String(suggestion.four));
+              set("price8", String(suggestion.eight));
+              set("deposit", String(suggestion.deposit));
+            }}
+            onPrice4={(value) => set("price4", value)}
+            onPrice8={(value) => set("price8", value)}
+            onDeposit={(value) => set("deposit", value)}
+          />
+        )}
+
+        {step === 6 && (
           <p className="text-stone-700 dark:text-stone-300">
             {finished ? "Everything needed for this area is in. You can open the dashboard." : "The setup stays here until every item is checked. An owner cannot close it early."}
           </p>

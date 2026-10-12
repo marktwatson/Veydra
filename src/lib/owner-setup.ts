@@ -20,7 +20,7 @@ export function setupChecks(input: SetupSnapshot) {
     { id: "name", label: "Business name", done: name.length > 1 && name !== input.areaName.trim() },
     { id: "cities", label: "Cities", done: input.regions.length > 0 },
     { id: "timezone", label: "Timezone", done: !!input.timezone.trim() },
-    { id: "package", label: "First package", done: !!input.packagePrice.trim() },
+    { id: "package", label: "Starter prices", done: !!input.packagePrice.trim() },
     { id: "logo", label: "Logo", done: /^https?:\/\//.test(input.logoUrl || "") },
     { id: "ovanta", label: "Ovanta", done: input.hasOvanta },
     { id: "stripe", label: "Stripe payouts", done: input.hasContractorStripe && input.hasEditorStripe },
@@ -30,4 +30,38 @@ export function setupChecks(input: SetupSnapshot) {
 
 export function setupComplete(input: SetupSnapshot) {
   return setupChecks(input).every((item) => item.done);
+}
+
+function snapPrice(amount: number) {
+  return Math.round(amount / 50) * 50;
+}
+
+function costFloor(hours: number) {
+  const contractor = hours * 50;
+  const edit = hours >= 8 ? 300 : 200;
+  return Math.ceil((contractor + edit) / 0.87);
+}
+
+export function pricesIn(text: string) {
+  return Array.from(text.matchAll(/\$([\d,]+)/g))
+    .map((match) => Number(match[1].replace(/,/g, "")))
+    .filter((amount) => amount >= 400 && amount <= 20000);
+}
+
+export function suggestPricing(published: number[]) {
+  const sorted = [...published].sort((a, b) => a - b);
+  const mid = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 4000;
+  const four = Math.max(costFloor(4), snapPrice(mid * 0.4));
+  const eight = Math.max(costFloor(8), snapPrice(four * (1950 / 1600)));
+  return { four, eight, deposit: four < 1400 ? 50 : 99, marketMid: mid, samples: sorted.length };
+}
+
+export function packageMath(price: number, hours: number) {
+  const contractor = hours * 50;
+  const edit = hours >= 8 ? 300 : 200;
+  const sales = price * 0.05;
+  const royalty = price * 0.05;
+  const payback = price * 0.03;
+  const left = price - contractor - edit - sales - royalty - payback;
+  return { contractor, edit, sales, royalty, payback, left };
 }

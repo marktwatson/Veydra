@@ -306,6 +306,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           .maybeSingle(),
       ]);
       if (cancelled) return;
+      if ((weddingResult.count || 0) > 0) return;
       let settings: any = settingsResult.data;
       if (settingsResult.error) {
         const fallback = await supabase
@@ -316,8 +317,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           .maybeSingle();
         settings = fallback.data;
       }
-      const started = Boolean(settings?.owner_setup?.started);
-      if ((weddingResult.count || 0) > 0 && !started) return;
       const regions = Array.isArray(settings?.regions) ? settings.regions : [];
       const done = setupComplete({
         companyName: settings?.company_name || "",
