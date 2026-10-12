@@ -168,14 +168,14 @@ function PricingStep({
         <p className="font-medium">Expected margin</p>
         <div>
           <p className="mb-1 text-stone-500">4 hours at {money(newTerritoryPricing.four)}</p>
-          <div className="flex justify-between gap-3"><span className="text-stone-500">Lead contractor, $50 an hour</span><span>{money(math4.contractor)}</span></div>
+          <div className="flex justify-between gap-3"><span className="text-stone-500">Two leads, $50 an hour each</span><span>{money(math4.contractor)}</span></div>
           <div className="flex justify-between gap-3"><span className="text-stone-500">Edit</span><span>{money(math4.edit)}</span></div>
           <div className="flex justify-between gap-3"><span className="text-stone-500">Sales, royalty, and payback</span><span>{money(math4.sales + math4.royalty + math4.payback)}</span></div>
           <div className="flex justify-between gap-3 font-medium"><span>Left for the studio</span><span>{money(math4.left)}</span></div>
         </div>
         <div className="border-t border-stone-200 pt-3 dark:border-stone-800">
           <p className="mb-1 text-stone-500">8 hours at {money(newTerritoryPricing.eight)}</p>
-          <div className="flex justify-between gap-3"><span className="text-stone-500">Lead contractor, $50 an hour</span><span>{money(math8.contractor)}</span></div>
+          <div className="flex justify-between gap-3"><span className="text-stone-500">Two leads, $50 an hour each</span><span>{money(math8.contractor)}</span></div>
           <div className="flex justify-between gap-3"><span className="text-stone-500">Edit</span><span>{money(math8.edit)}</span></div>
           <div className="flex justify-between gap-3"><span className="text-stone-500">Sales, royalty, and payback</span><span>{money(math8.sales + math8.royalty + math8.payback)}</span></div>
           <div className="flex justify-between gap-3 font-medium"><span>Left for the studio</span><span>{money(math8.left)}</span></div>

@@ -73,7 +73,7 @@ export function suggestPricing(published: number[]) {
 }
 
 export function packageMath(price: number, hours: number) {
-  const contractor = hours * 50;
+  const contractor = hours * 50 * 2;
   const edit = hours >= 8 ? 300 : 200;
   const sales = price * 0.05;
   const royalty = price * 0.05;
