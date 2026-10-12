@@ -45,6 +45,7 @@ import ManagerContractors from "@/pages/manager/Contractors";
 import ManagerTeam from "@/pages/manager/Team";
 import ManagerMessages from "@/pages/manager/Messages";
 import ManagerSettings from "@/pages/manager/Settings";
+import OwnerWelcome from "@/pages/manager/OwnerWelcome";
 import ManagerActivityLog from "@/pages/manager/ActivityLog";
 import ManagerChangelog from "@/pages/manager/Changelog";
 import ManagerTraining from "@/pages/manager/Training";
@@ -345,6 +346,14 @@ const App = () => {
                   element={
                     <Mgr>
                       <ManagerSettings />
+                    </Mgr>
+                  }
+                />
+                <Route
+                  path="/manager/welcome"
+                  element={
+                    <Mgr>
+                      <OwnerWelcome />
                     </Mgr>
                   }
                 />

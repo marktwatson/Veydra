@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { setSuperAdminViewTerritory } from "@/lib/current-territory";
 import { HONEYSUCKLE_TERRITORY_ID } from "@/lib/territory";
 import {
   Card,
@@ -94,6 +96,7 @@ const isHoneysuckle = (t: AreaRow) =>
   t.is_primary || t.id === HONEYSUCKLE_TERRITORY_ID;
 
 export default function Areas() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -429,6 +432,17 @@ export default function Areas() {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="mr-2"
+                          onClick={() => {
+                            setSuperAdminViewTerritory(t.id);
+                            navigate("/manager/welcome");
+                          }}
+                        >
+                          Setup
+                        </Button>
                         <Button
                           variant="outline"
                           size="sm"
