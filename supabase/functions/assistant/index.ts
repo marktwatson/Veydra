@@ -113,39 +113,44 @@ async function areaSnapshot(db: any, territoryId: string, args: any) {
   const [{ data: area }, { data: settings }, { data: weddings }, { data: jobs }, { data: proposals }] = await Promise.all([
     db.from("territories").select("name").eq("id", territoryId).maybeSingle(),
     db.from("portal_settings").select("company_name, timezone").eq("territory_id", territoryId).limit(1).maybeSingle(),
-    db.from("weddings").select("id, client_name, date, status, total_amount, paid_amount, editing_status, created_at, contract_signed_at").eq("territory_id", territoryId).limit(2000),
+    db.from("weddings").select("id, client_name, date, status, notes, total_amount, paid_amount, editing_status, created_at, contract_signed_at, contract_date").eq("territory_id", territoryId).limit(2000),
     db.from("jobs").select("role").eq("territory_id", territoryId).eq("status", "open"),
     db.from("proposals").select("client_name, wedding_id, status, total_amount, amount_paid_so_far, contract_signed_at, wedding_date").eq("territory_id", territoryId).limit(2000),
   ]);
   const rows = weddings || [];
-  const booked = rows.filter(isBooked);
   const timeZone = settings?.timezone || "America/New_York";
   const range = periodRange(String(args?.period || "all"), timeZone, args?.from, args?.to);
-  const weddingById = new Map(rows.map((row: any) => [row.id, row]));
-  const signedSales = (proposals || [])
-    .map((proposal: any) => {
-      const day = isoDay(proposal.contract_signed_at, timeZone);
-      const wedding = weddingById.get(proposal.wedding_id);
-      return {
-        day,
-        wedding_id: proposal.wedding_id,
-        client_name: proposal.client_name,
-        date: proposal.wedding_date,
-        total_amount: proposal.total_amount,
-        paid_amount: wedding?.paid_amount ?? proposal.amount_paid_so_far ?? 0,
-        contract_signed_at: day,
-        status: proposal.status,
-      };
-    })
-    .filter((proposal: any) => proposal.day && (!range.from || (proposal.day >= range.from && proposal.day <= range.to)));
-  const linked = new Set(signedSales.map((proposal: any) => proposal.wedding_id).filter(Boolean));
-  const manualSales = booked
+  const signByWedding = new Map<string, string>();
+  for (const proposal of proposals || []) {
+    const day = isoDay(proposal.contract_signed_at, timeZone);
+    if (proposal.wedding_id && day && !signByWedding.has(proposal.wedding_id)) {
+      signByWedding.set(proposal.wedding_id, day);
+    }
+  }
+  const firstPayment = new Map<string, string>();
+  const weddingIds = rows.map((row: any) => row.id);
+  for (let index = 0; index < weddingIds.length; index += 200) {
+    const { data: payments } = await db
+      .from("ghl_invoice_payments")
+      .select("wedding_id, created_at")
+      .in("wedding_id", weddingIds.slice(index, index + 200));
+    for (const payment of payments || []) {
+      const day = isoDay(payment.created_at, timeZone);
+      const previous = firstPayment.get(payment.wedding_id);
+      if (day && (!previous || day < previous)) firstPayment.set(payment.wedding_id, day);
+    }
+  }
+  const sales = rows
     .filter((row: any) => {
-      const day = isoDay(row.created_at, timeZone);
-      return day && !linked.has(row.id) && (!range.from || (day >= range.from && day <= range.to));
+      if (row.status === "cancelled" || row.status === "draft") return false;
+      if (String(row.notes || "").includes("[UNPAID_DRAFT]")) return false;
+      return ["pending", "upcoming", "completed"].includes(row.status) || Number(row.paid_amount) > 0;
     })
-    .map((row: any) => ({ ...row, contract_signed_at: isoDay(row.created_at, timeZone) }));
-  const inRange = range.from ? [...signedSales, ...manualSales] : booked;
+    .map((row: any) => {
+      const day = isoDay(row.contract_date, timeZone) || signByWedding.get(row.id) || firstPayment.get(row.id) || isoDay(row.created_at, timeZone);
+      return { ...row, contract_signed_at: day, date: row.date };
+    });
+  const inRange = range.from ? sales.filter((row: any) => row.contract_signed_at >= range.from && row.contract_signed_at <= range.to) : sales.filter(isBooked);
   const editing = ["ready_to_edit", "in_progress", "revisions_requested", "client_review"];
   const today = dayInZone(new Date(), timeZone).iso;
   return {
@@ -155,20 +160,18 @@ async function areaSnapshot(db: any, territoryId: string, args: any) {
     from: range.from,
     to: range.to,
     instruction: range.from
-      ? "These numbers are only weddings booked in the range. Say the range in the answer. Do not call this all-time sales."
+      ? "booked_count is only this range. Name those couples. open_jobs is every open job, not this week, so do not mention it unless they asked."
       : "These numbers are all booked weddings, not a week or a month. Say that they are all-time.",
     definitions: {
-      booked: range.from
-        ? "proposals signed in that range, plus weddings typed in by hand that same range"
-        : "upcoming or completed weddings in this area",
-      booked_on: "the day the couple signed the proposal",
+      booked: "pending, upcoming, or completed weddings, excluding unpaid drafts",
+      booked_on: "contract date, otherwise the proposal signature, otherwise the first payment, otherwise the day the file was created",
       booked_value: "package total, not cash collected",
     },
     ...summarize(inRange),
     open_jobs: (jobs || []).length,
-    editing_now: booked.filter((row: any) => editing.includes(row.editing_status)).length,
-    next_weddings: booked
-      .filter((row: any) => row.date >= today && row.status !== "completed")
+    editing_now: sales.filter((row: any) => editing.includes(row.editing_status)).length,
+    next_weddings: sales
+      .filter((row: any) => row.date >= today && row.status === "upcoming")
       .sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)))
       .slice(0, 5)
       .map((row: any) => ({ name: row.client_name, date: row.date })),
