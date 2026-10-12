@@ -9,8 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ownerPackageKey, ownerSetupClosedKey, packageMath, pricesIn, setupChecks, setupComplete, suggestPricing, type SetupSnapshot } from "@/lib/owner-setup";
 
-const STEPS = ["You", "Studio", "Mark", "Ovanta", "Accounts", "Pricing", "Done"];
+const STEPS = ["You", "Studio", "Mark", "Ovanta", "Stripe", "Facebook", "Pricing", "Done"];
 const OVANTA_OFFER = "https://ovanta.io/wedding-biz-offer-page";
+const MARK_EMAIL = "mark@kavoddigital.com";
 
 type Draft = {
   businessName: string;
@@ -32,6 +33,8 @@ type Draft = {
   fbAdAccount: string;
   fbToken: string;
   fbConnected: boolean;
+  stripeReady: boolean;
+  facebookReady: boolean;
   hasContractorStripe: boolean;
   hasEditorStripe: boolean;
 };
@@ -56,6 +59,8 @@ const emptyDraft: Draft = {
   fbAdAccount: "",
   fbToken: "",
   fbConnected: false,
+  stripeReady: false,
+  facebookReady: false,
   hasContractorStripe: false,
   hasEditorStripe: false,
 };
@@ -227,8 +232,6 @@ function PricingStep({
 export default function OwnerWelcome() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [contractorKey, setContractorKey] = useState("");
-  const [editorKey, setEditorKey] = useState("");
   const [step, setStep] = useState(0);
   const [territoryId, setTerritoryId] = useState("");
   const [areaName, setAreaName] = useState("");
@@ -300,6 +303,8 @@ export default function OwnerWelcome() {
         ovantaSignedUp: Boolean(settings?.owner_setup?.ovanta_signed_up),
         fbAdAccount: settings?.fb_ad_account_id || "",
         fbConnected: Boolean(settings?.fb_ad_account_id && settings?.fb_access_token),
+        stripeReady: Boolean(settings?.owner_setup?.stripe_ready),
+        facebookReady: Boolean(settings?.owner_setup?.facebook_ready),
         hasContractorStripe: Boolean(area?.contractor_payout_stripe_key),
         hasEditorStripe: Boolean(area?.editor_payout_stripe_key),
         price: settings?.owner_setup?.package?.price || localStorage.getItem(ownerPackageKey(id)) || "",
@@ -313,6 +318,8 @@ export default function OwnerWelcome() {
       if (settings?.company_name && settings.company_name !== area?.name) next.businessName = settings.company_name;
       if (settings?.hl_api_key && settings?.hl_location_id) next.ovantaConnected = true;
       if (settings?.owner_setup?.ovanta_signed_up) next.ovantaSignedUp = true;
+      if (settings?.owner_setup?.stripe_ready) next.stripeReady = true;
+      if (settings?.owner_setup?.facebook_ready) next.facebookReady = true;
       if (area?.contractor_payout_stripe_key) next.hasContractorStripe = true;
       if (settings?.fb_ad_account_id && settings?.fb_access_token) next.fbConnected = true;
       if ((count || 0) === 0) {
@@ -336,6 +343,10 @@ export default function OwnerWelcome() {
     localStorage.setItem(draftKey(territoryId), JSON.stringify(stored));
     localStorage.setItem(ownerPackageKey(territoryId), draft.price4.trim() && draft.price8.trim() ? draft.price8.trim() : "");
   }, [draft, territoryId]);
+
+  useEffect(() => {
+    setNotice("");
+  }, [step]);
 
   const firstName = (user?.name || "there").split(" ")[0];
   const previewName = draft.businessName.trim() || "Your studio";
@@ -370,6 +381,8 @@ export default function OwnerWelcome() {
           videoHours: "8",
         },
         ovanta_signed_up: draft.ovantaSignedUp,
+        stripe_ready: draft.stripeReady,
+        facebook_ready: draft.facebookReady,
       },
     };
     let { error } = await supabase.from("portal_settings").update(payload).eq("territory_id", territoryId);
@@ -499,40 +512,22 @@ export default function OwnerWelcome() {
     setNotice(error ? error.message : "Logo saved on this area.");
   };
 
-  const saveAccounts = async () => {
-    if (!territoryId || locked) {
-      setNotice(locked ? "This area already has weddings, so nothing was saved." : "Pick an area first.");
-      return;
-    }
-    setSaving(true);
+  const confirmReady = async (field: "stripe_ready" | "facebook_ready", key: "stripeReady" | "facebookReady", message: string) => {
+    set(key, true);
     setNotice("");
-    try {
-      if (draft.fbAdAccount.trim() && draft.fbToken.trim()) {
-        const { error } = await supabase
-          .from("portal_settings")
-          .update({ fb_ad_account_id: draft.fbAdAccount.trim(), fb_access_token: draft.fbToken.trim() })
-          .eq("territory_id", territoryId);
-        if (error) throw error;
-        set("fbConnected", true);
-        set("fbToken", "");
-      }
-      const patch: Record<string, string> = {};
-      if (contractorKey.trim()) patch.contractor_payout_stripe_key = contractorKey.trim();
-      if (editorKey.trim()) patch.editor_payout_stripe_key = editorKey.trim();
-      if (Object.keys(patch).length) {
-        const { error } = await supabase.from("territories").update(patch).eq("id", territoryId);
-        if (error) throw error;
-        if (patch.contractor_payout_stripe_key) set("hasContractorStripe", true);
-        if (patch.editor_payout_stripe_key) set("hasEditorStripe", true);
-        setContractorKey("");
-        setEditorKey("");
-      }
-      setNotice("Saved on this area only.");
-    } catch (error: any) {
-      setNotice(error?.message || "Could not save those accounts.");
-    } finally {
-      setSaving(false);
-    }
+    if (!territoryId || locked) return;
+    const { data } = await supabase.from("portal_settings").select("owner_setup").eq("territory_id", territoryId).maybeSingle();
+    const { error } = await supabase
+      .from("portal_settings")
+      .update({
+        owner_setup: {
+          ...(data?.owner_setup || {}),
+          started: true,
+          [field]: true,
+        },
+      })
+      .eq("territory_id", territoryId);
+    setNotice(error ? error.message : message);
   };
 
   const confirmOvanta = async () => {
@@ -563,8 +558,10 @@ export default function OwnerWelcome() {
     hasOvanta: draft.ovantaConnected,
     ovantaSignedUp: draft.ovantaSignedUp,
     hasFacebook: draft.fbConnected,
+    facebookReady: draft.facebookReady,
     hasContractorStripe: draft.hasContractorStripe,
     hasEditorStripe: draft.hasEditorStripe,
+    stripeReady: draft.stripeReady,
     packagePrice: draft.price4.trim() && draft.price8.trim() ? draft.price8 : "",
   };
   const checks = setupChecks(snapshot);
@@ -578,7 +575,7 @@ export default function OwnerWelcome() {
   };
 
   const next = async () => {
-    if (step === 1 || step === 5) {
+    if (step === 1 || step === 6) {
       const ok = await saveStudio();
       if (!ok && !locked) return;
     }
@@ -725,32 +722,45 @@ export default function OwnerWelcome() {
         )}
 
         {step === 4 && (
-          <div className="space-y-4">
-            <p className="text-stone-700 dark:text-stone-300">These stay on this area. Contractor payouts, editor payouts, and the Facebook ad account.</p>
-            <div className="space-y-2">
-              <Label htmlFor="contractor-stripe">Contractor payout Stripe secret</Label>
-              <Input id="contractor-stripe" type="password" value={contractorKey} onChange={(event) => setContractorKey(event.target.value)} placeholder={draft.hasContractorStripe ? "Saved. Paste a new one to replace it." : "sk_live_..."} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="editor-stripe">Editor payout Stripe secret</Label>
-              <Input id="editor-stripe" type="password" value={editorKey} onChange={(event) => setEditorKey(event.target.value)} placeholder={draft.hasEditorStripe ? "Saved. Paste a new one to replace it." : "sk_live_..."} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="fb-account">Facebook ad account id</Label>
-              <Input id="fb-account" value={draft.fbAdAccount} onChange={(event) => set("fbAdAccount", event.target.value)} placeholder="act_123" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="fb-token">Facebook access token</Label>
-              <Input id="fb-token" type="password" value={draft.fbToken} onChange={(event) => set("fbToken", event.target.value)} placeholder={draft.fbConnected ? "Saved. Paste a new one to replace it." : ""} />
-            </div>
-            <Button type="button" onClick={saveAccounts} disabled={saving}>
-              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Save accounts
-            </Button>
+          <div className="space-y-4 text-stone-700 dark:text-stone-300">
+            <p>Create the studio's own Stripe account and finish it so payouts can run. Do not paste any secret keys here. Mark adds those after he is on the account.</p>
+            <ol className="list-decimal space-y-2 pl-5 text-sm">
+              <li>Create the account in the studio name. <a className="underline" href="https://dashboard.stripe.com/register" target="_blank" rel="noreferrer">Open Stripe</a>.</li>
+              <li>Finish identity verification when Stripe asks for the owner and the business.</li>
+              <li>Add the bank account Stripe pays the studio into. That is under Settings, then Payouts.</li>
+              <li>Open Connect and finish the profile. This is what lets contractors and editors get paid later. <a className="underline" href="https://dashboard.stripe.com/connect" target="_blank" rel="noreferrer">Open Connect</a>.</li>
+              <li>Invite <span className="font-medium">{MARK_EMAIL}</span> as an administrator. <a className="underline" href="https://dashboard.stripe.com/settings/team" target="_blank" rel="noreferrer">Open Team</a>.</li>
+            </ol>
+            {draft.stripeReady || (draft.hasContractorStripe && draft.hasEditorStripe) ? (
+              <p className="text-sm text-stone-600 dark:text-stone-300">Stripe is marked ready. Mark still connects the payout keys.</p>
+            ) : (
+              <Button type="button" onClick={() => confirmReady("stripe_ready", "stripeReady", "Stripe is marked ready. Mark still connects the payout keys.")}>
+                Stripe is set up and Mark is an admin
+              </Button>
+            )}
           </div>
         )}
 
         {step === 5 && (
+          <div className="space-y-4 text-stone-700 dark:text-stone-300">
+            <p>Create the Facebook ads account for this studio and put a card on it. Do not paste an ad account id or a token here.</p>
+            <ol className="list-decimal space-y-2 pl-5 text-sm">
+              <li>Open Meta Business Suite and create a business in the studio name if you do not already have one. <a className="underline" href="https://business.facebook.com/overview" target="_blank" rel="noreferrer">Open Business Suite</a>.</li>
+              <li>Create an ad account for this studio. <a className="underline" href="https://business.facebook.com/settings/ad-accounts" target="_blank" rel="noreferrer">Ad accounts</a>.</li>
+              <li>Add a payment method so the account can be billed. <a className="underline" href="https://business.facebook.com/billing_hub/payment_settings" target="_blank" rel="noreferrer">Billing</a>.</li>
+              <li>Add <span className="font-medium">{MARK_EMAIL}</span> as an admin on the business and on that ad account. <a className="underline" href="https://business.facebook.com/settings/people" target="_blank" rel="noreferrer">People</a>.</li>
+            </ol>
+            {draft.facebookReady || draft.fbConnected ? (
+              <p className="text-sm text-stone-600 dark:text-stone-300">The ad account is marked ready.</p>
+            ) : (
+              <Button type="button" onClick={() => confirmReady("facebook_ready", "facebookReady", "The ad account is marked ready.")}>
+                The ad account is set up and Mark is an admin
+              </Button>
+            )}
+          </div>
+        )}
+
+        {step === 6 && (
           <PricingStep
             where={cities.join(", ") || draft.state || "this area"}
             looking={looking}
@@ -771,7 +781,7 @@ export default function OwnerWelcome() {
           />
         )}
 
-        {step === 6 && (
+        {step === 7 && (
           <p className="text-stone-700 dark:text-stone-300">
             {finished ? "Everything needed for this area is in. You can open the dashboard." : "The setup stays here until every item is checked. An owner cannot close it early."}
           </p>

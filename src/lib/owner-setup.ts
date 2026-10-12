@@ -10,8 +10,10 @@ export type SetupSnapshot = {
   hasOvanta: boolean;
   ovantaSignedUp: boolean;
   hasFacebook: boolean;
+  facebookReady: boolean;
   hasContractorStripe: boolean;
   hasEditorStripe: boolean;
+  stripeReady: boolean;
   packagePrice: string;
 };
 
@@ -24,8 +26,8 @@ export function setupChecks(input: SetupSnapshot) {
     { id: "package", label: "Starter prices", done: !!input.packagePrice.trim() },
     { id: "logo", label: "Logo", done: /^https?:\/\//.test(input.logoUrl || "") },
     { id: "ovanta", label: "Ovanta signup", done: input.ovantaSignedUp || input.hasOvanta },
-    { id: "stripe", label: "Stripe payouts", done: input.hasContractorStripe && input.hasEditorStripe },
-    { id: "facebook", label: "Facebook ads", done: input.hasFacebook },
+    { id: "stripe", label: "Stripe account", done: input.stripeReady || (input.hasContractorStripe && input.hasEditorStripe) },
+    { id: "facebook", label: "Facebook ads", done: input.facebookReady || input.hasFacebook },
   ];
 }
 

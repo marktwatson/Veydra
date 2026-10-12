@@ -327,8 +327,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
         hasOvanta: Boolean(settings?.hl_api_key && settings?.hl_location_id),
         ovantaSignedUp: Boolean(settings?.owner_setup?.ovanta_signed_up),
         hasFacebook: Boolean(settings?.fb_ad_account_id && settings?.fb_access_token),
+        facebookReady: Boolean(settings?.owner_setup?.facebook_ready),
         hasContractorStripe: Boolean(territoryResult.data?.contractor_payout_stripe_key),
         hasEditorStripe: Boolean(territoryResult.data?.editor_payout_stripe_key),
+        stripeReady: Boolean(settings?.owner_setup?.stripe_ready),
         packagePrice: settings?.owner_setup?.package?.price || localStorage.getItem(ownerPackageKey(areaId)) || "",
       });
       if (done) return;
