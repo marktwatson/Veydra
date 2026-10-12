@@ -520,18 +520,23 @@ async function areaRecords(db: any, territoryId: string, kind: string) {
 }
 
 function findHelp(query: string) {
-  const words = query.toLowerCase().split(/\W+/).filter((word) => word.length > 2);
+  const asked = query.toLowerCase();
+  const skip = new Set(["wedding", "weddings", "after", "what", "how", "for", "yet", "but", "with", "from", "this", "area", "you", "the", "and", "not"]);
+  const words = asked.split(/\W+/).filter((word) => word.length > 2 && !skip.has(word));
+  const expanded = words.flatMap((word) => (/^edit/.test(word) ? [word, "edit", "editing", "edited"] : [word]));
   const ranked = ARTICLES.map((article) => {
     const title = article.title.toLowerCase();
     const screen = article.screen.toLowerCase();
     const keys = article.keywords.toLowerCase();
     const steps = article.steps.toLowerCase();
-    const score = words.reduce((sum, word) => {
+    let score = expanded.reduce((sum, word) => {
       if (title.includes(word)) return sum + 3;
       if (screen.includes(word) || keys.includes(word)) return sum + 2;
       if (steps.includes(word)) return sum + 1;
       return sum;
     }, 0);
+    if (/edit|footage|raw media|drive link|post-production/.test(asked) && title.includes("post-production")) score += 12;
+    if (/questionnaire/.test(asked) && !/edit/.test(asked) && title.includes("questionnaire")) score += 12;
     return { article, score };
   })
     .filter((row) => row.score > 0)
@@ -682,7 +687,7 @@ serve(async (req) => {
 
 Think, then write for a phone. Short lines. Put a blank line between ideas. When you name people or amounts, use a bullet list, one person per line, as "- **Name**, date, amount". Bold only the name. Do not write a wall of text. No tables. No field names.
 
-Facts still come from tools. For what was booked or paid, call payment_audit. For money due, call payment_audit. overdue is already past the due date. Name those people and the amount first. incoming_30 is only the next 30 days and is not the overdue list. Never say nothing is past due when overdue.count is above zero. A row with is_first true is a new booking. Say first payment. Never say is_first or audit_paid to the user. For how to do something, call help and follow that article. The questionnaire is in the bride portal, sent from the wedding Actions menu as a portal reminder. If they ask what might still book, call area_records with proposals and name only still_out. Never invent a number, a name, or a date.
+Facts still come from tools. For what was booked or paid, call payment_audit. For money due, call payment_audit. overdue is already past the due date. Name those people and the amount first. incoming_30 is only the next 30 days and is not the overdue list. Never say nothing is past due when overdue.count is above zero. A row with is_first true is a new booking. Say first payment. Never say is_first or audit_paid to the user. For how to do something, call help and repeat that article. Do not swap in a different screen. A wedding that is finished but not edited is Post-Production: Drive link, Ready to Edit, then the editor. That is not a portal reminder. If they ask what might still book, call area_records with proposals and name only still_out. Never invent a number, a name, or a date.
 
 You cannot change records, send messages, or pay anyone. You can tell them the next click.`,
       },
@@ -691,6 +696,14 @@ You cannot change records, send messages, or pay anyone. You can tell them the n
 
     const question = history[history.length - 1]?.content || "";
     const notes = findHelp(question);
+    const howTo = /how do|what do i|where do|how to|what happens/i.test(question);
+    if (howTo && Array.isArray(notes.articles) && notes.articles.length) {
+      return jsonResp({
+        reply: notes.articles[0].steps,
+        area: area?.name || null,
+        company: settings?.company_name || null,
+      });
+    }
     const noteReply = Array.isArray(notes.articles)
       ? notes.articles.map((article: any) => article.steps).join("\n\n")
       : "";

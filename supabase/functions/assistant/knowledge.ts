@@ -45,8 +45,8 @@ export const ARTICLES: Article[] = [
   {
     title: "How post-production works",
     screen: "Post-Production",
-    keywords: "editing editor delivered invoice songs deadline raw media",
-    steps: "A finished wedding starts in Post-Production as Awaiting Raw Media. Add the Google Drive link for the footage on that wedding. Until the link is there, the dashboard lists it under Missing Drive Links. To hand it to the editor, open Post-Production and set the status to Ready to Edit, then pick the editor on that row. You can also check Mark wedding as Ready to Edit when you approve the contractor payout. Ready to Edit is what puts it on the editor's portal. The company name on the row is the area's company.",
+    keywords: "editing edited edit editor delivered invoice songs deadline raw media footage drive link complete finished done after the wedding not edited ready to edit",
+    steps: "Open Post-Production. A finished wedding starts there as Awaiting Raw Media.\n\n- Add the Google Drive link for the footage. Until that link is saved, the dashboard lists the wedding under Missing Drive Links.\n- Set the status to Ready to Edit.\n- Pick the editor on that row.\n\nYou can also check Mark wedding as Ready to Edit when you approve the contractor payout. Ready to Edit is what puts the wedding on the editor's portal. Do not send a portal reminder for this. That reminder is only for the bride's questionnaire.",
   },
   {
     title: "How to read the dashboard",
