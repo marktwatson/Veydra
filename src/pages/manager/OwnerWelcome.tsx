@@ -12,7 +12,7 @@ import { largestCities, peopleLabel, studioNameIdeas, timezoneFor } from "@/lib/
 
 const STEPS = ["You", "Name", "Cities", "Mark", "Ovanta", "Stripe", "Facebook", "Pricing", "Done"];
 const OVANTA_OFFER = "https://ovanta.io/wedding-biz-offer-page";
-const ONBOARDING_CALL = "https://links.ovanta.io/widget/bookings/new-territory-onboarding";
+const ONBOARDING_CALL = "https://links.ovanta.io/widget/booking/txipZH9W1rzmBoPGVEU9";
 const MARK_EMAIL = "mark@kavoddigital.com";
 
 type Draft = {
@@ -71,6 +71,27 @@ const emptyDraft: Draft = {
 
 function draftKey(territoryId: string) {
   return `veydra_owner_welcome:${territoryId}`;
+}
+
+function OnboardingCalendar() {
+  useEffect(() => {
+    const src = "https://links.ovanta.io/js/form_embed.js";
+    if (document.querySelector(`script[src="${src}"]`)) return;
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    document.body.appendChild(script);
+  }, []);
+  return (
+    <iframe
+      src={ONBOARDING_CALL}
+      title="Onboarding call"
+      id="urwQfNQJeOKXT96wLPWG_1791821037050"
+      allow="payment"
+      scrolling="no"
+      className="h-[760px] w-full border-0 bg-white"
+    />
+  );
 }
 
 function AssistantSays({ children }: { children: ReactNode }) {
@@ -812,13 +833,8 @@ export default function OwnerWelcome() {
                 : "These are still open. Go back to the step and finish it. Stripe and Facebook have to be marked before you leave."}
             </AssistantSays>
             {finished && (
-              <div className="space-y-3 pl-11">
-                <div className="overflow-hidden rounded-2xl border border-stone-200 dark:border-stone-800">
-                  <iframe title="Onboarding call" src={ONBOARDING_CALL} className="h-[720px] w-full bg-white" />
-                </div>
-                <a href={ONBOARDING_CALL} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-stone-500 underline">
-                  Open the calendar in a new tab <ExternalLink className="h-3.5 w-3.5" />
-                </a>
+              <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white dark:border-stone-800">
+                <OnboardingCalendar />
               </div>
             )}
             {!finished && (
