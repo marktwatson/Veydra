@@ -702,8 +702,37 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "records",
+      description: "Read any live rows for this area. Tables: weddings, jobs, assignments, proposals, contractors, editors, wedding_events. Always this area only. Use this for action items, today's weddings, open positions, deadlines, and anything not covered by the other tools. Never say a table is out of scope until this returns an error.",
+      parameters: {
+        type: "object",
+        properties: {
+          table: { type: "string" },
+          filters: { type: "object", description: "Exact matches, such as { \"status\": \"open\" } or { \"date\": \"2026-10-12\" }" },
+          search_column: { type: "string" },
+          search: { type: "string" },
+        },
+        required: ["table"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "api_docs",
+      description: "Look up a HighLevel or Ovanta API path when you do not already know it. Use this before saying you cannot do something in Ovanta.",
+      parameters: {
+        type: "object",
+        properties: { question: { type: "string" } },
+        required: ["question"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "ovanta",
-      description: "This area's Ovanta account. Use action report to audit pipelines, calendars, and setup. Use action request to read or update anything else in that one location. Never add or edit users. Never send a text or email. Only write when the user explicitly asked for the change.",
+      description: "This area's Ovanta account. action report audits pipelines and calendars. action request calls any HighLevel path in this location. Reads run immediately. A write is saved and does not run until the user replies yes. Known paths: GET /contacts/search, GET /opportunities/search with location_id, GET /opportunities/pipelines, PUT /opportunities/{id} with pipelineId and pipelineStageId to move a deal, GET /locations/{locationId}/tasks, GET /contacts/{contactId}/tasks, POST /contacts/{contactId}/tasks. Moving a person between pipelines updates the opportunity. Never add or edit users. Never send a text or email. If you do not know a path, call api_docs first.",
       parameters: {
         type: "object",
         properties: {
@@ -1235,12 +1264,35 @@ async function ovantaRequest(db: any, territoryId: string, args: any) {
   if (otherAccount) return { error: "The assistant can only use this company's location." };
   const locationInPath = path.match(/\/locations\/([^/?]+)/i)?.[1];
   if (locationInPath && locationInPath !== locationId) return { error: "That location is not this company." };
-  const url = new URL(`https://services.leadconnectorhq.com${path}`);
-  if (url.searchParams.has("locationId")) url.searchParams.set("locationId", locationId);
-  else if (method === "GET" && !locationInPath) url.searchParams.set("locationId", locationId);
   const body = args?.body && typeof args.body === "object" ? { ...args.body } : null;
   if (body && "locationId" in body) body.locationId = locationId;
   if (body && "altId" in body) body.altId = locationId;
+  if (method !== "GET" && args?.confirm !== true) {
+    const summary = `${method} ${path}`;
+    const saved = await db.from("assistant_pending").insert({
+      user_id: args?.userId || null,
+      territory_id: territoryId,
+      summary,
+      method,
+      path,
+      body: body || null,
+    }).select("id").maybeSingle();
+    if (saved.error) {
+      return {
+        error: "I can prepare that edit, but the confirm table is missing. Run the assistant_pending SQL once.",
+        would: summary,
+      };
+    }
+    return {
+      needs_confirm: true,
+      would: summary,
+      body: body || null,
+      say: "Tell them exactly what will change and ask them to reply yes. Do not say it already happened.",
+    };
+  }
+  const url = new URL(`https://services.leadconnectorhq.com${path}`);
+  if (url.searchParams.has("locationId")) url.searchParams.set("locationId", locationId);
+  else if (method === "GET" && !locationInPath) url.searchParams.set("locationId", locationId);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 12000);
   try {
@@ -1272,7 +1324,68 @@ async function ovantaRequest(db: any, territoryId: string, args: any) {
   }
 }
 
-async function runTool(db: any, territoryId: string, name: string, args: any, cache?: Map<string, Promise<any>>) {
+const READ_TABLES = new Set(["weddings", "jobs", "assignments", "proposals", "contractors", "editors", "wedding_events"]);
+const SECRET_COLUMN = /key|secret|token|password|stripe|vapid/i;
+
+function cleanRow(row: any) {
+  const clean: Record<string, any> = {};
+  for (const [key, value] of Object.entries(row || {})) {
+    if (SECRET_COLUMN.test(key)) continue;
+    clean[key] = typeof value === "string" && value.length > 400 ? `${value.slice(0, 400)}…` : value;
+  }
+  return clean;
+}
+
+async function readRecords(db: any, territoryId: string, args: any) {
+  const table = String(args?.table || "").trim();
+  if (!READ_TABLES.has(table)) {
+    return { error: `Use one of: ${[...READ_TABLES].join(", ")}.` };
+  }
+  let query = db.from(table).select("*").eq("territory_id", territoryId).limit(30);
+  const filters = args?.filters && typeof args.filters === "object" ? args.filters : {};
+  for (const [key, value] of Object.entries(filters)) {
+    if (!/^[a-z0-9_]+$/i.test(key) || SECRET_COLUMN.test(key)) continue;
+    if (value === null || ["string", "number", "boolean"].includes(typeof value)) query = query.eq(key, value);
+  }
+  const column = String(args?.search_column || "");
+  if (args?.search && /^[a-z0-9_]+$/i.test(column) && !SECRET_COLUMN.test(column)) {
+    query = query.ilike(column, `%${String(args.search).slice(0, 60)}%`);
+  }
+  const { data, error } = await query;
+  if (error) return { error: error.message };
+  const rows = (data || []).map(cleanRow);
+  return { table, count: rows.length, rows };
+}
+
+async function apiDocs(question: string, apiKey: string) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  try {
+    const res = await fetch("https://api.x.ai/v1/responses", {
+      method: "POST",
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "grok-4-1-fast",
+        reasoning: { effort: "low" },
+        max_output_tokens: 400,
+        tools: [{ type: "web_search" }],
+        input: [{
+          role: "user",
+          content: `From https://marketplace.gohighlevel.com/docs/ only, what is the HighLevel API v2 method and path for this? ${question}. Reply with the method, the path, and the body fields. If the docs do not say, say the path was not found. Do not invent a path.`,
+        }],
+      }),
+    });
+    const payload = await res.json().catch(() => ({}));
+    return { docs: agentText(payload) || "The HighLevel docs did not answer in time. Try the known paths first." };
+  } catch {
+    return { docs: "The HighLevel docs did not answer in time. Try the known paths first." };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function runTool(db: any, territoryId: string, name: string, args: any, cache?: Map<string, Promise<any>>, userId?: string, apiKey?: string) {
   if (name === "area_snapshot" || name === "payment_audit") {
     const period = String(args?.period || "all");
     const key = `${period}|${args?.from || ""}|${args?.to || ""}`;
@@ -1284,8 +1397,10 @@ async function runTool(db: any, territoryId: string, name: string, args: any, ca
   if (name === "find_wedding") return findWedding(db, territoryId, String(args?.name || ""));
   if (name === "area_records") return areaRecords(db, territoryId, String(args?.kind || ""));
   if (name === "help") return findHelp(String(args?.query || ""));
+  if (name === "records") return readRecords(db, territoryId, args);
+  if (name === "api_docs") return apiDocs(String(args?.question || ""), apiKey || "");
   if (name === "ovanta") {
-    if (String(args?.action || "report") === "request") return ovantaRequest(db, territoryId, args);
+    if (String(args?.action || "report") === "request") return ovantaRequest(db, territoryId, { ...args, userId });
     return ovantaReport(db, territoryId);
   }
   return { error: "Unknown tool" };
@@ -1610,12 +1725,36 @@ Think, then write for a phone. Short lines. Put a blank line between ideas. When
 
 Facts still come from the desk below. overdue is already past the due date. Name those people and the amount first. incoming rows are only the next 30 days. A booked row this week is a new booking, the first payment, and the package value is not the cash collected. For how to do something, call help and repeat that article. Do not swap in a different screen. A wedding that is finished but not edited is Post-Production: Drive link, Ready to Edit, then the editor. That is not a portal reminder. If they name one couple, call find_wedding. If they say automation or workflow, those are Ovanta workflows, not pipelines and not a Veydra settings page. Name each one and say published or draft. Do not invent the steps inside a workflow. Do not answer with Settings, job posting, or Messages. If they ask about Ovanta pipelines, calendars, or leads, call ovanta. A pipeline audit names each pipeline, then each stage with open deals, the count, the money, and how many have not moved in 14 days. You cannot add or edit users, send a text or email, or touch another location. Never invent a number, a name, or a date.
 
-You cannot change records, send messages, or pay anyone. You can tell them the next click. If an earlier message in this chat already named calls, use that message when they ask about those calls. Do not claim the calls were never found. You are not a general chatbot. If they ask about news, sports, homework, code, recipes, or anything that is not this wedding company, its clients, its team, Ovanta, or other wedding studios nearby, say you only help with this wedding company and stop.`,
+You cannot send a text or email, add or edit Ovanta users, or touch another location. You can change this company's Ovanta records and you can read this company's database. A write does not happen until they reply yes. When a tool says needs_confirm, explain the change in plain words and ask them to reply yes. Never say it is already done. Never say you do not have a scope. If you do not know an Ovanta path, call api_docs, then call ovanta. For action items, today's weddings, open jobs, or deadlines, call records. For Ovanta tasks, call ovanta with GET /locations/{locationId}/tasks. If an earlier message in this chat already named calls, use that message when they ask about those calls. You are not a general chatbot. If they ask about news, sports, homework, code, recipes, or anything that is not this wedding company, its clients, its team, Ovanta, or other wedding studios nearby, say you only help with this wedding company and stop.`,
       },
       ...history,
     ];
 
     const question = history[history.length - 1]?.content || "";
+    if (/^(yes|yeah|yep|confirm|do it|go ahead)\b/i.test(question.trim())) {
+      const { data: pending } = await db
+        .from("assistant_pending")
+        .select("id, summary, method, path, body, created_at")
+        .eq("user_id", userData.user.id)
+        .eq("territory_id", territoryId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const fresh = pending && Date.now() - new Date(pending.created_at).getTime() < 30 * 60 * 1000;
+      if (fresh) {
+        const result = await ovantaRequest(db, territoryId, {
+          method: pending.method,
+          path: pending.path,
+          body: pending.body,
+          confirm: true,
+        });
+        await db.from("assistant_pending").delete().eq("id", pending.id);
+        const reply = result?.ok
+          ? `Done. ${pending.summary}`
+          : `That did not go through. ${result?.error || "Ovanta refused it."}`;
+        return jsonResp({ reply, area: area?.name || null, company: settings?.company_name || null });
+      }
+    }
     if (/other wedding studios|competitors|what do they charge|what are they charging/i.test(question)) {
       const places = Array.isArray(settings?.regions) ? settings.regions.filter(Boolean).join(", ") : "";
       const reply = await marketLook(settings?.company_name || "this company", area?.name || "", places, question, apiKey);
@@ -1672,7 +1811,7 @@ You cannot change records, send messages, or pay anyone. You can tell them the n
     chat[0].content += `\n\n${deskText}`;
 
     const model = Deno.env.get("ASSISTANT_MODEL") || "grok-4.7";
-    for (let round = 0; round < 3; round++) {
+    for (let round = 0; round < 4; round++) {
       const res = await fetch("https://api.x.ai/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -1716,7 +1855,7 @@ You cannot change records, send messages, or pay anyone. You can tell them the n
         } catch {
           args = {};
         }
-        const result = await runTool(db, territoryId, call.function?.name, args, cache);
+        const result = await runTool(db, territoryId, call.function?.name, args, cache, userData.user.id, apiKey);
         chat.push({
           role: "tool",
           tool_call_id: call.id,
