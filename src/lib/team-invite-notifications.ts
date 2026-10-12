@@ -1,5 +1,5 @@
-import { api } from "./api";
-import { DEFAULT_LOGO_URL } from "./utils";
+import { api, callOvantaSend } from "./api";
+import { supabase, supabaseAnonKey, supabaseUrl } from "./supabase";
 
 type Settings = any;
 
@@ -11,101 +11,82 @@ type Settings = any;
  * the SMS / email actually sent so callers can behave as before.
  */
 
+export async function sendSystemTeamInvite(opts: {
+  role: string;
+  name: string;
+  email: string;
+  token: string;
+  territoryId: string;
+}): Promise<{ setupUrl: string; areaName: string }> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const token = session?.access_token || supabaseAnonKey;
+  const res = await fetch(`${supabaseUrl}/functions/v1/team-invite`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      apikey: supabaseAnonKey,
+    },
+    body: JSON.stringify(opts),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.setupUrl) {
+    throw new Error(data.error || "Invite email was not sent.");
+  }
+  return { setupUrl: data.setupUrl, areaName: data.areaName || "" };
+}
+
 export async function sendInviteNotifications(opts: {
   role: string;
   name: string;
   email: string;
   settings: Settings;
-  baseUrl: string;
-  setupUrl: string;
-}): Promise<{ smsSent: boolean; emailSent: boolean }> {
-  const { role, name, email, settings, setupUrl } = opts;
+  token: string;
+  territoryId: string;
+}): Promise<{ smsSent: boolean; emailSent: boolean; setupUrl: string }> {
+  const { role, name, email, settings, token, territoryId } = opts;
+  const sent = await sendSystemTeamInvite({
+    role,
+    name,
+    email,
+    token,
+    territoryId,
+  });
+  const setupUrl = sent.setupUrl;
+  const company = sent.areaName || "Veydra";
   let smsSent = false;
-  let emailSent = false;
 
-  if (role === "editor") {
-    if (
-      settings?.sms_editor_invite_enabled &&
-      settings?.sms_editor_invite_template
-    ) {
-      const msg = settings.sms_editor_invite_template
-        .replace(/{{company_name}}/g, settings.company_name || "Veydra")
-        .replace(/{{editor_name}}/g, name)
-        .replace(/{{setup_link}}/g, setupUrl);
-      await api
-        .sendOvantaSms(email, msg, name)
-        .then(() => (smsSent = true))
-        .catch((e) => console.error("SMS failed:", e));
-    } else if (!settings?.sms_editor_invite_enabled) {
-      const msg = `Hi ${name}, you've been invited as an Editor to the ${settings?.company_name || "Portal"}! Click here to set up your account: ${setupUrl}`;
-      await api
-        .sendOvantaSms(email, msg, name)
-        .then(() => (smsSent = true))
-        .catch((e) => console.error("SMS failed:", e));
-    }
-    if (
-      settings?.email_editor_invite_enabled &&
-      settings?.email_editor_invite_template
-    ) {
-      const subject = (
-        settings.email_editor_invite_subject ||
-        `You've been invited as an Editor to ${settings.company_name || "our Portal"}!`
-      )
-        .replace(/{{company_name}}/g, settings.company_name || "the Portal")
-        .replace(/{{editor_name}}/g, name);
-      const msg = settings.email_editor_invite_template
-        .replace(/{{company_name}}/g, settings.company_name || "the Portal")
-        .replace(/{{logo_url}}/g, settings.logo_url || DEFAULT_LOGO_URL)
-        .replace(/{{editor_name}}/g, name)
-        .replace(/{{setup_link}}/g, setupUrl);
-      await api
-        .sendOvantaEmail(email, subject, msg, name)
-        .then(() => (emailSent = true))
-        .catch((e) => console.error("Email failed:", e));
-    }
-  } else {
-    if (
-      settings?.sms_manager_invite_enabled &&
-      settings?.sms_manager_invite_template
-    ) {
-      const msg = settings.sms_manager_invite_template
-        .replace(/{{company_name}}/g, settings.company_name || "Veydra")
-        .replace(/{{manager_name}}/g, name)
-        .replace(/{{setup_link}}/g, setupUrl);
-      await api
-        .sendOvantaSms(email, msg, name)
-        .then(() => (smsSent = true))
-        .catch((e) => console.error("SMS failed:", e));
-    } else if (!settings?.sms_manager_invite_enabled) {
-      const msg = `Hi ${name}, you've been invited as an Admin to the ${settings?.company_name || "Portal"}! Click here to set up your account: ${setupUrl}`;
-      await api
-        .sendOvantaSms(email, msg, name)
-        .then(() => (smsSent = true))
-        .catch((e) => console.error("SMS failed:", e));
-    }
-    if (
-      settings?.email_manager_invite_enabled &&
-      settings?.email_manager_invite_template
-    ) {
-      const subject = (
-        settings.email_manager_invite_subject ||
-        `You've been invited as an Admin to ${settings.company_name || "our Portal"}!`
-      )
-        .replace(/{{company_name}}/g, settings.company_name || "the Portal")
-        .replace(/{{manager_name}}/g, name);
-      const msg = settings.email_manager_invite_template
-        .replace(/{{company_name}}/g, settings.company_name || "Veydra")
-        .replace(/{{logo_url}}/g, settings.logo_url || DEFAULT_LOGO_URL)
-        .replace(/{{manager_name}}/g, name)
-        .replace(/{{setup_link}}/g, setupUrl);
-      await api
-        .sendOvantaEmail(email, subject, msg, name)
-        .then(() => (emailSent = true))
-        .catch((e) => console.error("Email failed:", e));
-    }
+  if (settings?.hl_api_key && settings?.hl_location_id) {
+    const template =
+      role === "editor"
+        ? settings.sms_editor_invite_template
+        : settings.sms_manager_invite_template;
+    const enabled =
+      role === "editor"
+        ? settings.sms_editor_invite_enabled
+        : settings.sms_manager_invite_enabled;
+    const msg =
+      enabled && template
+        ? String(template)
+            .replace(/{{company_name}}/g, company)
+            .replace(/{{editor_name}}/g, name)
+            .replace(/{{manager_name}}/g, name)
+            .replace(/{{setup_link}}/g, setupUrl)
+        : `Hi ${name}, you've been invited to Veydra for ${company}. Set up your account: ${setupUrl}`;
+    await callOvantaSend({
+      action: "sms",
+      email,
+      message: msg,
+      name,
+      territoryId: settings.territory_id || territoryId,
+    })
+      .then(() => (smsSent = true))
+      .catch((e) => console.error("SMS failed:", e));
   }
 
-  return { smsSent, emailSent };
+  return { smsSent, emailSent: true, setupUrl };
 }
 
 export async function sendResetNotifications(opts: {

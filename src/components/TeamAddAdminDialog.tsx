@@ -150,21 +150,21 @@ export function TeamAddAdminDialog({
     try {
       const token = crypto.randomUUID();
       const settings = await api.getPortalSettings();
-      const baseUrl = window.location.origin;
-      const setupUrl = `${baseUrl}/setup-password?email=${encodeURIComponent(newAdmin.email)}&token=${token}&role=${newAdmin.role}&name=${encodeURIComponent(newAdmin.name)}`;
-      await sendInviteNotifications({
+      const sent = await sendInviteNotifications({
         role: newAdmin.role,
         name: pendingUser.name,
         email: newAdmin.email,
         settings,
-        baseUrl,
-        setupUrl,
+        token,
+        territoryId,
       });
 
       const webhookUrl =
         settings?.admin_invite_webhook ||
         localStorage.getItem("veydra_admin_invite_webhook");
-      if (webhookUrl) {
+      const sameArea =
+        !settings?.territory_id || settings.territory_id === territoryId;
+      if (webhookUrl && sameArea) {
         await fetch(webhookUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -175,12 +175,18 @@ export function TeamAddAdminDialog({
             email: newAdmin.email,
             tags: ["invited-manager"],
             setup_token: token,
-            setup_url: setupUrl,
+            setup_url: sent.setupUrl,
           }),
         }).catch(console.error);
       }
-    } catch (e) {
-      console.error("Failed to send invites", e);
+    } catch (e: any) {
+      setSubmitting(false);
+      toast({
+        variant: "destructive",
+        title: "Account saved, email did not send",
+        description: e?.message || "Could not send the invitation email.",
+      });
+      return;
     }
 
     setSubmitting(false);

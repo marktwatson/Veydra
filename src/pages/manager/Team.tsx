@@ -179,20 +179,22 @@ export default function ManagerTeam() {
     try {
       const token = crypto.randomUUID();
       const settings = await api.getPortalSettings();
-      const baseUrl = window.location.origin;
-      const setupUrl = `${baseUrl}/setup-password?email=${encodeURIComponent(manager.email)}&token=${token}&role=${manager.role || "manager"}&name=${encodeURIComponent(manager.name)}`;
-      await sendInviteNotifications({
+      const territoryId = manager.territory_id || settings?.territory_id;
+      if (!territoryId) throw new Error("This person is not assigned to an area.");
+      const sent = await sendInviteNotifications({
         role: manager.role || "manager",
         name: manager.name,
         email: manager.email,
         settings,
-        baseUrl,
-        setupUrl,
+        token,
+        territoryId,
       });
       const webhookUrl =
         settings?.admin_invite_webhook ||
         localStorage.getItem("veydra_admin_invite_webhook");
-      if (webhookUrl) {
+      const sameArea =
+        !settings?.territory_id || settings.territory_id === territoryId;
+      if (webhookUrl && sameArea) {
         await fetch(webhookUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -203,7 +205,7 @@ export default function ManagerTeam() {
             email: manager.email,
             tags: ["invited-manager"],
             setup_token: token,
-            setup_url: setupUrl,
+            setup_url: sent.setupUrl,
           }),
         }).catch(console.error);
       }
@@ -211,12 +213,12 @@ export default function ManagerTeam() {
         title: "Invite resent",
         description: `A new invitation was sent to ${manager.email}.`,
       });
-    } catch (e) {
+    } catch (e: any) {
       console.error("Failed to resend invite", e);
       toast({
         variant: "destructive",
         title: "Failed to resend",
-        description: "Could not send the invitation.",
+        description: e?.message || "Could not send the invitation.",
       });
     }
   };
