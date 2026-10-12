@@ -499,39 +499,6 @@ export default function OwnerWelcome() {
     setNotice(error ? error.message : "Logo saved on this area.");
   };
 
-  const testOvanta = async () => {
-    const key = draft.apiKey.trim();
-    const locationId = draft.locationId.trim();
-    if (!key || !locationId) {
-      setNotice("Paste both the location id and the private token.");
-      return;
-    }
-    setSaving(true);
-    setNotice("");
-    try {
-      const res = await fetch(
-        `https://services.leadconnectorhq.com/contacts?locationId=${encodeURIComponent(locationId)}&limit=1`,
-        { headers: { Authorization: `Bearer ${key}`, Version: "2021-07-28", Accept: "application/json" } },
-      );
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload?.message || "Ovanta refused that key.");
-      const name = payload?.location?.name || payload?.name || "Connected";
-      setDraft((current) => ({ ...current, ovantaName: name, ovantaConnected: !locked }));
-      if (!locked && territoryId) {
-        const { error } = await supabase
-          .from("portal_settings")
-          .update({ hl_api_key: key, hl_location_id: locationId })
-          .eq("territory_id", territoryId);
-        if (error) throw error;
-      }
-      setNotice(locked ? `Connected to ${name}, but this area was not updated.` : `Connected to ${name}. Saved on this area only.`);
-    } catch (error: any) {
-      setNotice(error?.message || "Could not reach Ovanta.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const saveAccounts = async () => {
     if (!territoryId || locked) {
       setNotice(locked ? "This area already has weddings, so nothing was saved." : "Pick an area first.");
@@ -747,23 +714,6 @@ export default function OwnerWelcome() {
               <p className="text-sm text-stone-600 dark:text-stone-300">You confirmed the signup. Mark still has to connect it.</p>
             ) : (
               <Button type="button" onClick={confirmOvanta}>I signed up</Button>
-            )}
-            {isSuper && (
-              <div className="space-y-4 border-t border-stone-200 pt-4 dark:border-stone-800">
-                <p className="text-sm text-stone-500">Only you see this. Paste the location id and the private token when you have them.</p>
-                <div className="space-y-2">
-                  <Label htmlFor="location-id">Location id</Label>
-                  <Input id="location-id" value={draft.locationId} onChange={(event) => set("locationId", event.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="api-key">Private integration token</Label>
-                  <Input id="api-key" type="password" value={draft.apiKey} onChange={(event) => set("apiKey", event.target.value)} />
-                </div>
-                <Button type="button" onClick={testOvanta} disabled={saving}>
-                  {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Test and save
-                </Button>
-              </div>
             )}
           </div>
         )}
