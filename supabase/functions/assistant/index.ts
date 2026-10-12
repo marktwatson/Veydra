@@ -963,6 +963,80 @@ function formatWorkflows(company: string, workflows: { name: string; status: str
   return lines.join("\n");
 }
 
+function formatLeadAudit(report: any) {
+  const wait = (hours: number | null | undefined) => hours == null ? "unknown wait" : hours < 1 ? "under an hour" : `${hours}h`;
+  const lines = [
+    `**New leads**`,
+    "",
+    `${report.poolSize || 0} still open. ${report.windowNewLeadsCount || 0} came in during the last 24 hours.`,
+    "",
+    "**Needs a reply**",
+    "",
+  ];
+  const replies = report.needsReply || [];
+  if (!replies.length) lines.push("- Inbox is clear.");
+  for (const row of replies.slice(0, 8)) {
+    const quote = String(row.snippet || "").replace(/\s+/g, " ").trim();
+    lines.push(`- **${row.name}**, ${row.grade || "Open"}, ${row.channel || "message"}, ${wait(row.hoursAgo)}${quote ? `. "${quote}"` : ""}`);
+  }
+  const ghosts = report.ghostLeads || [];
+  lines.push("", "**No first touch**", "");
+  if (!ghosts.length) lines.push("- Every lead from the last day got a person.");
+  else {
+    lines.push(`${ghosts.length} leads are at least a day old and only a workflow has touched them.`);
+    lines.push("");
+    for (const row of ghosts.slice(0, 6)) lines.push(`- **${row.name}**, ${row.daysAgo ?? "?"} days, ${(row.source || "unknown").replace(/_/g, " ")}`);
+  }
+  const missed = report.missedCalls || [];
+  lines.push("", "**Missed calls**", "");
+  if (!missed.length) lines.push("- None.");
+  for (const row of missed.slice(0, 6)) lines.push(`- **${row.name}**, ${wait(row.hoursAgo)}${row.followedUp ? ", someone followed up" : ", no callback"}`);
+  const opted = report.optedOut || [];
+  lines.push("", "**Opted out, still in the pipeline**", "");
+  if (!opted.length) lines.push("- None.");
+  for (const row of opted.slice(0, 6)) lines.push(`- **${row.name}**, ${row.signal || "opted out"}, ${row.daysAgo ?? "?"} days ago`);
+  const cold = report.goingCold || [];
+  lines.push("", "**Going cold**", "");
+  if (!cold.length) lines.push("- None past 5 days.");
+  else {
+    lines.push(`${report.goingColdTotal || cold.length} have been quiet for 5 or more days.`);
+    lines.push("");
+    for (const row of cold.slice(0, 5)) lines.push(`- **${row.name}**, ${row.daysAgo} days`);
+  }
+  const autos = report.automationOnly || [];
+  lines.push("", "**Automation only**", "");
+  if (!autos.length) lines.push("- None. A person reached every one of these.");
+  for (const row of autos.slice(0, 6)) lines.push(`- **${row.name}**, ${wait(row.hoursAgo)}`);
+  if (report.weekendCatchUp) {
+    lines.push("", "**Weekend catch-up**", "");
+    if (!report.weekendCatchUp.length) lines.push("- Weekend leads were contacted in time.");
+    for (const row of report.weekendCatchUp.slice(0, 5)) lines.push(`- **${row.name}**, waited ${wait(row.hoursAgo)}`);
+  }
+  const mix = report.channelMix || {};
+  lines.push(
+    "",
+    "**How the last message was sent**",
+    "",
+    `${mix.calls || 0} calls, ${mix.manualSms || 0} texts, ${mix.email || 0} emails, ${mix.automation || 0} automations.`,
+    "",
+    "**Going well**",
+    "",
+  );
+  const wins = report.goingWell || [];
+  if (!wins.length) lines.push("- Nothing notable in the last day.");
+  for (const row of wins.slice(0, 5)) {
+    const what = String(row.what || "").replace(/0h/g, "the same hour");
+    lines.push(`- **${row.name}**, ${what.charAt(0).toLowerCase()}${what.slice(1)}`);
+  }
+  lines.push("", "**Do these three**", "");
+  const priorities = report.priorities || [];
+  if (!priorities.length) lines.push("- No urgent item. Call a lead who has gone quiet.");
+  priorities.slice(0, 3).forEach((row: any, index: number) => {
+    lines.push(`${index + 1}. ${row.action}${row.why ? `. ${row.why}` : ""}`);
+  });
+  return lines.join("\n");
+}
+
 async function salesAudit(db: any, territoryId: string, authHeader: string) {
   const { data: settings } = await db
     .from("portal_settings")
@@ -1037,13 +1111,7 @@ async function salesAudit(db: any, territoryId: string, authHeader: string) {
       lines.push("", `The lead audit could not run: ${payload?.error || payload?.detail || res.status}.`);
       return lines.join("\n");
     }
-    lines.push(
-      "",
-      "**Ovanta lead audit**",
-      "Same rules as the daily sales report. New leads only, excluding booked and hired. A human touch is a call, voicemail, manual text, or email. Automation does not count.",
-      "",
-      String(payload.reportText || "The lead audit returned no text."),
-    );
+    lines.push("", formatLeadAudit(payload));
   } catch (error: any) {
     lines.push("", `The lead audit timed out: ${error?.message || "unknown error"}.`);
   } finally {
