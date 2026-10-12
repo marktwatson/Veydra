@@ -7,7 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { honeysuckleStarter, ownerPackageKey, ownerSetupClosedKey, packageMath, setupChecks, setupComplete, type SetupSnapshot } from "@/lib/owner-setup";
+import { newTerritoryPricing, ownerPackageKey, ownerSetupClosedKey, packageMath, setupChecks, setupComplete, type SetupSnapshot } from "@/lib/owner-setup";
 import { largestCities, peopleLabel, studioNameIdeas, timezoneFor } from "@/lib/owner-places";
 
 const STEPS = ["You", "Name", "Cities", "Mark", "Ovanta", "Stripe", "Facebook", "Pricing", "Done"];
@@ -38,6 +38,7 @@ type Draft = {
   facebookReady: boolean;
   hasContractorStripe: boolean;
   hasEditorStripe: boolean;
+  packageSkipped: boolean;
 };
 
 const emptyDraft: Draft = {
@@ -64,6 +65,7 @@ const emptyDraft: Draft = {
   facebookReady: false,
   hasContractorStripe: false,
   hasEditorStripe: false,
+  packageSkipped: false,
 };
 
 function draftKey(territoryId: string) {
@@ -75,65 +77,6 @@ function AssistantSays({ children }: { children: ReactNode }) {
     <div className="flex gap-3">
       <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-stone-900 text-[11px] font-medium text-white dark:bg-stone-100 dark:text-stone-900">V</div>
       <p className="text-lg leading-relaxed text-stone-800 dark:text-stone-100">{children}</p>
-    </div>
-  );
-}
-
-function studioCards(text: string) {
-  const cleaned = text.replace(/\[\[\d+\]\]/g, "");
-  const cards = cleaned
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => /^[-*]/.test(line))
-    .map((line) => {
-      const url = line.match(/https?:\/\/[^\s)]+/)?.[0] || "";
-      const name = line.match(/\*\*([^*]+)\*\*/)?.[1] || line.replace(/^[-*]\s*/, "").split(",")[0];
-      const body = line
-        .replace(/^[-*]\s*/, "")
-        .replace(/\*\*[^*]+\*\*/, "")
-        .replace(url, "")
-        .replace(/[()[\]]/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-      const price = body.match(/\$[\d,]+/)?.[0] || "Price not listed";
-      const city = body.split(",").map((part) => part.trim()).filter(Boolean)[0] || "";
-      return { name: name.trim(), city, price, url };
-    })
-    .filter((card) => card.name && card.name.length < 48 && card.name.split(" ").length <= 6 && !/no studios|not found|should notice|competitors|published pricing|search/i.test(card.name));
-  const note = cleaned
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line && !/^[-*]/.test(line) && !/^https?:/.test(line))
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return { cards, note };
-}
-
-function MarketResult({ text }: { text: string }) {
-  const { cards, note } = studioCards(text);
-  if (!cards.length) {
-    return <p className="text-sm leading-relaxed text-stone-600 dark:text-stone-300">Studios around here are not publishing a starting price. Use the starter below. You can change both numbers.</p>;
-  }
-  return (
-    <div className="space-y-3">
-      {cards.map((card) => (
-        <div key={card.name} className="rounded-2xl border border-stone-200 px-4 py-3 dark:border-stone-800">
-          <div className="flex items-baseline justify-between gap-3">
-            <p className="font-medium text-stone-900 dark:text-stone-50">{card.name}</p>
-            <p className="shrink-0 text-sm font-medium">{card.price}</p>
-          </div>
-          {card.city && <p className="mt-1 text-sm text-stone-500">{card.city}</p>}
-          {card.url && (
-            <a href={card.url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs text-stone-500 underline">
-              Their prices
-            </a>
-          )}
-        </div>
-      ))}
-      {note && note.length < 180 && !/no studios|should notice|do not appear|published pricing/i.test(note) && (
-        <p className="text-sm leading-relaxed text-stone-600 dark:text-stone-300">{note}</p>
-      )}
     </div>
   );
 }
@@ -158,80 +101,50 @@ function money(amount: number) {
   return `$${Math.round(amount).toLocaleString()}`;
 }
 
+const STEP_FOR: Record<string, number> = {
+  name: 1,
+  cities: 2,
+  timezone: 2,
+  logo: 3,
+  ovanta: 4,
+  stripe: 5,
+  facebook: 6,
+  package: 7,
+};
+
 function PricingStep({
-  where,
-  looking,
-  market,
-  suggestion,
-  price4,
-  price8,
-  deposit,
-  onLookup,
-  onUseSuggestion,
-  onPrice4,
-  onPrice8,
-  onDeposit,
+  approved,
+  skipped,
+  onApprove,
+  onSkip,
 }: {
-  where: string;
-  looking: boolean;
-  market: string;
-  suggestion: { four: number; eight: number; deposit: number };
-  price4: string;
-  price8: string;
-  deposit: string;
-  onLookup: () => void;
-  onUseSuggestion: () => void;
-  onPrice4: (value: string) => void;
-  onPrice8: (value: string) => void;
-  onDeposit: (value: string) => void;
+  approved: boolean;
+  skipped: boolean;
+  onApprove: () => void;
+  onSkip: () => void;
 }) {
-  const four = Number(price4) > 0 ? Number(price4) : suggestion.four;
-  const eight = Number(price8) > 0 ? Number(price8) : suggestion.eight;
-  const usingTheirs = Number(price4) > 0 || Number(price8) > 0;
-  const math4 = packageMath(four, 4);
-  const math8 = packageMath(eight, 8);
+  const math4 = packageMath(newTerritoryPricing.four, 4);
+  const math8 = packageMath(newTerritoryPricing.eight, 8);
   return (
     <div className="space-y-5">
-      <Button type="button" onClick={onLookup} disabled={looking}>
-        {looking ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-        Look up studios
-      </Button>
-      {market && <MarketResult text={market} />}
       <div className="rounded-2xl bg-stone-50 p-4 dark:bg-stone-900">
-        <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Honeysuckle's prices</p>
-        <p className="mt-2 text-sm leading-relaxed text-stone-600 dark:text-stone-300">
-          Honeysuckle opens at these prices. Use them for {where}, or type your own.
-        </p>
+        <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Suggested new territory pricing</p>
+        <p className="mt-2 text-sm leading-relaxed text-stone-600 dark:text-stone-300">These are your starting prices. Every new territory opens here.</p>
         <p className="mt-3 text-sm font-medium">
-          4 hours {money(suggestion.four)} · 8 hours {money(suggestion.eight)} · deposit {money(suggestion.deposit)}
+          4 hours {money(newTerritoryPricing.four)} · 8 hours {money(newTerritoryPricing.eight)} · deposit {money(newTerritoryPricing.deposit)}
         </p>
-        <Button type="button" variant="outline" className="mt-3" onClick={onUseSuggestion}>Use these prices</Button>
-      </div>
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="space-y-2">
-          <Label htmlFor="price-4">4-hour package</Label>
-          <Input id="price-4" value={price4} onChange={(event) => onPrice4(event.target.value)} placeholder={String(suggestion.four)} />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="price-8">8-hour package</Label>
-          <Input id="price-8" value={price8} onChange={(event) => onPrice8(event.target.value)} placeholder={String(suggestion.eight)} />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="deposit">Deposit</Label>
-          <Input id="deposit" value={deposit} onChange={(event) => onDeposit(event.target.value)} placeholder={String(suggestion.deposit)} />
-        </div>
       </div>
       <div className="space-y-3 rounded-2xl border border-stone-200 p-4 text-sm dark:border-stone-800">
-        <p className="font-medium">{usingTheirs ? "Expected margin on their prices" : "Expected margin on Honeysuckle's prices"}</p>
+        <p className="font-medium">Expected margin</p>
         <div>
-          <p className="mb-1 text-stone-500">4 hours at {money(four)}</p>
+          <p className="mb-1 text-stone-500">4 hours at {money(newTerritoryPricing.four)}</p>
           <div className="flex justify-between gap-3"><span className="text-stone-500">Lead contractor, $50 an hour</span><span>{money(math4.contractor)}</span></div>
           <div className="flex justify-between gap-3"><span className="text-stone-500">Edit</span><span>{money(math4.edit)}</span></div>
           <div className="flex justify-between gap-3"><span className="text-stone-500">Sales, royalty, and payback</span><span>{money(math4.sales + math4.royalty + math4.payback)}</span></div>
           <div className="flex justify-between gap-3 font-medium"><span>Left for the studio</span><span>{money(math4.left)}</span></div>
         </div>
         <div className="border-t border-stone-200 pt-3 dark:border-stone-800">
-          <p className="mb-1 text-stone-500">8 hours at {money(eight)}</p>
+          <p className="mb-1 text-stone-500">8 hours at {money(newTerritoryPricing.eight)}</p>
           <div className="flex justify-between gap-3"><span className="text-stone-500">Lead contractor, $50 an hour</span><span>{money(math8.contractor)}</span></div>
           <div className="flex justify-between gap-3"><span className="text-stone-500">Edit</span><span>{money(math8.edit)}</span></div>
           <div className="flex justify-between gap-3"><span className="text-stone-500">Sales, royalty, and payback</span><span>{money(math8.sales + math8.royalty + math8.payback)}</span></div>
@@ -239,10 +152,16 @@ function PricingStep({
         </div>
         <p className="text-xs leading-relaxed text-stone-400">Not exact. This leaves out second shooters and anything else this area pays. It is not final until those costs are added.</p>
       </div>
+      {approved && <p className="text-sm text-stone-600 dark:text-stone-300">These prices are saved for this area.</p>}
+      {skipped && <p className="text-sm text-stone-600 dark:text-stone-300">You skipped this. Talk with Nik before these packages go out.</p>}
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" onClick={onApprove}>Approve these prices</Button>
+        <Button type="button" variant="outline" onClick={onSkip}>I need to talk to Nik</Button>
+      </div>
+      <p className="text-sm text-stone-500">If these prices are not right for you, reach out to Nik and talk it over. You can skip this step until then.</p>
     </div>
   );
 }
-
 export default function OwnerWelcome() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -255,8 +174,6 @@ export default function OwnerWelcome() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
-  const [market, setMarket] = useState("");
-  const [looking, setLooking] = useState(false);
   const [making, setMaking] = useState(false);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [marks, setMarks] = useState<{ url: string; style: string }[]>([]);
@@ -326,6 +243,7 @@ export default function OwnerWelcome() {
         price4: settings?.owner_setup?.package?.price4 || "",
         price8: settings?.owner_setup?.package?.price8 || settings?.owner_setup?.package?.price || localStorage.getItem(ownerPackageKey(id)) || "",
         deposit: settings?.owner_setup?.package?.deposit || "",
+        packageSkipped: Boolean(settings?.owner_setup?.package_skipped),
         ...(saved || {}),
       };
       next.apiKey = "";
@@ -334,6 +252,13 @@ export default function OwnerWelcome() {
       if (settings?.hl_api_key && settings?.hl_location_id) next.ovantaConnected = true;
       if (settings?.owner_setup?.ovanta_signed_up) next.ovantaSignedUp = true;
       if (settings?.owner_setup?.stripe_ready) next.stripeReady = true;
+      if (settings?.owner_setup?.package_skipped) {
+        next.packageSkipped = true;
+        next.price = "";
+        next.price4 = "";
+        next.price8 = "";
+        next.deposit = "";
+      }
       if (settings?.company_name && area?.name && settings.company_name !== area.name) setNaming("have");
       if (area?.contractor_payout_stripe_key) next.hasContractorStripe = true;
       if (settings?.fb_ad_account_id && settings?.fb_access_token) next.fbConnected = true;
@@ -372,32 +297,34 @@ export default function OwnerWelcome() {
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((current) => ({ ...current, [key]: value }));
 
-  const saveStudio = async () => {
+  const saveStudio = async (override?: Partial<Draft>) => {
+    const current = { ...draft, ...override };
     if (!territoryId || locked) {
       setNotice(locked ? "This area already has weddings, so nothing was saved." : "Pick an area first.");
       return false;
     }
     setSaving(true);
     setNotice("");
-    localStorage.setItem(ownerPackageKey(territoryId), draft.price4.trim() && draft.price8.trim() ? draft.price8.trim() : "");
+    localStorage.setItem(ownerPackageKey(territoryId), current.price4.trim() && current.price8.trim() && !current.packageSkipped ? current.price8.trim() : "");
     const payload = {
-      ...(draft.businessName.trim() ? { company_name: draft.businessName.trim() } : {}),
-      company_state: draft.state.trim(),
+      ...(current.businessName.trim() ? { company_name: current.businessName.trim() } : {}),
+      company_state: current.state.trim(),
       regions: cities,
-      timezone: draft.timezone.trim(),
+      timezone: current.timezone.trim(),
       owner_setup: {
         started: true,
         package: {
-          price: draft.price8 || draft.price,
-          price4: draft.price4,
-          price8: draft.price8,
-          deposit: draft.deposit,
+          price: current.packageSkipped ? "" : current.price8 || current.price,
+          price4: current.packageSkipped ? "" : current.price4,
+          price8: current.packageSkipped ? "" : current.price8,
+          deposit: current.packageSkipped ? "" : current.deposit,
           photoHours: "4",
           videoHours: "8",
         },
-        ovanta_signed_up: draft.ovantaSignedUp,
-        stripe_ready: draft.stripeReady,
-        facebook_ready: draft.facebookReady,
+        package_skipped: current.packageSkipped,
+        ovanta_signed_up: current.ovantaSignedUp,
+        stripe_ready: current.stripeReady,
+        facebook_ready: current.facebookReady,
       },
     };
     let { error } = await supabase.from("portal_settings").update(payload).eq("territory_id", territoryId);
@@ -405,7 +332,7 @@ export default function OwnerWelcome() {
       const retry = await supabase
         .from("portal_settings")
         .update({
-          ...(draft.businessName.trim() ? { company_name: draft.businessName.trim() } : {}),
+          ...(current.businessName.trim() ? { company_name: current.businessName.trim() } : {}),
           company_state: payload.company_state,
           regions: payload.regions,
           timezone: payload.timezone,
@@ -421,41 +348,26 @@ export default function OwnerWelcome() {
     return true;
   };
 
-  const lookUpMarket = async () => {
-    if (!territoryId) return;
-    setLooking(true);
-    setMarket("");
-    setNotice("");
-    try {
-      if (!locked) await saveStudio();
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
-      if (!token) throw new Error("Sign in again.");
-      const where = cities.length ? cities.join(", ") : draft.state;
-      const res = await fetch(`${supabaseUrl}/functions/v1/assistant`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-          apikey: supabaseAnonKey,
-        },
-        body: JSON.stringify({
-          territoryId,
-          messages: [
-            {
-              role: "user",
-              content: `List wedding photo and video studios near ${where} that publish a package price. One studio per line, exactly like this: - **Studio Name**, City, $3500, https://example.com. Skip any studio with no price. If none publish a price, reply with exactly NONE. No paragraphs.`,
-            },
-          ],
-        }),
-      });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload.error || "The lookup did not finish.");
-      setMarket(payload.reply || "Nothing came back. Try it once more.");
-    } catch (error: any) {
-      setNotice(error?.message || "The lookup did not finish.");
-    } finally {
-      setLooking(false);
+  const approvePrices = async () => {
+    const prices = {
+      price4: String(newTerritoryPricing.four),
+      price8: String(newTerritoryPricing.eight),
+      deposit: String(newTerritoryPricing.deposit),
+      price: String(newTerritoryPricing.eight),
+      packageSkipped: false,
+    };
+    setDraft((current) => ({ ...current, ...prices }));
+    const ok = await saveStudio(prices);
+    if (ok || locked) setStep(8);
+  };
+
+  const skipPrices = async () => {
+    const prices = { price: "", price4: "", price8: "", deposit: "", packageSkipped: true };
+    setDraft((current) => ({ ...current, ...prices }));
+    const ok = await saveStudio(prices);
+    if (ok || locked) {
+      setNotice("Reach out to Nik to talk over pricing. You can come back to this step.");
+      setStep(8);
     }
   };
 
@@ -576,7 +488,8 @@ export default function OwnerWelcome() {
     hasContractorStripe: draft.hasContractorStripe,
     hasEditorStripe: draft.hasEditorStripe,
     stripeReady: draft.stripeReady,
-    packagePrice: draft.price4.trim() && draft.price8.trim() ? draft.price8 : "",
+    packagePrice: draft.packageSkipped ? "" : draft.price4.trim() && draft.price8.trim() ? draft.price8 : "",
+    packageSkipped: draft.packageSkipped,
   };
   const checks = setupChecks(snapshot);
   const finished = setupComplete(snapshot);
@@ -589,6 +502,10 @@ export default function OwnerWelcome() {
   };
 
   const next = async () => {
+    if (step === 7 && !draft.packageSkipped && !(draft.price4.trim() && draft.price8.trim())) {
+      setNotice("Approve these prices, or skip this and talk to Nik.");
+      return;
+    }
     if (step === 1 || step === 2 || step === 7) {
       const ok = await saveStudio();
       if (!ok && !locked) return;
@@ -856,26 +773,14 @@ export default function OwnerWelcome() {
         {step === 7 && (
           <div className="space-y-4">
             <AssistantSays>
-              Pick a 4-hour package and an 8-hour package. I'd open with the same prices Honeysuckle uses, then you can change them. The margin under that is an estimate.
+              These are the starting prices for a new territory. Look at the margin, then approve them. If they are not right, talk to Nik and skip this for now.
             </AssistantSays>
             <PricingStep
-            where={cities.join(", ") || draft.state || "this area"}
-            looking={looking}
-            market={market}
-            suggestion={honeysuckleStarter}
-            price4={draft.price4}
-            price8={draft.price8}
-            deposit={draft.deposit}
-            onLookup={lookUpMarket}
-            onUseSuggestion={() => {
-              set("price4", String(honeysuckleStarter.four));
-              set("price8", String(honeysuckleStarter.eight));
-              set("deposit", String(honeysuckleStarter.deposit));
-            }}
-            onPrice4={(value) => set("price4", value)}
-            onPrice8={(value) => set("price8", value)}
-            onDeposit={(value) => set("deposit", value)}
-          />
+              approved={Boolean(draft.price4.trim() && draft.price8.trim() && !draft.packageSkipped)}
+              skipped={draft.packageSkipped}
+              onApprove={approvePrices}
+              onSkip={skipPrices}
+            />
           </div>
         )}
 
@@ -883,9 +788,23 @@ export default function OwnerWelcome() {
           <div className="space-y-4">
             <AssistantSays>
               {finished
-                ? "That's everything I need from you. The dashboard is yours."
-                : "A few things are still open. I'll keep this here until they're done. You can't skip them."}
+                ? draft.packageSkipped
+                  ? "Setup can move on. Pricing is still a conversation with Nik before those packages go out."
+                  : "That's everything I need from you. The dashboard is yours."
+                : "These are still open. Go back to the step and finish it. Stripe and Facebook have to be marked before you leave."}
             </AssistantSays>
+            {!finished && (
+              <div className="space-y-2 pl-11">
+                {checks.filter((item) => !item.done).map((item) => (
+                  <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl border border-stone-200 px-4 py-3 dark:border-stone-800">
+                    <p className="text-sm text-stone-800 dark:text-stone-100">{item.label} is not done.</p>
+                    <Button type="button" size="sm" variant="outline" onClick={() => setStep(STEP_FOR[item.id] ?? 0)}>
+                      Go to {STEPS[STEP_FOR[item.id] ?? 0]}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

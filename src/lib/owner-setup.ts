@@ -15,6 +15,7 @@ export type SetupSnapshot = {
   hasEditorStripe: boolean;
   stripeReady: boolean;
   packagePrice: string;
+  packageSkipped?: boolean;
 };
 
 export function setupChecks(input: SetupSnapshot) {
@@ -23,7 +24,7 @@ export function setupChecks(input: SetupSnapshot) {
     { id: "name", label: "Business name", done: name.length > 1 && name !== input.areaName.trim() },
     { id: "cities", label: "Cities", done: input.regions.length > 0 },
     { id: "timezone", label: "Timezone", done: !!input.timezone.trim() },
-    { id: "package", label: "Starter prices", done: !!input.packagePrice.trim() },
+    { id: "package", label: input.packageSkipped ? "Starter prices, talking with Nik" : "Starter prices", done: !!input.packagePrice.trim() || !!input.packageSkipped },
     { id: "logo", label: "Logo", done: /^https?:\/\//.test(input.logoUrl || "") },
     { id: "ovanta", label: "Ovanta signup", done: input.ovantaSignedUp || input.hasOvanta },
     { id: "stripe", label: "Stripe account", done: input.stripeReady || (input.hasContractorStripe && input.hasEditorStripe) },
@@ -51,7 +52,7 @@ export function pricesIn(text: string) {
     .filter((amount) => amount >= 400 && amount <= 20000);
 }
 
-export const honeysuckleStarter = { four: 1600, eight: 1950, deposit: 99 };
+export const newTerritoryPricing = { four: 1600, eight: 1950, deposit: 99 };
 
 export function suggestPricing(published: number[]) {
   const sorted = [...published].sort((a, b) => a - b);

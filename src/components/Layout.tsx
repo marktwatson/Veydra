@@ -332,6 +332,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         hasEditorStripe: Boolean(territoryResult.data?.editor_payout_stripe_key),
         stripeReady: Boolean(settings?.owner_setup?.stripe_ready),
         packagePrice: settings?.owner_setup?.package?.price || localStorage.getItem(ownerPackageKey(areaId)) || "",
+        packageSkipped: Boolean(settings?.owner_setup?.package_skipped),
       });
       if (done) return;
       navigate("/manager/welcome", { replace: true });
