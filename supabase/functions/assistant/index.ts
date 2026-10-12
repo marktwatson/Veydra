@@ -1238,6 +1238,15 @@ async function ovantaReport(db: any, territoryId: string) {
   };
 }
 
+function changeRisk(method: string, path: string) {
+  const normalized = path.toLowerCase();
+  if (method === "DELETE") return "This deletes data. The assistant cannot undo it.";
+  if (/bulk|snapshot|workflow|campaign/.test(normalized)) return "This can change many records at once, not one person.";
+  if (/\/pipelines(\/|$)/.test(normalized)) return "This changes a pipeline. Deals already in it can land in the wrong stage.";
+  if ((method === "PUT" || method === "PATCH") && !/\/[0-9a-z]{10,}/i.test(path)) return "This does not name one record, so it can change more than you asked for.";
+  return "";
+}
+
 async function ovantaRequest(db: any, territoryId: string, args: any) {
   const { data: settings } = await db
     .from("portal_settings")
@@ -1269,6 +1278,7 @@ async function ovantaRequest(db: any, territoryId: string, args: any) {
   if (body && "altId" in body) body.altId = locationId;
   if (method !== "GET" && args?.confirm !== true) {
     const summary = `${method} ${path}`;
+    const risk = changeRisk(method, path);
     const saved = await db.from("assistant_pending").insert({
       user_id: args?.userId || null,
       territory_id: territoryId,
@@ -1283,8 +1293,17 @@ async function ovantaRequest(db: any, territoryId: string, args: any) {
         would: summary,
       };
     }
+    if (risk) {
+      return {
+        needs_confirm: true,
+        risk: "high",
+        would: summary,
+        warning: `Stop. This can break live data for this company.\n\n${risk}\n\nIt would run ${summary}.\n\nReply yes only if you still want that. Anything else and it will not run.`,
+      };
+    }
     return {
       needs_confirm: true,
+      risk: "normal",
       would: summary,
       body: body || null,
       say: "Tell them exactly what will change and ask them to reply yes. Do not say it already happened.",
@@ -1848,6 +1867,7 @@ You cannot send a text or email, add or edit Ovanta users, or touch another loca
         });
       }
       chat.push(message);
+      let warning = "";
       for (const call of calls) {
         let args = {};
         try {
@@ -1856,11 +1876,15 @@ You cannot send a text or email, add or edit Ovanta users, or touch another loca
           args = {};
         }
         const result = await runTool(db, territoryId, call.function?.name, args, cache, userData.user.id, apiKey);
+        if (result?.risk === "high" && result?.warning) warning = result.warning;
         chat.push({
           role: "tool",
           tool_call_id: call.id,
           content: JSON.stringify(result),
         });
+      }
+      if (warning) {
+        return jsonResp({ reply: warning, area: area?.name || null, company: settings?.company_name || null });
       }
     }
     return jsonResp({ reply: (!aboutOvanta && noteReply) || "I could not finish that from this area's records." });
