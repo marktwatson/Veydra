@@ -165,21 +165,36 @@ export default function SetupPassword() {
             "read_only",
           ].includes(role)
         ) {
-          const { data: existingMgr } = await supabase
+          const { data: existingRows, error: lookupError } = await supabase
             .from("managers")
-            .select("role")
-            .ilike("email", cleanEmail)
-            .maybeSingle();
-          const finalRole = existingMgr?.role || role;
+            .select("id, role, name, territory_id, territory_ids, status")
+            .ilike("email", cleanEmail);
+          if (lookupError) {
+            throw new Error(
+              `DB Error (${lookupError.code || "unknown"}): ${lookupError.message}`,
+            );
+          }
+          const rows = existingRows || [];
+          const invited =
+            rows.find((row) => row.status === "invited") || rows[0];
+          const finalRole = invited?.role || role;
+          const home = invited?.territory_id || null;
+          const areas = new Set<string>();
+          if (home) areas.add(home);
+          for (const areaId of invited?.territory_ids || []) {
+            if (areaId) areas.add(areaId);
+          }
 
           const { error: insertError } = await supabase
             .from("managers")
             .upsert({
               id: userId,
               email: cleanEmail,
-              name: name || cleanEmail.split("@")[0],
+              name: name || invited?.name || cleanEmail.split("@")[0],
               role: finalRole,
               status: "active",
+              territory_id: home,
+              territory_ids: Array.from(areas),
             });
 
           if (insertError) {
@@ -188,6 +203,12 @@ export default function SetupPassword() {
               `DB Error (${insertError.code || "unknown"}): ${insertError.message}`,
             );
           }
+
+          await supabase
+            .from("managers")
+            .delete()
+            .ilike("email", cleanEmail)
+            .neq("id", userId);
         } else if (role === "editor") {
           const { error: insertError } = await supabase.from("editors").upsert({
             id: userId,

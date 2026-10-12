@@ -96,10 +96,19 @@ export function TeamAddAdminDialog({
       return;
     }
 
-    // Super admin picks the area; non-super-admins default to their own area.
+    if (user?.role === "super_admin" && !newAdmin.territory_id) {
+      toast({
+        title: "Pick an area",
+        description: "Choose the area this person is allowed to see. A blank area is not Tennessee.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Super admin picks the area. Anyone else is limited to their own area.
     let territoryId: string;
     if (user?.role === "super_admin") {
-      territoryId = newAdmin.territory_id || HONEYSUCKLE_TERRITORY_ID;
+      territoryId = newAdmin.territory_id;
     } else {
       territoryId =
         (await getManagerTerritoryIdRaw()) || HONEYSUCKLE_TERRITORY_ID;
@@ -123,6 +132,7 @@ export function TeamAddAdminDialog({
       email: newAdmin.email,
       status: "invited",
       territory_id: territoryId,
+      territory_ids: [territoryId],
     };
 
     setSubmitting(true);
