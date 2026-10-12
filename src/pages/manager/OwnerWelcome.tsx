@@ -638,7 +638,7 @@ export default function OwnerWelcome() {
         {step === 0 && (
           <div className="space-y-4">
             <p className="text-lg leading-relaxed text-stone-700 dark:text-stone-300">
-              We'll set the studio name, the cities, a first package, a mark, and the Ovanta connection. You can leave and come back. Nothing goes live for brides until you publish it yourself.
+              We'll set the studio name, the cities, a first package, and a mark. You can leave and come back. Nothing goes live for brides until you publish it yourself.
             </p>
             <p className="text-sm text-stone-500">Signed in as {user?.email}</p>
           </div>
@@ -711,24 +711,33 @@ export default function OwnerWelcome() {
         {step === 3 && (
           <div className="space-y-4">
             <p className="text-stone-700 dark:text-stone-300">
-              Ovanta is where their leads live. They start it on Ovanta's page, then come back with the location id and the private integration token.
+              Ovanta is where the leads live. Start the account on Ovanta's page. You will not see a location id or a private token. Mark connects those after the account exists.
             </p>
             <a href={OVANTA_OFFER} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm font-medium underline">
               Launch Your Territory <ExternalLink className="h-3.5 w-3.5" />
             </a>
-            <div className="space-y-2">
-              <Label htmlFor="location-id">Location id</Label>
-              <Input id="location-id" value={draft.locationId} onChange={(event) => set("locationId", event.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="api-key">Private integration token</Label>
-              <Input id="api-key" type="password" value={draft.apiKey} onChange={(event) => set("apiKey", event.target.value)} />
-            </div>
-            <Button type="button" onClick={testOvanta} disabled={saving}>
-              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Test and save
-            </Button>
-            <p className="text-xs text-stone-500">This has to be saved before the setup is finished.</p>
+            {draft.ovantaConnected ? (
+              <p className="text-sm text-stone-600 dark:text-stone-300">This area is already connected{draft.ovantaName ? ` to ${draft.ovantaName}` : ""}.</p>
+            ) : (
+              <p className="text-sm text-stone-500">Not connected yet. That does not hold up the rest of this setup.</p>
+            )}
+            {isSuper && (
+              <div className="space-y-4 border-t border-stone-200 pt-4 dark:border-stone-800">
+                <p className="text-sm text-stone-500">Only you see this. Paste the location id and the private token when you have them.</p>
+                <div className="space-y-2">
+                  <Label htmlFor="location-id">Location id</Label>
+                  <Input id="location-id" value={draft.locationId} onChange={(event) => set("locationId", event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="api-key">Private integration token</Label>
+                  <Input id="api-key" type="password" value={draft.apiKey} onChange={(event) => set("apiKey", event.target.value)} />
+                </div>
+                <Button type="button" onClick={testOvanta} disabled={saving}>
+                  {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Test and save
+                </Button>
+              </div>
+            )}
           </div>
         )}
 

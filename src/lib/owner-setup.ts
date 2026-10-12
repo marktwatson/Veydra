@@ -22,7 +22,6 @@ export function setupChecks(input: SetupSnapshot) {
     { id: "timezone", label: "Timezone", done: !!input.timezone.trim() },
     { id: "package", label: "Starter prices", done: !!input.packagePrice.trim() },
     { id: "logo", label: "Logo", done: /^https?:\/\//.test(input.logoUrl || "") },
-    { id: "ovanta", label: "Ovanta", done: input.hasOvanta },
     { id: "stripe", label: "Stripe payouts", done: input.hasContractorStripe && input.hasEditorStripe },
     { id: "facebook", label: "Facebook ads", done: input.hasFacebook },
   ];
