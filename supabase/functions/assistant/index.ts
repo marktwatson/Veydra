@@ -214,7 +214,7 @@ async function areaSnapshot(db: any, territoryId: string, args: any) {
   const [{ data: area }, { data: settings }, { data: jobs }, { data: proposals }, weddingLoad] = await Promise.all([
     db.from("territories").select("name").eq("id", territoryId).maybeSingle(),
     db.from("portal_settings").select("company_name, timezone").eq("territory_id", territoryId).limit(1).maybeSingle(),
-    db.from("jobs").select("role").eq("territory_id", territoryId).eq("status", "open"),
+    db.from("jobs").select("role, wedding_id").eq("territory_id", territoryId).eq("status", "open"),
     db.from("proposals").select("client_name, wedding_id, status, total_amount, amount_paid_so_far, contract_signed_at, wedding_date").eq("territory_id", territoryId).limit(2000),
     loadAreaWeddings(db, territoryId),
   ]);
@@ -318,9 +318,40 @@ async function areaSnapshot(db: any, territoryId: string, args: any) {
       }))
     : inRange;
   const editing = ["ready_to_edit", "in_progress", "revisions_requested", "client_review"];
+  const editQueue = rows
+    .filter((row: any) => {
+      if (row.status !== "upcoming" && row.status !== "completed") return false;
+      if (String(row.notes || "").includes("[UNPAID_DRAFT]")) return false;
+      const status = row.editing_status || "awaiting_raw_media";
+      if (status === "delivered") return false;
+      if (status === "ready_to_edit" || status === "in_progress") return true;
+      return status === "awaiting_raw_media" && row.date && row.date <= today;
+    })
+    .sort((a: any, b: any) => String(b.date).localeCompare(String(a.date)))
+    .slice(0, 12)
+    .map((row: any) => ({
+      name: row.client_name,
+      date: row.date,
+      status: row.editing_status || "awaiting_raw_media",
+    }));
+  const proposalsWaiting = (proposals || [])
+    .filter((row: any) => !["accepted", "archived", "booked", "expired"].includes(String(row.status || "").toLowerCase()))
+    .slice(0, 12)
+    .map((row: any) => ({
+      name: row.client_name,
+      status: row.status,
+      total: Number(row.total_amount || 0),
+      wedding_date: row.wedding_date,
+    }));
+  const openPositions = (jobs || []).slice(0, 12).map((job: any) => ({
+    role: job.role,
+    couple: byId.get(job.wedding_id)?.client_name || null,
+    date: byId.get(job.wedding_id)?.date || null,
+  }));
   return {
     area: area?.name || territoryId,
     company: settings?.company_name || null,
+    today,
     range: range.label,
     from: range.from,
     to: range.to,
@@ -361,6 +392,9 @@ async function areaSnapshot(db: any, territoryId: string, args: any) {
     payments_received: paymentsReceived.slice(0, 30),
     payment_audit_collected_all_time: Math.round(sales.reduce((sum: number, row: any) => sum + Number(row.paid_amount || 0), 0) * 100) / 100,
     open_jobs: (jobs || []).length,
+    open_positions: openPositions,
+    proposals_waiting: proposalsWaiting,
+    edit_queue: editQueue,
     editing_now: sales.filter((row: any) => editing.includes(row.editing_status)).length,
     next_weddings: sales
       .filter((row: any) => row.date >= today && row.status === "upcoming")
@@ -626,8 +660,74 @@ const TOOLS = [
   },
 ];
 
-async function runTool(db: any, territoryId: string, name: string, args: any) {
-  if (name === "area_snapshot" || name === "payment_audit") return areaSnapshot(db, territoryId, args);
+function deskLines(rows: any[], render: (row: any) => string, empty: string) {
+  if (!rows?.length) return empty;
+  return rows.map(render).join("\n");
+}
+
+function formatDesk(snap: any) {
+  const money = (amount: number) => `$${Number(amount || 0).toLocaleString("en-US")}`;
+  const booked = deskLines(
+    snap.weddings,
+    (row) => `- **${row.name}**, booked ${row.booked_on}, package ${money(row.total)}`,
+    "- None",
+  );
+  const overdue = deskLines(
+    snap.overdue?.rows,
+    (row) => `- **${row.name}**, due ${row.date}, ${money(row.due)} still unpaid`,
+    "- None",
+  );
+  const incoming = deskLines(
+    (snap.incoming_30?.rows || []).slice(0, 8),
+    (row) => `- **${row.name}**, ${row.label}, due ${row.date}, ${money(row.due)}`,
+    "- None",
+  );
+  const extraIncoming = Math.max(0, Number(snap.incoming_30?.count || 0) - 8);
+  const edits = deskLines(
+    snap.edit_queue,
+    (row) => `- **${row.name}**, ${row.date}, ${String(row.status).replace(/_/g, " ")}`,
+    "- None",
+  );
+  const jobs = deskLines(
+    snap.open_positions,
+    (row) => `- ${row.role} for **${row.couple || "an unlinked wedding"}**, ${row.date || "no date"}`,
+    "- None",
+  );
+  const proposals = deskLines(
+    snap.proposals_waiting,
+    (row) => `- **${row.name}**, ${row.status}, ${money(row.total)}`,
+    "- None",
+  );
+  return `Desk for ${snap.company || "this company"} in ${snap.area}. Today is ${snap.today}. These rows are already loaded. Answer from them. Do not say a list is empty when names are written here. Do not call a tool unless they name one couple or ask for a different date range.
+
+Past due: ${snap.overdue?.count || 0} payments, ${money(snap.overdue?.amount)}.
+${overdue}
+
+Booked this week (${snap.range}): ${snap.booked_count || 0} new bookings, package value ${money(snap.booked_value)}.
+${booked}
+
+Due in the next 30 days: ${snap.incoming_30?.count || 0} payments, ${money(snap.incoming_30?.amount)}.
+${incoming}${extraIncoming ? `\n- and ${extraIncoming} more` : ""}
+
+Waiting on an edit:
+${edits}
+
+Open positions: ${snap.open_jobs || 0}.
+${jobs}
+
+Proposals still waiting, not booked:
+${proposals}`;
+}
+
+async function runTool(db: any, territoryId: string, name: string, args: any, cache?: Map<string, Promise<any>>) {
+  if (name === "area_snapshot" || name === "payment_audit") {
+    const period = String(args?.period || "all");
+    const key = `${period}|${args?.from || ""}|${args?.to || ""}`;
+    if (cache?.has(key)) return cache.get(key);
+    const pending = areaSnapshot(db, territoryId, args);
+    cache?.set(key, pending);
+    return pending;
+  }
   if (name === "find_wedding") return findWedding(db, territoryId, String(args?.name || ""));
   if (name === "area_records") return areaRecords(db, territoryId, String(args?.kind || ""));
   if (name === "help") return findHelp(String(args?.query || ""));
@@ -687,7 +787,7 @@ serve(async (req) => {
 
 Think, then write for a phone. Short lines. Put a blank line between ideas. When you name people or amounts, use a bullet list, one person per line, as "- **Name**, date, amount". Bold only the name. Do not write a wall of text. No tables. No field names.
 
-Facts still come from tools. For what was booked or paid, call payment_audit. For money due, call payment_audit. overdue is already past the due date. Name those people and the amount first. incoming_30 is only the next 30 days and is not the overdue list. Never say nothing is past due when overdue.count is above zero. A row with is_first true is a new booking. Say first payment. Never say is_first or audit_paid to the user. For how to do something, call help and repeat that article. Do not swap in a different screen. A wedding that is finished but not edited is Post-Production: Drive link, Ready to Edit, then the editor. That is not a portal reminder. If they ask what might still book, call area_records with proposals and name only still_out. Never invent a number, a name, or a date.
+Facts still come from the desk below. overdue is already past the due date. Name those people and the amount first. incoming rows are only the next 30 days. A booked row this week is a new booking, the first payment, and the package value is not the cash collected. For how to do something, call help and repeat that article. Do not swap in a different screen. A wedding that is finished but not edited is Post-Production: Drive link, Ready to Edit, then the editor. That is not a portal reminder. If they name one couple, call find_wedding. Never invent a number, a name, or a date.
 
 You cannot change records, send messages, or pay anyone. You can tell them the next click.`,
       },
@@ -708,6 +808,17 @@ You cannot change records, send messages, or pay anyone. You can tell them the n
       ? notes.articles.map((article: any) => article.steps).join("\n\n")
       : "";
 
+    const cache = new Map<string, Promise<any>>();
+    const deskKey = "this_week||";
+    cache.set(deskKey, areaSnapshot(db, territoryId, { period: "this_week" }));
+    let deskText = "The desk could not load. Say that. Do not invent a number.";
+    try {
+      deskText = formatDesk(await cache.get(deskKey));
+    } catch (deskError: any) {
+      deskText = `The desk could not load: ${deskError?.message || "unknown error"}. Say that. Do not invent a number.`;
+    }
+    chat[0].content += `\n\n${deskText}`;
+
     const model = Deno.env.get("ASSISTANT_MODEL") || "grok-3";
     for (let round = 0; round < 3; round++) {
       const res = await fetch("https://api.x.ai/v1/chat/completions", {
@@ -718,7 +829,7 @@ You cannot change records, send messages, or pay anyone. You can tell them the n
         },
         body: JSON.stringify({
           model,
-          temperature: 0.4,
+          temperature: 0.2,
           max_tokens: 700,
           messages: chat,
           tools: TOOLS,
@@ -753,7 +864,7 @@ You cannot change records, send messages, or pay anyone. You can tell them the n
         } catch {
           args = {};
         }
-        const result = await runTool(db, territoryId, call.function?.name, args);
+        const result = await runTool(db, territoryId, call.function?.name, args, cache);
         chat.push({
           role: "tool",
           tool_call_id: call.id,
