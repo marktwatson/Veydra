@@ -8,6 +8,7 @@ export type SetupSnapshot = {
   timezone: string;
   logoUrl: string;
   hasOvanta: boolean;
+  ovantaSignedUp: boolean;
   hasFacebook: boolean;
   hasContractorStripe: boolean;
   hasEditorStripe: boolean;
@@ -22,6 +23,7 @@ export function setupChecks(input: SetupSnapshot) {
     { id: "timezone", label: "Timezone", done: !!input.timezone.trim() },
     { id: "package", label: "Starter prices", done: !!input.packagePrice.trim() },
     { id: "logo", label: "Logo", done: /^https?:\/\//.test(input.logoUrl || "") },
+    { id: "ovanta", label: "Ovanta signup", done: input.ovantaSignedUp || input.hasOvanta },
     { id: "stripe", label: "Stripe payouts", done: input.hasContractorStripe && input.hasEditorStripe },
     { id: "facebook", label: "Facebook ads", done: input.hasFacebook },
   ];

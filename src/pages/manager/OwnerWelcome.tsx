@@ -27,6 +27,7 @@ type Draft = {
   locationId: string;
   apiKey: string;
   ovantaConnected: boolean;
+  ovantaSignedUp: boolean;
   ovantaName: string;
   fbAdAccount: string;
   fbToken: string;
@@ -50,6 +51,7 @@ const emptyDraft: Draft = {
   locationId: "",
   apiKey: "",
   ovantaConnected: false,
+  ovantaSignedUp: false,
   ovantaName: "",
   fbAdAccount: "",
   fbToken: "",
@@ -295,6 +297,7 @@ export default function OwnerWelcome() {
         logoUrl: settings?.logo_url || "",
         locationId: settings?.hl_location_id || "",
         ovantaConnected: Boolean(settings?.hl_api_key && settings?.hl_location_id),
+        ovantaSignedUp: Boolean(settings?.owner_setup?.ovanta_signed_up),
         fbAdAccount: settings?.fb_ad_account_id || "",
         fbConnected: Boolean(settings?.fb_ad_account_id && settings?.fb_access_token),
         hasContractorStripe: Boolean(area?.contractor_payout_stripe_key),
@@ -309,6 +312,7 @@ export default function OwnerWelcome() {
       next.fbToken = "";
       if (settings?.company_name && settings.company_name !== area?.name) next.businessName = settings.company_name;
       if (settings?.hl_api_key && settings?.hl_location_id) next.ovantaConnected = true;
+      if (settings?.owner_setup?.ovanta_signed_up) next.ovantaSignedUp = true;
       if (area?.contractor_payout_stripe_key) next.hasContractorStripe = true;
       if (settings?.fb_ad_account_id && settings?.fb_access_token) next.fbConnected = true;
       if ((count || 0) === 0) {
@@ -365,6 +369,7 @@ export default function OwnerWelcome() {
           photoHours: "4",
           videoHours: "8",
         },
+        ovanta_signed_up: draft.ovantaSignedUp,
       },
     };
     let { error } = await supabase.from("portal_settings").update(payload).eq("territory_id", territoryId);
@@ -563,6 +568,25 @@ export default function OwnerWelcome() {
     }
   };
 
+  const confirmOvanta = async () => {
+    set("ovantaSignedUp", true);
+    setNotice("");
+    if (!territoryId || locked) return;
+    const { data } = await supabase.from("portal_settings").select("owner_setup").eq("territory_id", territoryId).maybeSingle();
+    const { error } = await supabase
+      .from("portal_settings")
+      .update({
+        owner_setup: {
+          ...(data?.owner_setup || {}),
+          started: true,
+          ovanta_signed_up: true,
+          ovanta_signed_up_at: new Date().toISOString(),
+        },
+      })
+      .eq("territory_id", territoryId);
+    setNotice(error ? error.message : "Marked as signed up. Mark will connect it.");
+  };
+
   const snapshot: SetupSnapshot = {
     companyName: draft.businessName,
     areaName,
@@ -570,6 +594,7 @@ export default function OwnerWelcome() {
     timezone: draft.timezone,
     logoUrl: draft.logoUrl,
     hasOvanta: draft.ovantaConnected,
+    ovantaSignedUp: draft.ovantaSignedUp,
     hasFacebook: draft.fbConnected,
     hasContractorStripe: draft.hasContractorStripe,
     hasEditorStripe: draft.hasEditorStripe,
@@ -711,15 +736,17 @@ export default function OwnerWelcome() {
         {step === 3 && (
           <div className="space-y-4">
             <p className="text-stone-700 dark:text-stone-300">
-              Ovanta is where the leads live. Start the account on Ovanta's page. You will not see a location id or a private token. Mark connects those after the account exists.
+              Open Ovanta, create the account, and pay there. Come back to this page and confirm it. You will not see a location id or a private token. Mark connects those after you confirm.
             </p>
             <a href={OVANTA_OFFER} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm font-medium underline">
               Launch Your Territory <ExternalLink className="h-3.5 w-3.5" />
             </a>
             {draft.ovantaConnected ? (
               <p className="text-sm text-stone-600 dark:text-stone-300">This area is already connected{draft.ovantaName ? ` to ${draft.ovantaName}` : ""}.</p>
+            ) : draft.ovantaSignedUp ? (
+              <p className="text-sm text-stone-600 dark:text-stone-300">You confirmed the signup. Mark still has to connect it.</p>
             ) : (
-              <p className="text-sm text-stone-500">Not connected yet. That does not hold up the rest of this setup.</p>
+              <Button type="button" onClick={confirmOvanta}>I signed up</Button>
             )}
             {isSuper && (
               <div className="space-y-4 border-t border-stone-200 pt-4 dark:border-stone-800">

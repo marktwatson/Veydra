@@ -325,6 +325,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         timezone: settings?.timezone || "",
         logoUrl: settings?.logo_url || "",
         hasOvanta: Boolean(settings?.hl_api_key && settings?.hl_location_id),
+        ovantaSignedUp: Boolean(settings?.owner_setup?.ovanta_signed_up),
         hasFacebook: Boolean(settings?.fb_ad_account_id && settings?.fb_access_token),
         hasContractorStripe: Boolean(territoryResult.data?.contractor_payout_stripe_key),
         hasEditorStripe: Boolean(territoryResult.data?.editor_payout_stripe_key),
