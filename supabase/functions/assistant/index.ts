@@ -861,20 +861,20 @@ async function crmPost(key: string, url: string, payload: any) {
 
 async function openOpportunities(key: string, locationId: string) {
   const rows: any[] = [];
-  let startAfter: unknown = undefined;
-  let startAfterId: unknown = undefined;
+  let startAfter = "";
+  let startAfterId = "";
   for (let page = 0; page < 3; page++) {
-    const payload: any = { locationId, limit: 100, status: "open" };
-    if (startAfter) payload.startAfter = startAfter;
-    if (startAfterId) payload.startAfterId = startAfterId;
-    const res = await crmPost(key, "https://services.leadconnectorhq.com/opportunities/search", payload);
-    if (!res.ok) return { rows, error: res.body?.message || res.status, capped: false };
+    const params = new URLSearchParams({ locationId, limit: "100", status: "open" });
+    if (startAfter) params.set("startAfter", startAfter);
+    if (startAfterId) params.set("startAfterId", startAfterId);
+    const res = await crmGet(key, `https://services.leadconnectorhq.com/opportunities/search?${params}`);
+    if (!res.ok) return { rows, error: res.body?.message || res.body?.error || `Ovanta returned ${res.status}`, capped: false };
     const batch = res.body?.opportunities || res.body?.data || [];
     rows.push(...batch);
     const meta = res.body?.meta || {};
     if (!meta.startAfterId || batch.length < 100) return { rows, error: null, capped: false };
-    startAfter = meta.startAfter;
-    startAfterId = meta.startAfterId;
+    startAfter = String(meta.startAfter || "");
+    startAfterId = String(meta.startAfterId || "");
   }
   return { rows, error: null, capped: true };
 }
@@ -950,7 +950,7 @@ async function ovantaReport(db: any, territoryId: string) {
     !savedCalendar ? "No interview calendar is chosen in Settings, Integrations." : "",
     savedCalendar && !interview ? "The saved interview calendar is not in this Ovanta account." : "",
     !pipelines.ok ? "Pipelines could not be read." : "",
-    opportunities.error ? "Open deals could not be counted." : "",
+    opportunities.error ? `Open deals could not be counted: ${opportunities.error}` : "",
   ].filter(Boolean);
   return {
     connected: location.ok || calendars.ok || contacts.ok,
@@ -961,6 +961,7 @@ async function ovantaReport(db: any, territoryId: string) {
     pipelines: pipelineAudit,
     deals_read: opportunities.rows.length,
     deals_capped: opportunities.capped,
+    deals_error: opportunities.error,
     recent_contacts: recent,
     setup_missing: missing,
     cannot: "Cannot add or edit Ovanta users, send a text or email, or touch another location.",
