@@ -12,7 +12,7 @@ import { largestCities, peopleLabel, studioNameIdeas, timezoneFor } from "@/lib/
 
 const STEPS = ["You", "Name", "Cities", "Mark", "Ovanta", "Stripe", "Facebook", "Pricing", "Done"];
 const OVANTA_OFFER = "https://ovanta.io/wedding-biz-offer-page";
-const ONBOARDING_CALL = "https://links.ovanta.io/widget/booking/txipZH9W1rzmBoPGVEU9";
+const ONBOARDING_CALL = "https://links.ovanta.io/widget/bookings/ovanta-walkthrough";
 const MARK_EMAIL = "mark@kavoddigital.com";
 
 type Draft = {
