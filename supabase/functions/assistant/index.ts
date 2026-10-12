@@ -113,7 +113,7 @@ async function areaSnapshot(db: any, territoryId: string, args: any) {
   const [{ data: area }, { data: settings }, { data: weddings }, { data: jobs }, { data: proposals }] = await Promise.all([
     db.from("territories").select("name").eq("id", territoryId).maybeSingle(),
     db.from("portal_settings").select("company_name, timezone").eq("territory_id", territoryId).limit(1).maybeSingle(),
-    db.from("weddings").select("id, client_name, date, status, notes, total_amount, paid_amount, editing_status, created_at, contract_signed_at, contract_date").eq("territory_id", territoryId).limit(2000),
+    db.from("weddings").select("id, client_name, date, status, notes, total_amount, paid_amount, editing_status, created_at, contract_signed_at, contract_date, offplatform_status, offplatform_amount, offplatform_claimed_at").eq("territory_id", territoryId).limit(2000),
     db.from("jobs").select("role").eq("territory_id", territoryId).eq("status", "open"),
     db.from("proposals").select("client_name, wedding_id, status, total_amount, amount_paid_so_far, contract_signed_at, wedding_date").eq("territory_id", territoryId).limit(2000),
   ]);
@@ -128,16 +128,48 @@ async function areaSnapshot(db: any, territoryId: string, args: any) {
     }
   }
   const firstPayment = new Map<string, string>();
+  const paymentsReceived: any[] = [];
   const weddingIds = rows.map((row: any) => row.id);
+  const byId = new Map(rows.map((row: any) => [row.id, row]));
+  const inWindow = (day: string) => !!range.from && !!day && day >= range.from && day <= range.to;
   for (let index = 0; index < weddingIds.length; index += 200) {
-    const { data: payments } = await db
-      .from("ghl_invoice_payments")
-      .select("wedding_id, created_at")
-      .in("wedding_id", weddingIds.slice(index, index + 200));
+    const slice = weddingIds.slice(index, index + 200);
+    const [{ data: payments }, { data: adjustments }] = await Promise.all([
+      db.from("ghl_invoice_payments").select("wedding_id, amount, created_at").in("wedding_id", slice),
+      db.from("payment_manual_adjustments").select("wedding_id, amount, created_at, reason").in("wedding_id", slice),
+    ]);
     for (const payment of payments || []) {
       const day = isoDay(payment.created_at, timeZone);
       const previous = firstPayment.get(payment.wedding_id);
       if (day && (!previous || day < previous)) firstPayment.set(payment.wedding_id, day);
+      if (inWindow(day)) {
+        const wedding = byId.get(payment.wedding_id);
+        paymentsReceived.push({
+          name: wedding?.client_name,
+          date: day,
+          amount: Number(payment.amount || 0),
+          package_total: Number(wedding?.total_amount || 0),
+          source: "invoice",
+        });
+      }
+    }
+    for (const adjustment of adjustments || []) {
+      const day = isoDay(adjustment.created_at, timeZone);
+      const amount = Number(adjustment.amount || 0);
+      if (amount > 0) {
+        const previous = firstPayment.get(adjustment.wedding_id);
+        if (day && (!previous || day < previous)) firstPayment.set(adjustment.wedding_id, day);
+      }
+      if (inWindow(day) && amount !== 0) {
+        const wedding = byId.get(adjustment.wedding_id);
+        paymentsReceived.push({
+          name: wedding?.client_name,
+          date: day,
+          amount,
+          package_total: Number(wedding?.total_amount || 0),
+          source: adjustment.reason || "marked in payment audit",
+        });
+      }
     }
   }
   const sales = rows
@@ -147,10 +179,19 @@ async function areaSnapshot(db: any, territoryId: string, args: any) {
       return ["pending", "upcoming", "completed"].includes(row.status) || Number(row.paid_amount) > 0;
     })
     .map((row: any) => {
-      const day = isoDay(row.contract_date, timeZone) || signByWedding.get(row.id) || firstPayment.get(row.id) || isoDay(row.created_at, timeZone);
-      return { ...row, contract_signed_at: day, date: row.date };
+      const markers = [
+        isoDay(row.contract_date, timeZone),
+        signByWedding.get(row.id) || "",
+        firstPayment.get(row.id) || "",
+        isoDay(row.offplatform_claimed_at, timeZone),
+      ].filter(Boolean);
+      const day = markers[0] || isoDay(row.created_at, timeZone);
+      const matched = range.from
+        ? markers.some((marker) => marker >= range.from && marker <= range.to) || (!markers.length && day >= range.from && day <= range.to)
+        : isBooked(row);
+      return { ...row, contract_signed_at: day, date: row.date, matched };
     });
-  const inRange = range.from ? sales.filter((row: any) => row.contract_signed_at >= range.from && row.contract_signed_at <= range.to) : sales.filter(isBooked);
+  const inRange = range.from ? sales.filter((row: any) => row.matched) : sales.filter(isBooked);
   const editing = ["ready_to_edit", "in_progress", "revisions_requested", "client_review"];
   const today = dayInZone(new Date(), timeZone).iso;
   return {
@@ -160,14 +201,17 @@ async function areaSnapshot(db: any, territoryId: string, args: any) {
     from: range.from,
     to: range.to,
     instruction: range.from
-      ? "booked_count is only this range. Name those couples. open_jobs is every open job, not this week, so do not mention it unless they asked."
+      ? "booked_count is couples whose contract, signature, or a payment falls in this range. payments_received is the Payment Audit cash in that same range. Name the couples. Do not mention open_jobs unless asked."
       : "These numbers are all booked weddings, not a week or a month. Say that they are all-time.",
     definitions: {
       booked: "pending, upcoming, or completed weddings, excluding unpaid drafts",
-      booked_on: "contract date, otherwise the proposal signature, otherwise the first payment, otherwise the day the file was created",
+      booked_on: "contract date, signature, first payment, or an off-platform claim",
+      payments_received: "money recorded in Payment Audit during the range: invoices, mark paid, and off-platform",
       booked_value: "package total, not cash collected",
     },
     ...summarize(inRange),
+    payments_received: paymentsReceived.slice(0, 30),
+    payment_audit_collected_all_time: Math.round(sales.reduce((sum: number, row: any) => sum + Number(row.paid_amount || 0), 0) * 100) / 100,
     open_jobs: (jobs || []).length,
     editing_now: sales.filter((row: any) => editing.includes(row.editing_status)).length,
     next_weddings: sales
@@ -348,13 +392,28 @@ const TOOLS = [
     type: "function",
     function: {
       name: "area_snapshot",
-      description: "Money and counts for the selected area. Pass this_week or this_month when the question names a time. Use all only when they ask for everything.",
+      description: "Bookings and the Payment Audit ledger for this area. Pass this_week or this_month when they name a time. The result includes payments_received, which is the cash Payment Audit recorded in that range.",
       parameters: {
         type: "object",
         properties: {
           period: { type: "string", enum: ["this_week", "this_month", "all", "custom"] },
           from: { type: "string", description: "YYYY-MM-DD, only with custom" },
           to: { type: "string", description: "YYYY-MM-DD, only with custom" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "payment_audit",
+      description: "The Payment Audit screen for this area: cash recorded in the period, and the couples it belongs to. Use this for paid, collected, or what booked.",
+      parameters: {
+        type: "object",
+        properties: {
+          period: { type: "string", enum: ["this_week", "this_month", "all", "custom"] },
+          from: { type: "string" },
+          to: { type: "string" },
         },
       },
     },
@@ -400,7 +459,7 @@ const TOOLS = [
 ];
 
 async function runTool(db: any, territoryId: string, name: string, args: any) {
-  if (name === "area_snapshot") return areaSnapshot(db, territoryId, args);
+  if (name === "area_snapshot" || name === "payment_audit") return areaSnapshot(db, territoryId, args);
   if (name === "find_wedding") return findWedding(db, territoryId, String(args?.name || ""));
   if (name === "area_records") return areaRecords(db, territoryId, String(args?.kind || ""));
   if (name === "help") return findHelp(String(args?.query || ""));
@@ -460,7 +519,7 @@ serve(async (req) => {
 
 Think. After you have the rows, say what they mean: who is uncovered, what is late, what to do next, and how this week compares with a normal week if the rows support it. Talk like a person. A few sentences, not a spreadsheet.
 
-Facts still come from tools. Call help before explaining a screen, and do not invent a button. Call area_snapshot for money, and pass this_week or this_month when they name a period. Call find_wedding or area_records before you name a couple, a contractor, an open job, or a balance. If the tool returns nothing, say so. Never invent a number, a name, or a date.
+Facts still come from tools. Call help before explaining a screen, and do not invent a button. For bookings, sales, or payments, call area_snapshot. That result includes Payment Audit: payments_received is cash recorded in the range, and booked_count is couples tied to that range. Pass this_week or this_month when they name a period. If both lists are empty, say Payment Audit has nothing in that range. Call find_wedding or area_records before you name a contractor, an open job, or one couple. Never invent a number, a name, or a date.
 
 You cannot change records, send messages, or pay anyone. You can tell them the next click.`,
       },
