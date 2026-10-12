@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X, Loader2, ArrowUp } from "lucide-react";
 import { supabase, supabaseAnonKey, supabaseUrl } from "@/lib/supabase";
 import { currentTerritoryId } from "@/lib/current-territory";
@@ -69,8 +69,27 @@ export function AreaAssistant() {
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
-  const [areaLabel, setAreaLabel] = useState("");
+  const [company, setCompany] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      const territoryId = await currentTerritoryId();
+      if (!territoryId) return;
+      const { data } = await supabase
+        .from("portal_settings")
+        .select("company_name")
+        .eq("territory_id", territoryId)
+        .limit(1)
+        .maybeSingle();
+      if (!cancelled) setCompany(data?.company_name || "");
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   const ask = async (text?: string) => {
     const question = (text ?? draft).trim();
@@ -83,12 +102,6 @@ export function AreaAssistant() {
     try {
       const territoryId = await currentTerritoryId();
       if (!territoryId) throw new Error("Pick an area first.");
-      const { data: area } = await supabase
-        .from("territories")
-        .select("name")
-        .eq("id", territoryId)
-        .maybeSingle();
-      setAreaLabel(area?.name || "this area");
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
       if (!token) throw new Error("Sign in again.");
@@ -103,9 +116,7 @@ export function AreaAssistant() {
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload.error || "The assistant could not answer.");
-      if (payload.company || payload.area) {
-        setAreaLabel([payload.company, payload.area].filter(Boolean).join(" — "));
-      }
+      if (payload.company) setCompany(payload.company);
       setMessages((current) => [
         ...current,
         { role: "assistant", content: payload.reply || "I could not answer that." },
@@ -134,8 +145,6 @@ export function AreaAssistant() {
     );
   }
 
-  const place = areaLabel || "this area";
-
   return (
     <section className="fixed inset-0 z-50 flex flex-col bg-background md:inset-auto md:bottom-4 md:right-4 md:top-4 md:w-[32rem] md:overflow-hidden md:rounded-3xl md:border md:border-stone-200 md:shadow-2xl dark:md:border-stone-800">
       <header className="flex items-center gap-3 border-b border-stone-200 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] dark:border-stone-800 md:pt-4">
@@ -145,9 +154,9 @@ export function AreaAssistant() {
           className="h-11 w-11 shrink-0 rounded-full bg-stone-100 object-cover"
         />
         <div className="min-w-0 flex-1">
-          <p className="truncate font-serif text-lg leading-tight">{place}</p>
-          <p className="text-xs text-muted-foreground">
-            I can see this area. I cannot change it.
+          <p className="truncate font-serif text-lg leading-tight">Veydra Assistant</p>
+          <p className="truncate text-xs text-muted-foreground">
+            {company ? `Reading ${company}` : "Reading this company"}
           </p>
         </div>
         <button
@@ -164,7 +173,7 @@ export function AreaAssistant() {
         {messages.length === 0 && (
           <div className="space-y-4">
             <p className="max-w-[18rem] font-serif text-2xl leading-snug">
-              What do you need on {place}?
+              What do you need?
             </p>
             <p className="text-sm text-muted-foreground">
               Late payments, this week's bookings, or the next click. I only look at this company.
@@ -204,7 +213,7 @@ export function AreaAssistant() {
         ))}
         {pending && (
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3 w-3 animate-spin" /> Looking at {place}
+            <Loader2 className="h-3 w-3 animate-spin" /> Looking through {company || "this company"}
           </p>
         )}
         {error && <p className="text-sm text-red-600">{error}</p>}
