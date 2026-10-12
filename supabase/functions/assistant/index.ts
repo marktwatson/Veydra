@@ -908,6 +908,28 @@ async function openOpportunities(key: string, locationId: string) {
   return { rows, error: null, capped: true };
 }
 
+async function listWorkflows(db: any, territoryId: string) {
+  const { data: settings } = await db
+    .from("portal_settings")
+    .select("company_name, hl_api_key, hl_location_id")
+    .eq("territory_id", territoryId)
+    .limit(1)
+    .maybeSingle();
+  const key = String(settings?.hl_api_key || "").trim();
+  const locationId = String(settings?.hl_location_id || "").trim();
+  if (!key || !locationId) {
+    return { error: "This company has no Ovanta key. Add it in Settings, Integrations." };
+  }
+  const res = await crmGet(key, `https://services.leadconnectorhq.com/workflows/?locationId=${locationId}`);
+  if (!res.ok) {
+    return { error: res.body?.message || res.body?.error || "Ovanta did not return the automations. The key may be missing workflows.readonly." };
+  }
+  const workflows = (res.body?.workflows || [])
+    .map((row: any) => ({ name: row.name || "Untitled", status: row.status || "unknown" }))
+    .sort((a: any, b: any) => a.name.localeCompare(b.name));
+  return { company: settings?.company_name || "this company", workflows };
+}
+
 async function ovantaReport(db: any, territoryId: string) {
   const { data: settings } = await db
     .from("portal_settings")
@@ -1132,7 +1154,7 @@ serve(async (req) => {
 
 Think, then write for a phone. Short lines. Put a blank line between ideas. When you name people or amounts, use a bullet list, one person per line, as "- **Name**, date, amount". Bold only the name. Do not write a wall of text. No tables. No field names.
 
-Facts still come from the desk below. overdue is already past the due date. Name those people and the amount first. incoming rows are only the next 30 days. A booked row this week is a new booking, the first payment, and the package value is not the cash collected. For how to do something, call help and repeat that article. Do not swap in a different screen. A wedding that is finished but not edited is Post-Production: Drive link, Ready to Edit, then the editor. That is not a portal reminder. If they name one couple, call find_wedding. If they ask about Ovanta, leads, the CRM, calendars, pipelines, or setup, call ovanta. Use action report for an audit. Use action request for a specific lookup or for a change they explicitly asked for. A pipeline audit names each pipeline, then each stage that has open deals, the count, the money, and how many have not moved in 14 days. You cannot add or edit users, send a text or email, or touch another location. Never invent a number, a name, or a date.
+Facts still come from the desk below. overdue is already past the due date. Name those people and the amount first. incoming rows are only the next 30 days. A booked row this week is a new booking, the first payment, and the package value is not the cash collected. For how to do something, call help and repeat that article. Do not swap in a different screen. A wedding that is finished but not edited is Post-Production: Drive link, Ready to Edit, then the editor. That is not a portal reminder. If they name one couple, call find_wedding. If they say automation or workflow, those are Ovanta workflows, not pipelines and not a Veydra settings page. Name each one and say published or draft. Do not invent the steps inside a workflow. Do not answer with Settings, job posting, or Messages. If they ask about Ovanta pipelines, calendars, or leads, call ovanta. A pipeline audit names each pipeline, then each stage with open deals, the count, the money, and how many have not moved in 14 days. You cannot add or edit users, send a text or email, or touch another location. Never invent a number, a name, or a date.
 
 You cannot change records, send messages, or pay anyone. You can tell them the next click.`,
       },
@@ -1140,9 +1162,19 @@ You cannot change records, send messages, or pay anyone. You can tell them the n
     ];
 
     const question = history[history.length - 1]?.content || "";
+    if (/automation|workflow/i.test(question)) {
+      const listed = await listWorkflows(db, territoryId);
+      const reply = listed.error
+        ? listed.error
+        : listed.workflows.length
+          ? `Ovanta automations for ${listed.company}. Published is on. Draft is not running. The steps inside each one are not available from Ovanta.\n\n${listed.workflows.map((row: any) => `- **${row.name}**, ${row.status}`).join("\n")}`
+          : `Ovanta returned no automations for ${listed.company}.`;
+      return jsonResp({ reply, area: area?.name || null, company: settings?.company_name || null });
+    }
     const notes = findHelp(question);
     const howTo = /how do|what do i|where do|how to|what happens/i.test(question);
-    if (howTo && Array.isArray(notes.articles) && notes.articles.length) {
+    const aboutOvanta = /ovanta|pipeline|calendar/i.test(question);
+    if (howTo && !aboutOvanta && Array.isArray(notes.articles) && notes.articles.length) {
       return jsonResp({
         reply: notes.articles[0].steps,
         area: area?.name || null,
@@ -1182,7 +1214,7 @@ You cannot change records, send messages, or pay anyone. You can tell them the n
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        if (noteReply) {
+        if (noteReply && !aboutOvanta) {
           return jsonResp({
             reply: noteReply,
             area: area?.name || null,
@@ -1196,7 +1228,7 @@ You cannot change records, send messages, or pay anyone. You can tell them the n
       const calls = message?.tool_calls || [];
       if (!calls.length) {
         return jsonResp({
-          reply: message?.content || noteReply || "I could not answer that from this area.",
+          reply: message?.content || (!aboutOvanta && noteReply) || "I could not answer that from this area.",
           area: area?.name || null,
           company: settings?.company_name || null,
         });
@@ -1217,7 +1249,7 @@ You cannot change records, send messages, or pay anyone. You can tell them the n
         });
       }
     }
-    return jsonResp({ reply: noteReply || "I could not finish that from this area's records." });
+    return jsonResp({ reply: (!aboutOvanta && noteReply) || "I could not finish that from this area's records." });
   } catch (error: any) {
     return jsonResp({ error: error?.message || "Assistant failed" }, 500);
   }
