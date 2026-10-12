@@ -35,6 +35,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { resolveHomeTerritoryId, currentTerritoryId } from "@/lib/current-territory";
+import { ownerPackageKey, ownerSetupClosedKey, setupComplete } from "@/lib/owner-setup";
 import { getContractorByEmail } from "@/lib/contractor-by-email";
 import { fetchOpenJobsForTerritory } from "@/lib/api-territory-scoped";
 import { contractorCanSeeJob } from "@/lib/contractor-job-visibility";
@@ -289,12 +290,48 @@ export function Layout({ children }: { children: React.ReactNode }) {
     (async () => {
       const areaId = isSuper ? await currentTerritoryId() : await resolveHomeTerritoryId();
       if (!areaId || cancelled) return;
-      if (localStorage.getItem(`veydra_owner_setup_done:${areaId}`) === "1") return;
-      const { count } = await supabase
-        .from("weddings")
-        .select("id", { count: "exact", head: true })
-        .eq("territory_id", areaId);
-      if (cancelled || (count || 0) > 0) return;
+      if (isSuper && localStorage.getItem(ownerSetupClosedKey(areaId)) === "1") return;
+      const [weddingResult, settingsResult, territoryResult] = await Promise.all([
+        supabase.from("weddings").select("id", { count: "exact", head: true }).eq("territory_id", areaId),
+        supabase
+          .from("portal_settings")
+          .select("company_name, regions, timezone, logo_url, hl_api_key, hl_location_id, fb_ad_account_id, fb_access_token, owner_setup")
+          .eq("territory_id", areaId)
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("territories")
+          .select("name, contractor_payout_stripe_key, editor_payout_stripe_key")
+          .eq("id", areaId)
+          .maybeSingle(),
+      ]);
+      if (cancelled) return;
+      let settings: any = settingsResult.data;
+      if (settingsResult.error) {
+        const fallback = await supabase
+          .from("portal_settings")
+          .select("company_name, regions, timezone, logo_url, hl_api_key, hl_location_id, fb_ad_account_id, fb_access_token")
+          .eq("territory_id", areaId)
+          .limit(1)
+          .maybeSingle();
+        settings = fallback.data;
+      }
+      const started = Boolean(settings?.owner_setup?.started);
+      if ((weddingResult.count || 0) > 0 && !started) return;
+      const regions = Array.isArray(settings?.regions) ? settings.regions : [];
+      const done = setupComplete({
+        companyName: settings?.company_name || "",
+        areaName: territoryResult.data?.name || "",
+        regions,
+        timezone: settings?.timezone || "",
+        logoUrl: settings?.logo_url || "",
+        hasOvanta: Boolean(settings?.hl_api_key && settings?.hl_location_id),
+        hasFacebook: Boolean(settings?.fb_ad_account_id && settings?.fb_access_token),
+        hasContractorStripe: Boolean(territoryResult.data?.contractor_payout_stripe_key),
+        hasEditorStripe: Boolean(territoryResult.data?.editor_payout_stripe_key),
+        packagePrice: settings?.owner_setup?.package?.price || localStorage.getItem(ownerPackageKey(areaId)) || "",
+      });
+      if (done) return;
       navigate("/manager/welcome", { replace: true });
     })();
     return () => {

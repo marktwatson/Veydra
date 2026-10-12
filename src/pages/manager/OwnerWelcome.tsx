@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { ArrowLeft, ArrowRight, Download, ExternalLink, Loader2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { ArrowLeft, ArrowRight, Check, Download, ExternalLink, Loader2 } from "lucide-react";
 import { supabase, supabaseAnonKey, supabaseUrl } from "@/lib/supabase";
 import { currentTerritoryId, resolveHomeTerritoryId } from "@/lib/current-territory";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ownerPackageKey, ownerSetupClosedKey, setupChecks, setupComplete, type SetupSnapshot } from "@/lib/owner-setup";
 
-const STEPS = ["You", "Studio", "Market", "Packages", "Mark", "Ovanta", "Payouts", "Done"];
+const STEPS = ["You", "Studio", "Market", "Packages", "Mark", "Ovanta", "Accounts", "Done"];
 const OVANTA_OFFER = "https://ovanta.io/wedding-biz-offer-page";
 
 type Draft = {
@@ -18,10 +19,17 @@ type Draft = {
   photoHours: string;
   videoHours: string;
   price: string;
+  timezone: string;
   logoUrl: string;
   locationId: string;
   apiKey: string;
+  ovantaConnected: boolean;
   ovantaName: string;
+  fbAdAccount: string;
+  fbToken: string;
+  fbConnected: boolean;
+  hasContractorStripe: boolean;
+  hasEditorStripe: boolean;
 };
 
 const emptyDraft: Draft = {
@@ -31,10 +39,17 @@ const emptyDraft: Draft = {
   photoHours: "8",
   videoHours: "8",
   price: "",
+  timezone: "America/Phoenix",
   logoUrl: "",
   locationId: "",
   apiKey: "",
+  ovantaConnected: false,
   ovantaName: "",
+  fbAdAccount: "",
+  fbToken: "",
+  fbConnected: false,
+  hasContractorStripe: false,
+  hasEditorStripe: false,
 };
 
 function draftKey(territoryId: string) {
@@ -123,8 +138,26 @@ function MarketResult({ text }: { text: string }) {
   );
 }
 
+function SetupList({ checks }: { checks: { id: string; label: string; done: boolean }[] }) {
+  return (
+    <ul className="grid gap-2 sm:grid-cols-2">
+      {checks.map((item) => (
+        <li key={item.id} className="flex items-center gap-2 text-sm">
+          <span className={`flex h-5 w-5 items-center justify-center rounded-full border ${item.done ? "border-stone-900 bg-stone-900 text-white dark:border-stone-100 dark:bg-stone-100 dark:text-stone-900" : "border-stone-300 text-transparent"}`}>
+            <Check className="h-3 w-3" />
+          </span>
+          <span className={item.done ? "text-stone-400 line-through" : "text-stone-800 dark:text-stone-100"}>{item.label}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export default function OwnerWelcome() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const [contractorKey, setContractorKey] = useState("");
+  const [editorKey, setEditorKey] = useState("");
   const [step, setStep] = useState(0);
   const [territoryId, setTerritoryId] = useState("");
   const [areaName, setAreaName] = useState("");
@@ -154,16 +187,26 @@ export default function OwnerWelcome() {
       } catch {
         saved = {};
       }
-      const [{ data: area }, { data: settings }, { count }] = await Promise.all([
-        supabase.from("territories").select("name").eq("id", id).maybeSingle(),
+      const [{ data: area }, settingsResult, { count }] = await Promise.all([
+        supabase.from("territories").select("name, contractor_payout_stripe_key, editor_payout_stripe_key").eq("id", id).maybeSingle(),
         supabase
           .from("portal_settings")
-          .select("company_name, company_state, regions, logo_url, hl_location_id")
+          .select("company_name, company_state, regions, logo_url, hl_location_id, hl_api_key, timezone, fb_ad_account_id, fb_access_token, owner_setup")
           .eq("territory_id", id)
           .limit(1)
           .maybeSingle(),
         supabase.from("weddings").select("id", { count: "exact", head: true }).eq("territory_id", id),
       ]);
+      let settings: any = settingsResult.data;
+      if (settingsResult.error) {
+        const fallback = await supabase
+          .from("portal_settings")
+          .select("company_name, company_state, regions, logo_url, hl_location_id, hl_api_key, timezone, fb_ad_account_id, fb_access_token")
+          .eq("territory_id", id)
+          .limit(1)
+          .maybeSingle();
+        settings = fallback.data;
+      }
       if (cancelled) return;
       setAreaName(area?.name || "This area");
       setLocked((count || 0) > 0);
@@ -173,11 +216,30 @@ export default function OwnerWelcome() {
         businessName: settings?.company_name || "",
         state: settings?.company_state || "Arizona",
         cities: regions,
+        timezone: settings?.timezone || "America/Phoenix",
         logoUrl: settings?.logo_url || "",
         locationId: settings?.hl_location_id || "",
+        ovantaConnected: Boolean(settings?.hl_api_key && settings?.hl_location_id),
+        fbAdAccount: settings?.fb_ad_account_id || "",
+        fbConnected: Boolean(settings?.fb_ad_account_id && settings?.fb_access_token),
+        hasContractorStripe: Boolean(area?.contractor_payout_stripe_key),
+        hasEditorStripe: Boolean(area?.editor_payout_stripe_key),
+        price: settings?.owner_setup?.package?.price || localStorage.getItem(ownerPackageKey(id)) || "",
         ...(saved || {}),
       };
+      next.apiKey = "";
+      next.fbToken = "";
       if (settings?.company_name && settings.company_name !== area?.name) next.businessName = settings.company_name;
+      if (settings?.hl_api_key && settings?.hl_location_id) next.ovantaConnected = true;
+      if (area?.contractor_payout_stripe_key) next.hasContractorStripe = true;
+      if (settings?.fb_ad_account_id && settings?.fb_access_token) next.fbConnected = true;
+      if ((count || 0) === 0) {
+        supabase
+          .from("portal_settings")
+          .update({ owner_setup: { ...(settings?.owner_setup || {}), started: true } })
+          .eq("territory_id", id)
+          .then(undefined, () => {});
+      }
       setDraft(next);
       setLoading(false);
     })().catch(() => setLoading(false));
@@ -188,9 +250,9 @@ export default function OwnerWelcome() {
 
   useEffect(() => {
     if (!territoryId) return;
-    const stored = { ...draft };
-    stored.apiKey = "";
+    const stored = { ...draft, apiKey: "", fbToken: "" };
     localStorage.setItem(draftKey(territoryId), JSON.stringify(stored));
+    localStorage.setItem(ownerPackageKey(territoryId), draft.price.trim());
   }, [draft, territoryId]);
 
   const firstName = (user?.name || "there").split(" ")[0];
@@ -200,7 +262,7 @@ export default function OwnerWelcome() {
     [draft.cities],
   );
 
-  const set = (patch: Partial<Draft>) => setDraft((current) => ({ ...current, ...patch }));
+  const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((current) => ({ ...current, [key]: value }));
 
   const saveStudio = async () => {
     if (!territoryId || locked) {
@@ -209,14 +271,27 @@ export default function OwnerWelcome() {
     }
     setSaving(true);
     setNotice("");
-    const { error } = await supabase
-      .from("portal_settings")
-      .update({
-        company_name: previewName,
-        company_state: draft.state.trim(),
-        regions: cities,
-      })
-      .eq("territory_id", territoryId);
+    localStorage.setItem(ownerPackageKey(territoryId), draft.price.trim());
+    const payload = {
+      company_name: previewName,
+      company_state: draft.state.trim(),
+      regions: cities,
+      timezone: draft.timezone.trim(),
+      owner_setup: { started: true, package: { price: draft.price, photoHours: draft.photoHours, videoHours: draft.videoHours } },
+    };
+    let { error } = await supabase.from("portal_settings").update(payload).eq("territory_id", territoryId);
+    if (error && /owner_setup/i.test(error.message)) {
+      const retry = await supabase
+        .from("portal_settings")
+        .update({
+          company_name: payload.company_name,
+          company_state: payload.company_state,
+          regions: payload.regions,
+          timezone: payload.timezone,
+        })
+        .eq("territory_id", territoryId);
+      error = retry.error;
+    }
     setSaving(false);
     if (error) {
       setNotice(error.message);
@@ -298,7 +373,7 @@ export default function OwnerWelcome() {
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload?.message || "Ovanta refused that key.");
       const name = payload?.location?.name || payload?.name || "Connected";
-      set("ovantaName", name);
+      setDraft((current) => ({ ...current, ovantaName: name, ovantaConnected: !locked }));
       if (!locked && territoryId) {
         const { error } = await supabase
           .from("portal_settings")
@@ -314,8 +389,66 @@ export default function OwnerWelcome() {
     }
   };
 
+  const saveAccounts = async () => {
+    if (!territoryId || locked) {
+      setNotice(locked ? "This area already has weddings, so nothing was saved." : "Pick an area first.");
+      return;
+    }
+    setSaving(true);
+    setNotice("");
+    try {
+      if (draft.fbAdAccount.trim() && draft.fbToken.trim()) {
+        const { error } = await supabase
+          .from("portal_settings")
+          .update({ fb_ad_account_id: draft.fbAdAccount.trim(), fb_access_token: draft.fbToken.trim() })
+          .eq("territory_id", territoryId);
+        if (error) throw error;
+        set("fbConnected", true);
+        set("fbToken", "");
+      }
+      const patch: Record<string, string> = {};
+      if (contractorKey.trim()) patch.contractor_payout_stripe_key = contractorKey.trim();
+      if (editorKey.trim()) patch.editor_payout_stripe_key = editorKey.trim();
+      if (Object.keys(patch).length) {
+        const { error } = await supabase.from("territories").update(patch).eq("id", territoryId);
+        if (error) throw error;
+        if (patch.contractor_payout_stripe_key) set("hasContractorStripe", true);
+        if (patch.editor_payout_stripe_key) set("hasEditorStripe", true);
+        setContractorKey("");
+        setEditorKey("");
+      }
+      setNotice("Saved on this area only.");
+    } catch (error: any) {
+      setNotice(error?.message || "Could not save those accounts.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const snapshot: SetupSnapshot = {
+    companyName: draft.businessName,
+    areaName,
+    regions: cities,
+    timezone: draft.timezone,
+    logoUrl: draft.logoUrl,
+    hasOvanta: draft.ovantaConnected,
+    hasFacebook: draft.fbConnected,
+    hasContractorStripe: draft.hasContractorStripe,
+    hasEditorStripe: draft.hasEditorStripe,
+    packagePrice: draft.price,
+  };
+  const checks = setupChecks(snapshot);
+  const finished = setupComplete(snapshot);
+  const isSuper = user?.role === "super_admin";
+
+  const closeForMe = () => {
+    if (!territoryId || !isSuper) return;
+    localStorage.setItem(ownerSetupClosedKey(territoryId), "1");
+    navigate("/manager");
+  };
+
   const next = async () => {
-    if (step === 1) {
+    if (step === 1 || step === 3) {
       const ok = await saveStudio();
       if (!ok && !locked) return;
     }
@@ -341,16 +474,26 @@ export default function OwnerWelcome() {
         {locked ? ". This area already has weddings, so this is a walkthrough only." : ". Other areas are not touched."}
       </p>
 
-      <div className="mt-6 flex gap-1">
-        {STEPS.map((label, index) => (
-          <button
-            key={label}
-            type="button"
-            aria-label={label}
-            onClick={() => setStep(index)}
-            className={`h-1.5 flex-1 rounded-full ${index <= step ? "bg-stone-900 dark:bg-stone-100" : "bg-stone-200 dark:bg-stone-800"}`}
-          />
-        ))}
+      <div className="mt-6 rounded-2xl border border-stone-200 p-4 dark:border-stone-800">
+        <SetupList checks={checks} />
+      </div>
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <div className="flex flex-1 gap-1">
+          {STEPS.map((label, index) => (
+            <button
+              key={label}
+              type="button"
+              aria-label={label}
+              onClick={() => setStep(index)}
+              className={`h-1.5 flex-1 rounded-full ${index <= step ? "bg-stone-900 dark:bg-stone-100" : "bg-stone-200 dark:bg-stone-800"}`}
+            />
+          ))}
+        </div>
+        {isSuper && (
+          <button type="button" onClick={closeForMe} className="text-xs text-stone-500 underline">
+            Close for now
+          </button>
+        )}
       </div>
 
       <div className="mt-8 rounded-3xl border border-stone-200 bg-white p-5 shadow-sm dark:border-stone-800 dark:bg-stone-950 sm:p-8">
@@ -377,6 +520,10 @@ export default function OwnerWelcome() {
               <div className="space-y-2">
                 <Label htmlFor="cities">Cities, separated by commas</Label>
                 <Input id="cities" value={draft.cities} onChange={(event) => set("cities", event.target.value)} placeholder="Phoenix, Scottsdale, Tucson" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="timezone">Timezone</Label>
+                <Input id="timezone" value={draft.timezone} onChange={(event) => set("timezone", event.target.value)} placeholder="America/Phoenix" />
               </div>
             </div>
             <div className="rounded-2xl bg-stone-50 p-6 dark:bg-stone-900">
@@ -469,25 +616,40 @@ export default function OwnerWelcome() {
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Test and save
             </Button>
-            <p className="text-xs text-stone-500">Skip this if they have not signed up yet. You can paste the key later.</p>
+            <p className="text-xs text-stone-500">This has to be saved before the setup is finished.</p>
           </div>
         )}
 
         {step === 6 && (
-          <p className="text-lg leading-relaxed text-stone-700 dark:text-stone-300">
-            Contractor and editor payouts can wait until the first job. Stripe is not required to finish this setup, and this step does not connect a bank.
-          </p>
+          <div className="space-y-4">
+            <p className="text-stone-700 dark:text-stone-300">These stay on this area. Contractor payouts, editor payouts, and the Facebook ad account.</p>
+            <div className="space-y-2">
+              <Label htmlFor="contractor-stripe">Contractor payout Stripe secret</Label>
+              <Input id="contractor-stripe" type="password" value={contractorKey} onChange={(event) => setContractorKey(event.target.value)} placeholder={draft.hasContractorStripe ? "Saved. Paste a new one to replace it." : "sk_live_..."} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="editor-stripe">Editor payout Stripe secret</Label>
+              <Input id="editor-stripe" type="password" value={editorKey} onChange={(event) => setEditorKey(event.target.value)} placeholder={draft.hasEditorStripe ? "Saved. Paste a new one to replace it." : "sk_live_..."} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="fb-account">Facebook ad account id</Label>
+              <Input id="fb-account" value={draft.fbAdAccount} onChange={(event) => set("fbAdAccount", event.target.value)} placeholder="act_123" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="fb-token">Facebook access token</Label>
+              <Input id="fb-token" type="password" value={draft.fbToken} onChange={(event) => set("fbToken", event.target.value)} placeholder={draft.fbConnected ? "Saved. Paste a new one to replace it." : ""} />
+            </div>
+            <Button type="button" onClick={saveAccounts} disabled={saving}>
+              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Save accounts
+            </Button>
+          </div>
         )}
 
         {step === 7 && (
-          <ul className="space-y-3 text-sm leading-relaxed text-stone-700 dark:text-stone-300">
-            <li>Studio name: {previewName}</li>
-            <li>Cities: {cities.join(", ") || "Not set"}</li>
-            <li>First package: {draft.photoHours} photo hours, {draft.videoHours} video hours{draft.price ? `, $${draft.price}` : ""}. Not on the public list yet.</li>
-            <li>Logo: {draft.logoUrl && !draft.logoUrl.startsWith("data:") ? "Saved" : "Not saved yet"}</li>
-            <li>Ovanta: {draft.ovantaName || "Not connected"}</li>
-            <li>Payouts: Later</li>
-          </ul>
+          <p className="text-stone-700 dark:text-stone-300">
+            {finished ? "Everything needed for this area is in. You can open the dashboard." : "The setup stays here until every item is checked. An owner cannot close it early."}
+          </p>
         )}
 
         {notice && <p className="mt-6 text-sm text-stone-600 dark:text-stone-300">{notice}</p>}
@@ -502,17 +664,12 @@ export default function OwnerWelcome() {
             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Continue <ArrowRight className="ml-1.5 h-4 w-4" />
           </Button>
+        ) : finished ? (
+          <Button type="button" onClick={() => navigate("/manager")}>Go to the dashboard</Button>
+        ) : isSuper ? (
+          <Button type="button" variant="outline" onClick={closeForMe}>Close for now</Button>
         ) : (
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              if (territoryId) localStorage.setItem(`veydra_owner_setup_done:${territoryId}`, "1");
-            }}
-            asChild
-          >
-            <Link to="/manager">Go to the dashboard</Link>
-          </Button>
+          <p className="text-sm text-stone-500">Finish the open items to leave this setup.</p>
         )}
       </div>
     </div>
