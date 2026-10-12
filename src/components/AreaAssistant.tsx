@@ -82,6 +82,31 @@ function runningLabel(question: string) {
   return "Looking through this company's records";
 }
 
+function followUps(text: string, question: string) {
+  const written = text
+    .split("\n")
+    .filter((line) => /^Next:\s+/i.test(line))
+    .map((line) => line.replace(/^Next:\s+/i, "").trim())
+    .filter(Boolean)
+    .slice(0, 2);
+  if (written.length) return written;
+  const asked = question.toLowerCase();
+  if (/call/.test(asked)) return ["Who still needs a call back?", "Audit our salespeople"];
+  if (/past due|owed|money/.test(asked)) return ["Who is due this week?", "What did we book this week?"];
+  if (/studio|competitor|charge/.test(asked)) return ["How do our packages compare?", "What did we book this week?"];
+  if (/pipeline/.test(asked)) return ["Which deals have not moved?", "Audit our salespeople"];
+  if (/workflow|automation/.test(asked)) return ["Which of those are still drafts?", "Audit our Ovanta pipelines"];
+  return ["Who is past due?", "What did we book this week?"];
+}
+
+function withoutFollowUps(text: string) {
+  return text
+    .split("\n")
+    .filter((line) => !/^Next:\s+/i.test(line))
+    .join("\n")
+    .trim();
+}
+
 export function AreaAssistant() {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
@@ -89,6 +114,8 @@ export function AreaAssistant() {
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [company, setCompany] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [nameReady, setNameReady] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const greeted = useRef(false);
   const threadRef = useRef<HTMLDivElement>(null);
@@ -112,6 +139,18 @@ export function AreaAssistant() {
         .limit(1)
         .maybeSingle();
       if (!cancelled) setCompany(data?.company_name || "");
+      const { data: sessionData } = await supabase.auth.getSession();
+      const user = sessionData.session?.user;
+      if (!user || cancelled) {
+        if (!cancelled) setNameReady(true);
+        return;
+      }
+      const { data: manager } = await supabase.from("managers").select("name").eq("id", user.id).limit(1).maybeSingle();
+      const full = manager?.name || user.user_metadata?.full_name || "";
+      if (!cancelled) {
+        setFirstName(String(full).trim().split(/\s+/)[0] || "");
+        setNameReady(true);
+      }
     })();
     return () => {
       cancelled = true;
@@ -119,15 +158,16 @@ export function AreaAssistant() {
   }, [open]);
 
   useEffect(() => {
-    if (!open || greeted.current || messages.length > 0 || !company) return;
+    if (!open || greeted.current || messages.length > 0 || !company || !nameReady) return;
     greeted.current = true;
+    const hello = firstName ? `Hey ${firstName}.` : "Hey.";
     setMessages([
       {
         role: "assistant",
-        content: `Hey. I'm looking at ${company}.\n\nI can check who still owes you, how this week booked, or how yesterday's calls went. I can also look up the other wedding studios around you and what they publish for prices.\n\nWhat do you want to dig into?`,
+        content: `${hello} I'm looking at ${company}.\n\nI can check who still owes you, how this week booked, or how yesterday's calls went. I can also look up the other studios around you.\n\nWhat do you want to dig into?`,
       },
     ]);
-  }, [open, company, messages.length]);
+  }, [open, company, firstName, nameReady, messages.length]);
 
   const ask = async (text?: string) => {
     const question = (text ?? draft).trim();
@@ -167,6 +207,10 @@ export function AreaAssistant() {
       setStatus("");
     }
   };
+
+  const last = messages[messages.length - 1];
+  const lastQuestion = [...messages].reverse().find((message) => message.role === "user")?.content || "";
+  const ideas = last?.role === "assistant" && lastQuestion && !pending ? followUps(last.content, lastQuestion) : [];
 
   if (!open) {
     return (
@@ -223,7 +267,7 @@ export function AreaAssistant() {
             }
           >
             {message.role === "assistant" ? (
-              <AssistantText text={message.content} />
+              <AssistantText text={withoutFollowUps(message.content)} />
             ) : (
               message.content
             )}
@@ -239,6 +283,20 @@ export function AreaAssistant() {
                 className="rounded-full border border-stone-200 px-3 py-1.5 text-left text-sm hover:bg-stone-50 dark:border-stone-800 dark:hover:bg-stone-900"
               >
                 {suggestion.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {ideas.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {ideas.map((idea) => (
+              <button
+                key={idea}
+                type="button"
+                onClick={() => ask(idea)}
+                className="rounded-full border border-stone-200 px-3 py-1.5 text-left text-sm hover:bg-stone-50 dark:border-stone-800 dark:hover:bg-stone-900"
+              >
+                {idea}
               </button>
             ))}
           </div>
