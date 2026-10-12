@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Download, ExternalLink, Loader2 } from "lucide-react";
 import { supabase, supabaseAnonKey, supabaseUrl } from "@/lib/supabase";
-import { currentTerritoryId } from "@/lib/current-territory";
+import { currentTerritoryId, resolveHomeTerritoryId } from "@/lib/current-territory";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -82,8 +82,9 @@ export default function OwnerWelcome() {
 
   useEffect(() => {
     let cancelled = false;
+    if (!user) return;
     (async () => {
-      const id = await currentTerritoryId();
+      const id = user?.role === "super_admin" ? await currentTerritoryId() : await resolveHomeTerritoryId();
       if (!id || cancelled) {
         setLoading(false);
         return;
@@ -126,7 +127,7 @@ export default function OwnerWelcome() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (!territoryId) return;
@@ -445,7 +446,14 @@ export default function OwnerWelcome() {
             Continue <ArrowRight className="ml-1.5 h-4 w-4" />
           </Button>
         ) : (
-          <Button type="button" variant="outline" asChild>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              if (territoryId) localStorage.setItem(`veydra_owner_setup_done:${territoryId}`, "1");
+            }}
+            asChild
+          >
             <Link to="/manager">Go to the dashboard</Link>
           </Button>
         )}
