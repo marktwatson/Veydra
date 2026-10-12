@@ -1721,6 +1721,46 @@ serve(async (req) => {
       return jsonResp({ error: "That area is not one of yours." }, 403);
     }
 
+    if (body.action === "logos") {
+      const name = String(body.name || "").trim().slice(0, 48);
+      if (name.length < 2) return jsonResp({ error: "Add the business name first." }, 400);
+      const prompts = [
+        `A refined wedding photography studio logo, wide, on warm ivory paper. The only readable text is "${name}" in an elegant high-contrast serif, with a thin gold line above and the small tracked capitals WEDDINGS underneath. Generous empty space. No mockup, no extra words, no people.`,
+        `A quiet luxury wedding studio logo, wide, on deep charcoal. The only readable text is "${name}" in ivory serif, with one hairline gold rule. Expensive and spare. No mockup, no extra words, no people.`,
+        `A wedding studio logo, wide, on soft sage paper. A small simple olive branch drawn in ink beside the only readable text, "${name}", in a classic serif, with WEDDINGS in small capitals below. No mockup, no extra words, no people.`,
+      ];
+      const made = await Promise.all(prompts.map(async (prompt) => {
+        const res = await fetch("https://api.x.ai/v1/images/generations", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "grok-imagine-image-2.0",
+            prompt,
+            n: 1,
+            aspect_ratio: "16:9",
+            response_format: "url",
+          }),
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload?.error?.message || payload?.error || "The logo maker did not answer.");
+        return payload?.data?.[0]?.url as string | undefined;
+      }));
+      const urls = made.filter((url): url is string => !!url);
+      if (!urls.length) return jsonResp({ error: "No logos came back. Try once more." }, 502);
+      const saved: string[] = [];
+      for (const url of urls) {
+        const image = await fetch(url);
+        if (!image.ok) continue;
+        const bytes = new Uint8Array(await image.arrayBuffer());
+        const path = `owner-logos/${territoryId}/${crypto.randomUUID()}.jpg`;
+        const { error } = await db.storage.from("avatars").upload(path, bytes, { contentType: "image/jpeg", upsert: true });
+        if (error) continue;
+        saved.push(db.storage.from("avatars").getPublicUrl(path).data.publicUrl);
+      }
+      if (!saved.length) return jsonResp({ logos: urls });
+      return jsonResp({ logos: saved });
+    }
+
     const [{ data: area }, { data: settings }, { data: named }] = await Promise.all([
       db.from("territories").select("name").eq("id", territoryId).maybeSingle(),
       db.from("portal_settings").select("company_name, regions").eq("territory_id", territoryId).limit(1).maybeSingle(),

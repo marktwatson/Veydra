@@ -62,31 +62,6 @@ function draftKey(territoryId: string) {
   return `veydra_owner_welcome:${territoryId}`;
 }
 
-function drawMark(name: string, style: number) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 960;
-  canvas.height = 360;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return "";
-  const palettes = [
-    ["#f6f1e8", "#1c1917", "#9a7b4f"],
-    ["#1c1917", "#f6f1e8", "#d6c4a8"],
-    ["#f4f7f5", "#1f3d32", "#c4a574"],
-  ];
-  const [paper, ink, accent] = palettes[style] || palettes[0];
-  ctx.fillStyle = paper;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = accent;
-  ctx.fillRect(80, 78, 64, 4);
-  ctx.fillStyle = ink;
-  ctx.font = style === 1 ? "600 64px Georgia, serif" : "500 58px Georgia, serif";
-  ctx.fillText(name || "Your studio", 80, 190);
-  ctx.font = "400 22px Georgia, serif";
-  ctx.fillStyle = accent;
-  ctx.fillText("WEDDINGS", 80, 236);
-  return canvas.toDataURL("image/png");
-}
-
 function studioCards(text: string) {
   const cleaned = text.replace(/\[\[\d+\]\]/g, "");
   const cards = cleaned
@@ -262,6 +237,7 @@ export default function OwnerWelcome() {
   const [market, setMarket] = useState("");
   const [suggestion, setSuggestion] = useState(() => suggestPricing([]));
   const [looking, setLooking] = useState(false);
+  const [making, setMaking] = useState(false);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [marks, setMarks] = useState<string[]>([]);
 
@@ -451,15 +427,49 @@ export default function OwnerWelcome() {
     }
   };
 
-  const makeMarks = () => {
-    setMarks([0, 1, 2].map((style) => drawMark(previewName, style)));
+  const makeMarks = async () => {
+    if (!territoryId) return;
+    if (previewName === "Your studio") {
+      setNotice("Add the business name first.");
+      return;
+    }
+    setMaking(true);
+    setNotice("");
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Sign in again.");
+      const res = await fetch(`${supabaseUrl}/functions/v1/assistant`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          apikey: supabaseAnonKey,
+        },
+        body: JSON.stringify({ action: "logos", territoryId, name: previewName }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.error || "The logos did not come back.");
+      const logos = Array.isArray(payload.logos) ? payload.logos.filter((url: unknown) => typeof url === "string") : [];
+      if (!logos.length) throw new Error("No logos came back. Try once more.");
+      setMarks(logos);
+    } catch (error: any) {
+      setNotice(error?.message || "The logos did not come back.");
+    } finally {
+      setMaking(false);
+    }
   };
 
-  const downloadMark = (src: string, index: number) => {
+  const downloadMark = async (src: string, index: number) => {
     const link = document.createElement("a");
-    link.href = src;
-    link.download = `${previewName.replace(/\s+/g, "-").toLowerCase()}-mark-${index + 1}.png`;
-    link.click();
+    link.download = `${previewName.replace(/\s+/g, "-").toLowerCase()}-logo-${index + 1}.jpg`;
+    try {
+      const blob = await fetch(src).then((res) => res.blob());
+      link.href = URL.createObjectURL(blob);
+      link.click();
+    } catch {
+      window.open(src, "_blank", "noopener");
+    }
   };
 
   const saveLogo = async (url: string) => {
@@ -652,16 +662,20 @@ export default function OwnerWelcome() {
 
         {step === 2 && (
           <div className="space-y-4">
-            <p className="text-stone-700 dark:text-stone-300">Three wordmarks from the business name. Download the one you like, or paste a logo URL.</p>
-            <Button type="button" variant="outline" onClick={makeMarks}>Make three marks</Button>
+            <p className="text-stone-700 dark:text-stone-300">Three logo directions for {previewName}. Pick one, or paste a logo you already have.</p>
+            <Button type="button" variant="outline" onClick={makeMarks} disabled={making}>
+              {making ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Make three logos
+            </Button>
             <div className="grid gap-3">
               {marks.map((src, index) => (
                 <div key={index} className="overflow-hidden rounded-2xl border border-stone-200 dark:border-stone-800">
                   <img src={src} alt="" className="w-full" />
-                  <div className="flex justify-end p-2">
+                  <div className="flex justify-end gap-2 p-2">
                     <Button type="button" size="sm" variant="ghost" onClick={() => downloadMark(src, index)}>
                       <Download className="mr-1.5 h-3.5 w-3.5" /> Download
                     </Button>
+                    <Button type="button" size="sm" onClick={() => saveLogo(src)}>Use this</Button>
                   </div>
                 </div>
               ))}
