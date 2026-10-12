@@ -142,13 +142,19 @@ export const ARTICLES: Article[] = [
     title: "How the bride portal works",
     screen: "Bride portal",
     keywords: "questionnaire timeline songs contract portal message invoice",
-    steps: "The couple signs the contract and pays from the proposal link. Their portal shows the package, the timeline, and any extra event dates. They can edit the timeline from the portal without reopening the whole questionnaire. A message sent from the app also shows in the portal. Manage payment opens the invoice from checkout. The contract uses the area's company name from Settings, not the word Veydra.",
+    steps: "The couple signs the contract and pays from the proposal link. That link is not the questionnaire. Their portal shows the package, the timeline, and any extra event dates. They fill the questionnaire in that portal. They can edit the timeline there without reopening the whole questionnaire. A message sent from the app also shows in the portal. Manage payment opens the invoice from checkout. The contract uses the area's company name from Settings, not the word Veydra.",
+  },
+  {
+    title: "How to send the wedding questionnaire",
+    screen: "Weddings",
+    keywords: "questionnaire bride portal reminder welcome email send link",
+    steps: "There is no separate send-questionnaire button. The questionnaire lives in the bride portal. Open the wedding, then Actions. Send Portal Reminder, then Email or SMS, sends her the portal link. Resend Confirmation sends the bride welcome email, which also has that link. The welcome email template has to be saved in Settings first. She opens the link, signs in to the portal, and fills the questionnaire. You can read and edit the same answers on the wedding under the Questionnaire tab. Do not send the proposal link for this. That link is only the contract and payment.",
   },
   {
     title: "How the wedding checklist works",
     screen: "Weddings",
     keywords: "checklist manager tasks publish questionnaire",
-    steps: "Open the wedding. The checklist is the manager's list from publish through post-production. Some items check themselves when the work is done, such as a signed contract or a paid invoice. Others are marked by hand. A helper on an open item says where to finish it.",
+    steps: "Open the wedding. The checklist is the manager's list from publish through post-production. Some items check themselves when the work is done, such as a signed contract or a paid invoice. Others are marked by hand. A helper on an open item says where to finish it. The checklist does not send the questionnaire.",
   },
   {
     title: "Where the training videos are",

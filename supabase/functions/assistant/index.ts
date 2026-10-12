@@ -419,8 +419,23 @@ async function areaRecords(db: any, territoryId: string, kind: string) {
     return { kind, count: owed.length, weddings: owed };
   }
   if (kind === "proposals") {
-    const { data } = await db.from("proposals").select("status").eq("territory_id", territoryId).limit(2000);
-    return { kind, by_status: countBy(data || [], "status"), total: (data || []).length };
+    const { data } = await db
+      .from("proposals")
+      .select("client_name, status, total_amount, wedding_date")
+      .eq("territory_id", territoryId)
+      .limit(2000);
+    const open = (data || []).filter((row: any) => !["accepted", "archived", "booked"].includes(String(row.status || "").toLowerCase()));
+    return {
+      kind,
+      by_status: countBy(data || [], "status"),
+      still_out: open.slice(0, 20).map((row: any) => ({
+        name: row.client_name,
+        status: row.status,
+        total: Number(row.total_amount || 0),
+        wedding_date: row.wedding_date,
+      })),
+      note: "still_out are not booked. Do not guess that they will book. Accepted proposals are already booked.",
+    };
   }
   if (kind === "crew") {
     const { data } = await db.from("contractors").select("status").eq("territory_id", territoryId).limit(2000);
@@ -608,7 +623,7 @@ serve(async (req) => {
 
 Think. After you have the rows, say what they mean: who is uncovered, what is late, what to do next, and how this week compares with a normal week if the rows support it. Talk like a person. A few sentences, not a spreadsheet.
 
-Facts still come from tools. For what was booked or paid, call payment_audit with this_week or this_month. audit_paid is the Payment Audit list. is_first true is a new booking. is_first false is a later payment on an older booking. Name the people. If weddings_loaded is 0, say the files did not load. Never invent a number, a name, or a date.
+Facts still come from tools. For what was booked or paid, call payment_audit with this_week or this_month. A row with is_first true is a new booking. Say first payment. Never say the words is_first or audit_paid to the user. A later installment is not a new booking. For how to do something, call help and follow that article. The questionnaire is in the bride portal. It is not sent from the checklist or the proposal link. If they ask what might still book, call area_records with proposals and name only still_out. Do not guess that those will book. Never invent a number, a name, or a date.
 
 You cannot change records, send messages, or pay anyone. You can tell them the next click.`,
       },
