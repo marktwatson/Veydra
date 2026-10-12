@@ -68,10 +68,23 @@ const SUGGESTIONS = [
   { label: "After the wedding", question: "How do I get a wedding ready for editing?" },
 ];
 
+function runningLabel(question: string) {
+  const asked = question.toLowerCase();
+  if (/call/.test(asked)) return "Reading yesterday's calls and transcripts";
+  if (/sales/.test(asked)) return "Checking salespeople, bookings, and the inbox";
+  if (/pipeline/.test(asked)) return "Reading each pipeline and its open deals";
+  if (/workflow|automation/.test(asked)) return "Reading the automations";
+  if (/past due|overdue|owed|money/.test(asked)) return "Checking who is past due";
+  if (/week|book/.test(asked)) return "Checking this week's bookings";
+  if (/how do|how to|where do|what happens/.test(asked)) return "Looking up the steps";
+  return "Looking through this company's records";
+}
+
 export function AreaAssistant() {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
+  const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [company, setCompany] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -106,6 +119,7 @@ export function AreaAssistant() {
     const question = (text ?? draft).trim();
     if (!question || pending) return;
     setError("");
+    setStatus(runningLabel(question));
     const next = [...messages, { role: "user" as const, content: question }];
     setMessages(next);
     setDraft("");
@@ -136,6 +150,7 @@ export function AreaAssistant() {
       setError(err?.message || "The assistant could not answer.");
     } finally {
       setPending(false);
+      setStatus("");
     }
   };
 
@@ -224,7 +239,7 @@ export function AreaAssistant() {
         ))}
         {pending && (
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3 w-3 animate-spin" /> Looking through {company || "this company"}
+            <Loader2 className="h-3 w-3 animate-spin" /> {status || "Looking through this company's records"}
           </p>
         )}
         {error && <p className="text-sm text-red-600">{error}</p>}
