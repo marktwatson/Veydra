@@ -216,7 +216,7 @@ async function areaSnapshot(db: any, territoryId: string, args: any) {
     db.from("territories").select("name").eq("id", territoryId).maybeSingle(),
     db.from("portal_settings").select("company_name, timezone").eq("territory_id", territoryId).limit(1).maybeSingle(),
     db.from("jobs").select("role, wedding_id").eq("territory_id", territoryId).eq("status", "open"),
-    db.from("proposals").select("client_name, wedding_id, status, total_amount, amount_paid_so_far, contract_signed_at, wedding_date").eq("territory_id", territoryId).limit(2000),
+    db.from("proposals").select("client_name, wedding_id, status, total_amount, amount_paid_so_far, contract_signed_at, wedding_date, salesperson_name, salesperson_email, sent_at, created_at").eq("territory_id", territoryId).limit(2000),
     loadAreaWeddings(db, territoryId),
   ]);
   const rows = weddingLoad.rows || [];
@@ -349,6 +349,45 @@ async function areaSnapshot(db: any, territoryId: string, args: any) {
     couple: byId.get(job.wedding_id)?.client_name || null,
     date: byId.get(job.wedding_id)?.date || null,
   }));
+  const repMap = new Map<string, any>();
+  for (const proposal of proposals || []) {
+    const email = String(proposal.salesperson_email || "").trim().toLowerCase();
+    const name = String(proposal.salesperson_name || "").trim();
+    const key = email || name.toLowerCase();
+    if (!key) continue;
+    const wedding = byId.get(proposal.wedding_id);
+    const booked = ["accepted", "paid"].includes(String(proposal.status || "").toLowerCase())
+      || Number(proposal.amount_paid_so_far) > 0
+      || wedding?.status === "upcoming"
+      || wedding?.status === "completed"
+      || Number(wedding?.paid_amount) > 0;
+    const sentDay = isoDay(proposal.sent_at || proposal.created_at, timeZone);
+    const bookedDay = isoDay(proposal.contract_signed_at, timeZone) || (booked ? sentDay : "");
+    const inWeek = (day: string) => !!range.from && !!day && day >= range.from && day <= range.to;
+    const row = repMap.get(key) || {
+      name: name || email,
+      sent_this_week: 0,
+      booked_this_week: 0,
+      booked_value_this_week: 0,
+      sent_all: 0,
+      booked_all: 0,
+      booked_value_all: 0,
+    };
+    row.sent_all += 1;
+    if (inWeek(sentDay)) row.sent_this_week += 1;
+    if (booked) {
+      row.booked_all += 1;
+      row.booked_value_all += Number(proposal.total_amount || 0);
+      if (inWeek(bookedDay)) {
+        row.booked_this_week += 1;
+        row.booked_value_this_week += Number(proposal.total_amount || 0);
+      }
+    }
+    repMap.set(key, row);
+  }
+  const salespeople = [...repMap.values()]
+    .sort((a, b) => b.booked_value_this_week - a.booked_value_this_week || b.booked_value_all - a.booked_value_all)
+    .slice(0, 12);
   return {
     area: area?.name || territoryId,
     company: settings?.company_name || null,
@@ -395,6 +434,7 @@ async function areaSnapshot(db: any, territoryId: string, args: any) {
     open_jobs: (jobs || []).length,
     open_positions: openPositions,
     proposals_waiting: proposalsWaiting,
+    salespeople,
     edit_queue: editQueue,
     editing_now: sales.filter((row: any) => editing.includes(row.editing_status)).length,
     next_weddings: sales
@@ -707,9 +747,16 @@ function formatDesk(snap: any) {
     (row) => `- **${row.name}**, ${row.status}, ${money(row.total)}`,
     "- None",
   );
+  const salespeople = deskLines(
+    snap.salespeople,
+    (row) => `- **${row.name}**, this week sent ${row.sent_this_week} and booked ${row.booked_this_week} (${money(row.booked_value_this_week)}). All time sent ${row.sent_all} and booked ${row.booked_all} (${money(row.booked_value_all)}).`,
+    "- No salesperson is on a proposal yet.",
+  );
   return `Desk for ${snap.company || "this company"} in ${snap.area}. Today is ${snap.today}. Answer from this. Do not invent a name or an amount.
 
 When they ask how we are doing, or how the week is going, do not paste this desk. Write four short lines. First, the new bookings and the package value. Second, the past-due total, and name only the balances over $100. Third, what is due in the next 7 days. Fourth, the one thing to do next. Leave every smaller balance as a single total. Never stop in the middle of a name.
+
+When they ask how the salespeople are doing, use the Salespeople lines. Name each person, how many they sent, how many booked, and the package value. Do not say you cannot see who sent a proposal.
 
 Past due on upcoming weddings: ${snap.overdue?.count || 0} payments, ${money(snap.overdue?.amount)}.
 ${overdue}
@@ -731,7 +778,10 @@ Open positions: ${snap.open_jobs || 0}.
 ${jobs}
 
 Proposals still waiting, not booked:
-${proposals}`;
+${proposals}
+
+Salespeople. The name is the person who sent the proposal.
+${salespeople}`;
 }
 
 async function runTool(db: any, territoryId: string, name: string, args: any, cache?: Map<string, Promise<any>>) {
