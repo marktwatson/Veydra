@@ -1521,14 +1521,31 @@ async function marketLook(company: string, area: string, places: string, questio
       signal: controller.signal,
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model,
-        max_output_tokens: 600,
+        model: "grok-4-1-fast",
+        reasoning: { effort: "low" },
+        max_output_tokens: 500,
         tools: [{ type: "web_search" }],
         input: [{ role: "user", content: ask }],
       }),
     });
     const payload = await res.json().catch(() => ({}));
-    const written = agentText(payload);
+    let written = agentText(payload);
+    const err = String(payload?.error?.message || "");
+    if (!written && /model/i.test(err)) {
+      const again = await fetch("https://api.x.ai/v1/responses", {
+        method: "POST",
+        signal: controller.signal,
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model,
+          reasoning: { effort: "low" },
+          max_output_tokens: 500,
+          tools: [{ type: "web_search" }],
+          input: [{ role: "user", content: ask }],
+        }),
+      });
+      written = agentText(await again.json().catch(() => ({})));
+    }
     if (written) return written;
     return "I could not look up other studios just now. Try it once more.";
   } catch {
