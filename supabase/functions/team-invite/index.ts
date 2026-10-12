@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
   const smtpPort = Number(Deno.env.get("SMTP_PORT") || "465");
   const smtpUser = Deno.env.get("SMTP_USER") || "";
   const smtpPass = Deno.env.get("SMTP_PASS") || "";
-  const from = Deno.env.get("SMTP_FROM") || smtpUser;
+  const from = Deno.env.get("SMTP_FROM") || "Veydra <alerts@veydra.app>";
   const appUrl = (Deno.env.get("APP_URL") || "https://veydra.app").replace(
     /\/$/,
     "",
@@ -51,7 +51,7 @@ Deno.serve(async (req) => {
     return jsonResp(
       {
         error:
-          "System invite email is not configured yet. Add the IONOS mailbox as SMTP_USER, SMTP_PASS, and SMTP_FROM secrets.",
+          "System invite email is not configured yet. Add SMTP_USER=alerts@veydra.app and SMTP_PASS for that IONOS mailbox.",
       },
       500,
     );
