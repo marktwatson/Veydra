@@ -703,10 +703,15 @@ const TOOLS = [
     type: "function",
     function: {
       name: "ovanta",
-      description: "Read this area's Ovanta account and audit its pipelines: stage counts, money, and deals that have not moved in 14 days. It cannot add or edit users, send messages, or change records.",
+      description: "This area's Ovanta account. Use action report to audit pipelines, calendars, and setup. Use action request to read or update anything else in that one location. Never add or edit users. Never send a text or email. Only write when the user explicitly asked for the change.",
       parameters: {
         type: "object",
-        properties: { question: { type: "string" } },
+        properties: {
+          action: { type: "string", enum: ["report", "request"] },
+          method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+          path: { type: "string", description: "HighLevel path starting with /, such as /contacts/ or /opportunities/search" },
+          body: { type: "object" },
+        },
       },
     },
   },
@@ -958,8 +963,71 @@ async function ovantaReport(db: any, territoryId: string) {
     deals_capped: opportunities.capped,
     recent_contacts: recent,
     setup_missing: missing,
-    cannot: "Cannot add or edit Ovanta users, send a message, or change a record.",
+    cannot: "Cannot add or edit Ovanta users, send a text or email, or touch another location.",
   };
+}
+
+async function ovantaRequest(db: any, territoryId: string, args: any) {
+  const { data: settings } = await db
+    .from("portal_settings")
+    .select("hl_api_key, hl_location_id")
+    .eq("territory_id", territoryId)
+    .limit(1)
+    .maybeSingle();
+  const key = String(settings?.hl_api_key || "").trim();
+  const locationId = String(settings?.hl_location_id || "").trim();
+  if (!key || !locationId) {
+    return { error: "This company has no Ovanta key or location id. Add both in Settings, Integrations." };
+  }
+  const method = String(args?.method || "GET").toUpperCase();
+  if (!["GET", "POST", "PUT", "PATCH", "DELETE"].includes(method)) return { error: "Method not allowed." };
+  let path = String(args?.path || "").trim();
+  path = path.replace(/^https?:\/\/services\.leadconnectorhq\.com/i, "");
+  if (!path.startsWith("/")) path = `/${path}`;
+  if (path.includes("..") || path.includes(" ")) return { error: "Path not allowed." };
+  const userWrite = method !== "GET" && /\/users(\/|$|\?)/i.test(path);
+  const sendMessage = method !== "GET" && /\/conversations\/messages/i.test(path);
+  const otherAccount = /\/(oauth|marketplace|saas)\b/i.test(path) || (method !== "GET" && /^\/locations(\/|$)/i.test(path));
+  if (userWrite) return { error: "The assistant cannot add or edit Ovanta users." };
+  if (sendMessage) return { error: "The assistant cannot send a text or email from Ovanta." };
+  if (otherAccount) return { error: "The assistant can only use this company's location." };
+  const locationInPath = path.match(/\/locations\/([^/?]+)/i)?.[1];
+  if (locationInPath && locationInPath !== locationId) return { error: "That location is not this company." };
+  const url = new URL(`https://services.leadconnectorhq.com${path}`);
+  if (url.searchParams.has("locationId")) url.searchParams.set("locationId", locationId);
+  else if (method === "GET" && !locationInPath) url.searchParams.set("locationId", locationId);
+  const body = args?.body && typeof args.body === "object" ? { ...args.body } : null;
+  if (body && "locationId" in body) body.locationId = locationId;
+  if (body && "altId" in body) body.altId = locationId;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+  try {
+    const res = await fetch(url, {
+      method,
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${key}`,
+        Version: "2021-07-28",
+        Accept: "application/json",
+        ...(body ? { "Content-Type": "application/json" } : {}),
+      },
+      body: body && method !== "GET" ? JSON.stringify(body) : undefined,
+    });
+    const text = await res.text();
+    const clipped = text.length > 12000 ? `${text.slice(0, 12000)}…` : text;
+    let parsed: any = clipped;
+    try {
+      parsed = clipped ? JSON.parse(clipped) : {};
+    } catch {
+      parsed = { raw: clipped };
+    }
+    if (!res.ok) return { ok: false, status: res.status, error: parsed?.message || parsed?.error || "Ovanta refused that request.", detail: parsed };
+    return { ok: true, status: res.status, result: parsed };
+  } catch (error: any) {
+    return { error: error?.message || "Ovanta timed out." };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function runTool(db: any, territoryId: string, name: string, args: any, cache?: Map<string, Promise<any>>) {
@@ -974,7 +1042,10 @@ async function runTool(db: any, territoryId: string, name: string, args: any, ca
   if (name === "find_wedding") return findWedding(db, territoryId, String(args?.name || ""));
   if (name === "area_records") return areaRecords(db, territoryId, String(args?.kind || ""));
   if (name === "help") return findHelp(String(args?.query || ""));
-  if (name === "ovanta") return ovantaReport(db, territoryId);
+  if (name === "ovanta") {
+    if (String(args?.action || "report") === "request") return ovantaRequest(db, territoryId, args);
+    return ovantaReport(db, territoryId);
+  }
   return { error: "Unknown tool" };
 }
 
@@ -1031,7 +1102,7 @@ serve(async (req) => {
 
 Think, then write for a phone. Short lines. Put a blank line between ideas. When you name people or amounts, use a bullet list, one person per line, as "- **Name**, date, amount". Bold only the name. Do not write a wall of text. No tables. No field names.
 
-Facts still come from the desk below. overdue is already past the due date. Name those people and the amount first. incoming rows are only the next 30 days. A booked row this week is a new booking, the first payment, and the package value is not the cash collected. For how to do something, call help and repeat that article. Do not swap in a different screen. A wedding that is finished but not edited is Post-Production: Drive link, Ready to Edit, then the editor. That is not a portal reminder. If they name one couple, call find_wedding. If they ask about Ovanta, leads, the CRM, calendars, pipelines, or setup, call ovanta and answer from that. A pipeline audit names each pipeline, then each stage that has open deals, the count, the money, and how many have not moved in 14 days. Do not say you cannot see Ovanta. Never invent a number, a name, or a date. You cannot add or edit Ovanta users.
+Facts still come from the desk below. overdue is already past the due date. Name those people and the amount first. incoming rows are only the next 30 days. A booked row this week is a new booking, the first payment, and the package value is not the cash collected. For how to do something, call help and repeat that article. Do not swap in a different screen. A wedding that is finished but not edited is Post-Production: Drive link, Ready to Edit, then the editor. That is not a portal reminder. If they name one couple, call find_wedding. If they ask about Ovanta, leads, the CRM, calendars, pipelines, or setup, call ovanta. Use action report for an audit. Use action request for a specific lookup or for a change they explicitly asked for. A pipeline audit names each pipeline, then each stage that has open deals, the count, the money, and how many have not moved in 14 days. You cannot add or edit users, send a text or email, or touch another location. Never invent a number, a name, or a date.
 
 You cannot change records, send messages, or pay anyone. You can tell them the next click.`,
       },
