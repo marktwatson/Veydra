@@ -11,7 +11,7 @@ import { newTerritoryPricing, ownerPackageKey, ownerSetupClosedKey, packageMath,
 import { largestCities, peopleLabel, studioNameIdeas, timezoneFor } from "@/lib/owner-places";
 
 const STEPS = ["You", "Name", "Cities", "Mark", "Ovanta", "Stripe", "Facebook", "Pricing", "Done"];
-const OVANTA_OFFER = "https://ovanta.io/wedding-biz-offer-page";
+const OVANTA_OFFER = "https://signup.ovanta.io";
 const ONBOARDING_CALL = "https://links.ovanta.io/widget/bookings/ovanta-walkthrough";
 const MARK_EMAIL = "mark@kavoddigital.com";
 
