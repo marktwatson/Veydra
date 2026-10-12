@@ -703,7 +703,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "ovanta",
-      description: "Read this area's Ovanta account: location, calendars, pipelines, and recent contacts. Use for CRM, leads, and setup. It cannot add or edit users, send messages, or change records.",
+      description: "Read this area's Ovanta account and audit its pipelines: stage counts, money, and deals that have not moved in 14 days. It cannot add or edit users, send messages, or change records.",
       parameters: {
         type: "object",
         properties: { question: { type: "string" } },
@@ -824,6 +824,56 @@ async function crmGet(key: string, url: string) {
   }
 }
 
+async function crmPost(key: string, url: string, payload: any) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${key}`,
+        Version: "2021-07-28",
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    const text = await res.text();
+    let body: any = {};
+    try {
+      body = text ? JSON.parse(text) : {};
+    } catch {
+      body = { message: text.slice(0, 180) };
+    }
+    return { ok: res.ok, status: res.status, body };
+  } catch (error: any) {
+    return { ok: false, status: 0, body: { message: error?.message || "Ovanta timed out" } };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function openOpportunities(key: string, locationId: string) {
+  const rows: any[] = [];
+  let startAfter: unknown = undefined;
+  let startAfterId: unknown = undefined;
+  for (let page = 0; page < 3; page++) {
+    const payload: any = { locationId, limit: 100, status: "open" };
+    if (startAfter) payload.startAfter = startAfter;
+    if (startAfterId) payload.startAfterId = startAfterId;
+    const res = await crmPost(key, "https://services.leadconnectorhq.com/opportunities/search", payload);
+    if (!res.ok) return { rows, error: res.body?.message || res.status, capped: false };
+    const batch = res.body?.opportunities || res.body?.data || [];
+    rows.push(...batch);
+    const meta = res.body?.meta || {};
+    if (!meta.startAfterId || batch.length < 100) return { rows, error: null, capped: false };
+    startAfter = meta.startAfter;
+    startAfterId = meta.startAfterId;
+  }
+  return { rows, error: null, capped: true };
+}
+
 async function ovantaReport(db: any, territoryId: string) {
   const { data: settings } = await db
     .from("portal_settings")
@@ -851,9 +901,38 @@ async function ovantaReport(db: any, territoryId: string) {
     .slice(0, 20);
   const savedCalendar = String(settings?.interview_calendar_id || "");
   const interview = calendarRows.find((row: any) => row.id === savedCalendar);
-  const pipelineRows = (pipelines.body?.pipelines || []).slice(0, 8).map((row: any) => ({
+  const opportunities = await openOpportunities(key, locationId);
+  const stageById = new Map<string, any>();
+  const pipelineRows = (pipelines.body?.pipelines || []).slice(0, 8).map((row: any) => {
+    const stages = (row.stages || []).slice(0, 12).map((stage: any) => {
+      const bucket = { name: stage.name || "Untitled stage", open: 0, value: 0, stale: 0 };
+      if (stage.id) stageById.set(stage.id, bucket);
+      return bucket;
+    });
+    return { name: row.name || "Untitled pipeline", stages };
+  });
+  const staleBefore = Date.now() - 14 * 24 * 60 * 60 * 1000;
+  for (const deal of opportunities.rows) {
+    const bucket = stageById.get(deal.pipelineStageId);
+    if (!bucket) continue;
+    bucket.open += 1;
+    bucket.value += Number(deal.monetaryValue || 0);
+    const touched = new Date(deal.lastStatusChangeAt || deal.updatedAt || deal.createdAt || 0).getTime();
+    if (touched && touched < staleBefore) bucket.stale += 1;
+  }
+  const pipelineAudit = pipelineRows.map((row: any) => ({
     name: row.name,
-    stages: (row.stages || []).map((stage: any) => stage.name).filter(Boolean).slice(0, 12),
+    open: row.stages.reduce((sum: number, stage: any) => sum + stage.open, 0),
+    value: Math.round(row.stages.reduce((sum: number, stage: any) => sum + stage.value, 0)),
+    stages: row.stages
+      .filter((stage: any) => stage.open > 0)
+      .map((stage: any) => ({
+        name: stage.name,
+        open: stage.open,
+        value: Math.round(stage.value),
+        stale_14_days: stage.stale,
+      })),
+    empty_stages: row.stages.filter((stage: any) => stage.open === 0).map((stage: any) => stage.name),
   }));
   const recent = (contacts.body?.contacts || []).slice(0, 12).map((row: any) => ({
     name: [row.firstName, row.lastName].filter(Boolean).join(" ") || row.email || row.phone || "Unnamed",
@@ -866,6 +945,7 @@ async function ovantaReport(db: any, territoryId: string) {
     !savedCalendar ? "No interview calendar is chosen in Settings, Integrations." : "",
     savedCalendar && !interview ? "The saved interview calendar is not in this Ovanta account." : "",
     !pipelines.ok ? "Pipelines could not be read." : "",
+    opportunities.error ? "Open deals could not be counted." : "",
   ].filter(Boolean);
   return {
     connected: location.ok || calendars.ok || contacts.ok,
@@ -873,7 +953,9 @@ async function ovantaReport(db: any, territoryId: string) {
     location_name: location.body?.location?.name || location.body?.name || null,
     calendars: calendarRows.map((row: any) => row.name),
     interview_calendar: interview?.name || null,
-    pipelines: pipelineRows,
+    pipelines: pipelineAudit,
+    deals_read: opportunities.rows.length,
+    deals_capped: opportunities.capped,
     recent_contacts: recent,
     setup_missing: missing,
     cannot: "Cannot add or edit Ovanta users, send a message, or change a record.",
@@ -949,7 +1031,7 @@ serve(async (req) => {
 
 Think, then write for a phone. Short lines. Put a blank line between ideas. When you name people or amounts, use a bullet list, one person per line, as "- **Name**, date, amount". Bold only the name. Do not write a wall of text. No tables. No field names.
 
-Facts still come from the desk below. overdue is already past the due date. Name those people and the amount first. incoming rows are only the next 30 days. A booked row this week is a new booking, the first payment, and the package value is not the cash collected. For how to do something, call help and repeat that article. Do not swap in a different screen. A wedding that is finished but not edited is Post-Production: Drive link, Ready to Edit, then the editor. That is not a portal reminder. If they name one couple, call find_wedding. If they ask about Ovanta, leads, the CRM, calendars, pipelines, or setup, call ovanta and answer from that. Do not say you cannot see Ovanta. Never invent a number, a name, or a date. You cannot add or edit Ovanta users.
+Facts still come from the desk below. overdue is already past the due date. Name those people and the amount first. incoming rows are only the next 30 days. A booked row this week is a new booking, the first payment, and the package value is not the cash collected. For how to do something, call help and repeat that article. Do not swap in a different screen. A wedding that is finished but not edited is Post-Production: Drive link, Ready to Edit, then the editor. That is not a portal reminder. If they name one couple, call find_wedding. If they ask about Ovanta, leads, the CRM, calendars, pipelines, or setup, call ovanta and answer from that. A pipeline audit names each pipeline, then each stage that has open deals, the count, the money, and how many have not moved in 14 days. Do not say you cannot see Ovanta. Never invent a number, a name, or a date. You cannot add or edit Ovanta users.
 
 You cannot change records, send messages, or pay anyone. You can tell them the next click.`,
       },
