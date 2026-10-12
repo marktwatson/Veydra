@@ -3,6 +3,56 @@ import { Sparkles, X, Loader2, ArrowUp } from "lucide-react";
 import { supabase, supabaseAnonKey, supabaseUrl } from "@/lib/supabase";
 import { currentTerritoryId } from "@/lib/current-territory";
 
+function inlineBits(text: string) {
+  return text.split(/(\*\*[^*]+\*\*)/g).map((part, index) =>
+    part.startsWith("**") && part.endsWith("**") ? (
+      <strong key={index} className="font-semibold">
+        {part.slice(2, -2)}
+      </strong>
+    ) : (
+      <span key={index}>{part}</span>
+    ),
+  );
+}
+
+function AssistantText({ text }: { text: string }) {
+  const blocks = text.trim().split(/\n{2,}/);
+  return (
+    <div className="space-y-2">
+      {blocks.map((block, index) => {
+        const lines = block
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean);
+        const isList =
+          lines.length > 0 &&
+          lines.every((line) => /^([-*•]|\d+[.)])\s+/.test(line));
+        if (isList) {
+          return (
+            <ul key={index} className="list-disc space-y-1 pl-4">
+              {lines.map((line, lineIndex) => (
+                <li key={lineIndex}>
+                  {inlineBits(line.replace(/^([-*•]|\d+[.)])\s+/, ""))}
+                </li>
+              ))}
+            </ul>
+          );
+        }
+        return (
+          <p key={index}>
+            {lines.map((line, lineIndex) => (
+              <span key={lineIndex}>
+                {lineIndex > 0 && <br />}
+                {inlineBits(line)}
+              </span>
+            ))}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
 const SUGGESTIONS = [
@@ -122,10 +172,14 @@ export function AreaAssistant() {
             className={
               message.role === "user"
                 ? "ml-10 whitespace-pre-wrap rounded-2xl rounded-br-md bg-stone-900 px-3 py-2 text-sm leading-relaxed text-white"
-                : "mr-6 whitespace-pre-wrap rounded-2xl rounded-bl-md bg-muted px-3 py-2 text-sm leading-relaxed"
+                : "mr-6 rounded-2xl rounded-bl-md bg-muted px-3 py-2 text-sm leading-relaxed"
             }
           >
-            {message.content}
+            {message.role === "assistant" ? (
+              <AssistantText text={message.content} />
+            ) : (
+              message.content
+            )}
           </div>
         ))}
         {pending && (

@@ -680,7 +680,7 @@ serve(async (req) => {
         role: "system",
         content: `You are the Veydra assistant for ${settings?.company_name || "this company"} in ${area?.name || "the selected area"}. You are a sharp operations manager, not a report. Today is ${new Date().toISOString().slice(0, 10)}. You can only see this area.
 
-Think. After you have the rows, say what they mean: who is uncovered, what is late, what to do next, and how this week compares with a normal week if the rows support it. Talk like a person. A few sentences, not a spreadsheet.
+Think, then write for a phone. Short lines. Put a blank line between ideas. When you name people or amounts, use a bullet list, one person per line, as "- **Name**, date, amount". Bold only the name. Do not write a wall of text. No tables. No field names.
 
 Facts still come from tools. For what was booked or paid, call payment_audit. For money due, call payment_audit. overdue is already past the due date. Name those people and the amount first. incoming_30 is only the next 30 days and is not the overdue list. Never say nothing is past due when overdue.count is above zero. A row with is_first true is a new booking. Say first payment. Never say is_first or audit_paid to the user. For how to do something, call help and follow that article. The questionnaire is in the bride portal, sent from the wedding Actions menu as a portal reminder. If they ask what might still book, call area_records with proposals and name only still_out. Never invent a number, a name, or a date.
 
@@ -692,7 +692,7 @@ You cannot change records, send messages, or pay anyone. You can tell them the n
     const question = history[history.length - 1]?.content || "";
     const notes = findHelp(question);
     const noteReply = Array.isArray(notes.articles)
-      ? notes.articles.map((article: any) => article.steps).join(" ")
+      ? notes.articles.map((article: any) => article.steps).join("\n\n")
       : "";
 
     const model = Deno.env.get("ASSISTANT_MODEL") || "grok-3";
