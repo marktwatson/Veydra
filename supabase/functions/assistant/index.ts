@@ -1410,56 +1410,80 @@ async function callAnalysis(db: any, territoryId: string, apiKey: string) {
   if (!cards.length) {
     return `No phone calls were found for ${company} on ${day}. Opened ${fromThatDay.length} conversations from that day. ${unreadable ? `${unreadable} could not be read. ` : ""}A call counts only when Ovanta stored it as a phone call inside the thread.`;
   }
-  const facts = {
-    company,
-    day,
-    active_conversations: fromThatDay.length,
-    calls_found: uniqueCalls.length,
-    transcribed_here: cards.filter((row) => row.transcript).length,
-    omitted: Math.max(0, uniqueCalls.length - cards.length),
-    calls: cards,
+  return formatCallReport(company, day, uniqueCalls.length, cards);
+}
+
+function formatCallReport(company: string, day: string, found: number, cards: any[]) {
+  const brandWord = company.toLowerCase().split(" ")[0] || "";
+  const grade = (transcript: string) => {
+    const said = transcript.toLowerCase();
+    if (!said) return null;
+    return {
+      greeting: /hello|hey|this is|my name/.test(said) ? "Good" : "Miss",
+      offer: /\$|price|package|deposit|down payment/.test(said) ? "Good" : "Miss",
+      next: /i'?ll |let me|text you|send |call you|follow up|message /.test(said) ? "Good" : "Miss",
+      brand: (brandWord && said.includes(brandWord)) || /honeysuckle|captured memories/.test(said) ? "Good" : "Miss",
+      logistics: /venue|minutes out|on my way|running late|behind/.test(said),
+    };
   };
-  const plain = cards.map((row) => `**${row.name}**\n\n${row.when}, ${row.direction}${row.seconds ? `, ${row.seconds}s` : ""}\n\n${row.transcript || "No transcript."}`).join("\n\n");
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25000);
-  try {
-    const res = await fetch("https://api.x.ai/v1/chat/completions", {
-      method: "POST",
-      signal: controller.signal,
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: Deno.env.get("ASSISTANT_MODEL") || "grok-4.7",
-        temperature: 0.2,
-        max_tokens: 1400,
-        messages: [
-          {
-            role: "system",
-            content: `Write yesterday's call analysis for a phone. Use only the JSON facts. Never invent a call, a name, a time, a duration, or a quote.
-
-Start with **Yesterday**. One line: how many calls, how many inbound, how many outbound, how many had a transcript.
-
-Then one block per call. Bold the contact name. Next line: time, direction, and duration in seconds when it is known. Then the transcript in short sentences. If there is no transcript, say Ovanta did not store one.
-
-Then **Coaching**. One flag per call, taken from the words that were actually said. If the call was a voicemail or a clean call, say that.
-
-Then **Scorecard**. For each call, one line: greeting, offer, next step, and brand name. Mark each Good, Miss, or Unclear. Unclear means the transcript does not show it.
-
-Then **Takeaways**. Three bullets. If some calls were left out, say how many.`,
-          },
-          { role: "user", content: JSON.stringify(facts) },
-        ],
-      }),
-    });
-    const payload = await res.json().catch(() => ({}));
-    const message = payload?.choices?.[0]?.message || {};
-    const parts = Array.isArray(message.content) ? message.content.map((part: any) => part?.text || "").join("\n") : message.content;
-    const written = String(parts || "").trim();
-    return written || plain;
-  } catch {
-    return plain;
-  } finally {
-    clearTimeout(timer);
+  const spoken = (transcript: string) => {
+    if (!transcript) return "No recording was stored for this call.";
+    const sentences = transcript.match(/[^.!?]+[.!?]+/g) || [transcript];
+    const chunks: string[] = [];
+    for (let index = 0; index < sentences.length && chunks.length < 3; index += 2) {
+      chunks.push(sentences.slice(index, index + 2).join(" ").trim());
+    }
+    return chunks.join("\n\n");
+  };
+  const recorded = cards.filter((row) => row.transcript).length;
+  const outbound = cards.filter((row) => String(row.direction).toLowerCase().includes("out")).length;
+  const lines = [
+    "**Yesterday**",
+    "",
+    `${day}. ${found} call${found === 1 ? "" : "s"}, ${outbound} outbound in this write-up, ${recorded} with a recording.`,
+    "",
+  ];
+  for (const row of cards) {
+    lines.push(
+      `**${row.name}**`,
+      "",
+      `${row.when || "Time unknown"}, ${row.direction}${row.seconds ? `, ${row.seconds} seconds` : ""}.`,
+      "",
+      spoken(row.transcript),
+      "",
+    );
   }
+  lines.push("**Coaching**", "");
+  for (const row of cards) {
+    const scored = grade(row.transcript);
+    if (!scored) {
+      lines.push(`- **${row.name}**, no recording, so this call cannot be graded.`);
+      continue;
+    }
+    const misses = [
+      scored.greeting === "Miss" ? "no greeting" : "",
+      scored.offer === "Miss" ? "no price or package" : "",
+      scored.next === "Miss" ? "no next step" : "",
+      scored.brand === "Miss" ? "the company name was not said" : "",
+    ].filter(Boolean);
+    const kind = scored.logistics ? " This was a logistics call, not a sales pitch." : "";
+    lines.push(`- **${row.name}**, ${misses.length ? misses.join(", ") : "greeting, offer, next step, and company name were all there"}.${kind}`);
+  }
+  lines.push("", "**Scorecard**", "");
+  for (const row of cards) {
+    const scored = grade(row.transcript);
+    lines.push(scored
+      ? `- **${row.name}**, greeting ${scored.greeting}, offer ${scored.offer}, next step ${scored.next}, brand ${scored.brand}.`
+      : `- **${row.name}**, no recording.`);
+  }
+  lines.push("", "**Takeaways**", "");
+  if (recorded === 0) lines.push("- None of these calls had a recording, so there is nothing to coach yet.");
+  else if (recorded < cards.length) lines.push(`- Only ${recorded} of ${cards.length} calls had a recording. The others cannot be graded.`);
+  const logistics = cards.some((row) => grade(row.transcript)?.logistics);
+  if (logistics) lines.push("- The recorded call was about getting to the venue, not closing a booking.");
+  if (found > cards.length) lines.push(`- ${found - cards.length} more calls were found and left out of this write-up.`);
+  if (lines[lines.length - 1] === "**Takeaways**") lines.push("- Nothing else stood out.");
+  return lines.join("\n");
 }
 
 serve(async (req) => {
