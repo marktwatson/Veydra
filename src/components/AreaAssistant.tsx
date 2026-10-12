@@ -59,6 +59,7 @@ const HOUSE_MARK =
   "https://assets.cdn.filesafe.space/76EKIVBXrGYIny0RbqcE/media/6abaa38a7ef452865a26c67d.gif";
 
 const SUGGESTIONS = [
+  { label: "Sales audit", question: "Audit our salespeople" },
   { label: "Ovanta pipelines", question: "Audit our Ovanta pipelines" },
   { label: "Ovanta workflows", question: "Audit our Ovanta workflows" },
   { label: "Money", question: "Who is past due?" },

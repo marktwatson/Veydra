@@ -963,6 +963,158 @@ function formatWorkflows(company: string, workflows: { name: string; status: str
   return lines.join("\n");
 }
 
+async function messageTranscript(key: string, locationId: string, messageId: string) {
+  const path = `https://services.leadconnectorhq.com/conversations/locations/${locationId}/messages/${messageId}/transcription`;
+  let res = await crmGet(key, path);
+  if (!res.ok) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const retry = await fetch(path, {
+        signal: controller.signal,
+        headers: { Authorization: `Bearer ${key}`, Version: "v3", Accept: "application/json" },
+      });
+      const text = await retry.text();
+      let body: any = {};
+      try { body = text ? JSON.parse(text) : {}; } catch { body = { message: text.slice(0, 180) }; }
+      res = { ok: retry.ok, status: retry.status, body };
+    } catch {
+      return "";
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  if (!res.ok) return "";
+  if (typeof res.body?.transcript === "string") return res.body.transcript.slice(0, 500);
+  const rows = Array.isArray(res.body) ? res.body : res.body?.transcription || res.body?.sentences || [];
+  return rows
+    .map((row: any) => row.text || row.transcript || row.sentence || row.content || "")
+    .filter(Boolean)
+    .join(" ")
+    .slice(0, 500);
+}
+
+async function salesAudit(db: any, territoryId: string) {
+  const { data: settings } = await db
+    .from("portal_settings")
+    .select("company_name, timezone, hl_api_key, hl_location_id")
+    .eq("territory_id", territoryId)
+    .limit(1)
+    .maybeSingle();
+  const company = settings?.company_name || "this company";
+  const key = String(settings?.hl_api_key || "").trim();
+  const locationId = String(settings?.hl_location_id || "").trim();
+  const timeZone = settings?.timezone || "America/New_York";
+  const range = periodRange("this_week", timeZone);
+  const { data: proposals } = await db
+    .from("proposals")
+    .select("salesperson_name, salesperson_email, status, total_amount, amount_paid_so_far, contract_signed_at, sent_at, created_at")
+    .eq("territory_id", territoryId)
+    .limit(2000);
+  const reps = new Map<string, any>();
+  for (const proposal of proposals || []) {
+    const email = String(proposal.salesperson_email || "").trim().toLowerCase();
+    const name = String(proposal.salesperson_name || "").trim();
+    const id = email || name.toLowerCase();
+    if (!id) continue;
+    const booked = ["accepted", "paid"].includes(String(proposal.status || "").toLowerCase()) || Number(proposal.amount_paid_so_far) > 0;
+    const sentDay = isoDay(proposal.sent_at || proposal.created_at, timeZone);
+    const bookedDay = isoDay(proposal.contract_signed_at, timeZone) || (booked ? sentDay : "");
+    const inWeek = (day: string) => !!range.from && !!day && day >= range.from && day <= range.to;
+    const row = reps.get(id) || { name: name || email, sent: 0, booked: 0, value: 0 };
+    if (inWeek(sentDay)) row.sent += 1;
+    if (booked && inWeek(bookedDay)) {
+      row.booked += 1;
+      row.value += Number(proposal.total_amount || 0);
+    }
+    reps.set(id, row);
+  }
+  const repLines = [...reps.values()]
+    .sort((a, b) => b.value - a.value || b.booked - a.booked)
+    .slice(0, 12)
+    .map((row) => `- **${row.name}**, sent ${row.sent}, booked ${row.booked}, $${Math.round(row.value).toLocaleString("en-US")}`);
+  const lines = [
+    `Sales audit for ${company}. This week, ${range.from} to ${range.to}.`,
+    "",
+    "**Veydra, who sent the proposal**",
+    "",
+    repLines.length ? repLines.join("\n") : "- No salesperson is on a proposal this week.",
+  ];
+  if (!key || !locationId) {
+    lines.push("", "Ovanta is not connected, so texts, calls, and voicemails are not in this audit.");
+    return lines.join("\n");
+  }
+  const [usersRes, recentRes, callRes, vmRes] = await Promise.all([
+    crmGet(key, `https://services.leadconnectorhq.com/users/?locationId=${locationId}`),
+    crmGet(key, `https://services.leadconnectorhq.com/conversations/search?locationId=${locationId}&limit=100`),
+    crmGet(key, `https://services.leadconnectorhq.com/conversations/search?locationId=${locationId}&limit=30&lastMessageType=TYPE_CALL`),
+    crmGet(key, `https://services.leadconnectorhq.com/conversations/search?locationId=${locationId}&limit=20&lastMessageType=TYPE_CAMPAIGN_VOICEMAIL`),
+  ]);
+  if (!recentRes.ok && !callRes.ok) {
+    lines.push("", `Ovanta inbox could not be read: ${recentRes.body?.message || recentRes.body?.error || recentRes.status}. The key may be missing conversations.readonly.`);
+    return lines.join("\n");
+  }
+  const userName = new Map<string, string>();
+  for (const user of usersRes.body?.users || []) {
+    const label = user.name || [user.firstName, user.lastName].filter(Boolean).join(" ");
+    if (user.id && label) userName.set(user.id, label);
+  }
+  const weekStart = new Date(`${range.from}T00:00:00`).getTime();
+  const seen = new Set<string>();
+  const conversations = [...(recentRes.body?.conversations || []), ...(callRes.body?.conversations || []), ...(vmRes.body?.conversations || [])]
+    .filter((row: any) => {
+      if (!row?.id || seen.has(row.id)) return false;
+      seen.add(row.id);
+      const at = new Date(row.lastMessageDate || row.last_message_date || 0).getTime();
+      return at >= weekStart;
+    });
+  const person = (row: any) => userName.get(row.assignedTo || row.assigned_to || "") || "Unassigned";
+  const lead = (row: any) => row.fullName || row.contactName || row.name || "Unknown lead";
+  const kind = (row: any) => {
+    const type = String(row.lastMessageType || row.last_message_type || "").toUpperCase();
+    if (type.includes("VOICEMAIL")) return "voicemail";
+    if (type.includes("CALL")) return "call";
+    if (type.includes("EMAIL")) return "email";
+    return "text";
+  };
+  const hours = (row: any) => {
+    const at = new Date(row.lastMessageDate || row.last_message_date || 0).getTime();
+    return at ? Math.max(0, Math.round((Date.now() - at) / 36e5)) : null;
+  };
+  const inbound = conversations.filter((row: any) => String(row.lastMessageDirection || row.last_message_direction || "").toLowerCase() === "inbound");
+  const missed = inbound.filter((row: any) => kind(row) === "call" || kind(row) === "voicemail").slice(0, 6);
+  const waiting = inbound.filter((row: any) => kind(row) === "text" || kind(row) === "email").slice(0, 8);
+  lines.push(
+    "",
+    `**Ovanta inbox**`,
+    "",
+    `${conversations.length} conversations this week. ${waiting.length} texts or emails are still waiting. ${missed.length} calls or voicemails were last inbound.`,
+    "",
+    "**Still waiting**",
+    "",
+  );
+  if (!waiting.length) lines.push("- None in the latest inbox.");
+  for (const row of waiting) {
+    const snippet = String(row.lastMessageBody || row.last_message_body || "").replace(/\s+/g, " ").trim().slice(0, 140);
+    lines.push(`- **${lead(row)}**, ${person(row)}, ${kind(row)}, ${hours(row) ?? "?"}h${snippet ? `. "${snippet}"` : ""}`);
+  }
+  lines.push("", "**Calls and voicemails with no reply after**", "");
+  if (!missed.length) lines.push("- None in the latest inbox.");
+  const transcripts = await Promise.all(missed.slice(0, 4).map(async (row: any) => {
+    const messages = await crmGet(key, `https://services.leadconnectorhq.com/conversations/${row.id}/messages?limit=8`);
+    const list = messages.body?.messages?.messages || messages.body?.messages || [];
+    const hit = (Array.isArray(list) ? list : []).find((item: any) => /CALL|VOICE/i.test(String(item.messageType || item.type || "")));
+    const messageId = hit?.id || hit?.messageId;
+    const text = messageId ? await messageTranscript(key, locationId, messageId) : "";
+    return text;
+  }));
+  missed.forEach((row: any, index: number) => {
+    const text = transcripts[index];
+    lines.push(`- **${lead(row)}**, ${person(row)}, ${kind(row)}, ${hours(row) ?? "?"}h${text ? `. ${text}` : index < 4 ? ". No transcript on that message." : ""}`);
+  });
+  return lines.join("\n");
+}
+
 async function ovantaReport(db: any, territoryId: string) {
   const { data: settings } = await db
     .from("portal_settings")
@@ -1195,6 +1347,10 @@ You cannot change records, send messages, or pay anyone. You can tell them the n
     ];
 
     const question = history[history.length - 1]?.content || "";
+    if (/audit our salespeople|sales audit/i.test(question)) {
+      const reply = await salesAudit(db, territoryId);
+      return jsonResp({ reply, area: area?.name || null, company: settings?.company_name || null });
+    }
     if (/automation|workflow/i.test(question)) {
       const listed = await listWorkflows(db, territoryId);
       const reply = listed.error
