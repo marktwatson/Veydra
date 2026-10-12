@@ -301,6 +301,10 @@ async function areaSnapshot(db: any, territoryId: string, args: any) {
     .filter((row: any) => row.due > 0 && row.date >= today && row.date <= horizon)
     .sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)));
   const incomingTotal = Math.round(incomingRows.reduce((sum: number, row: any) => sum + row.due, 0) * 100) / 100;
+  const overdueRows = auditRows
+    .filter((row: any) => row.due > 0 && row.date && row.date < today)
+    .sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)));
+  const overdueTotal = Math.round(overdueRows.reduce((sum: number, row: any) => sum + row.due, 0) * 100) / 100;
   const bookedFromAudit = auditPaid.filter((row: any) => /retainer|deposit|pay in full|package payment/i.test(row.label));
   const summarySource = range.from
     ? bookedFromAudit.map((row: any) => ({
@@ -321,8 +325,8 @@ async function areaSnapshot(db: any, territoryId: string, args: any) {
     instruction: weddingLoad.error
       ? `The wedding load failed: ${weddingLoad.error}. Say that. Do not invent a number.`
       : range.from
-        ? "audit_paid is money already marked Paid in this range. incoming_30 is unpaid installments due from today through the next 30 days. For money coming in, add incoming_30.amount and name incoming_30.rows. Do not use the wedding date. is_first true is a new booking. Never say is_first to the user."
-        : "Booked numbers are all-time. incoming_30 is separate: unpaid installments due in the next 30 days. For money coming in, add incoming_30.amount and name those rows. Do not use the wedding date.",
+        ? "overdue is unpaid installments dated before today. Name overdue.rows and add overdue.amount before talking about the future. incoming_30 is only installments due from today through 30 days. Never say nothing is past due when overdue.count is above zero. is_first true is a new booking. Never say is_first to the user."
+        : "Booked numbers are all-time. overdue is unpaid installments dated before today. incoming_30 is unpaid installments due in the next 30 days. Name overdue before the future rows.",
     definitions: {
       booked: "Initial retainers, deposits, and pay-in-full rows marked Paid on Payment Audit in the range",
       audit_paid: "every Paid installment on Payment Audit in the range, including later payments",
@@ -335,6 +339,16 @@ async function areaSnapshot(db: any, territoryId: string, args: any) {
       amount: incomingTotal,
       count: incomingRows.length,
       rows: incomingRows.slice(0, 30).map((row: any) => ({
+        name: row.name,
+        label: row.label,
+        date: row.date,
+        due: row.due,
+      })),
+    },
+    overdue: {
+      amount: overdueTotal,
+      count: overdueRows.length,
+      rows: overdueRows.slice(0, 30).map((row: any) => ({
         name: row.name,
         label: row.label,
         date: row.date,
@@ -666,7 +680,7 @@ serve(async (req) => {
 
 Think. After you have the rows, say what they mean: who is uncovered, what is late, what to do next, and how this week compares with a normal week if the rows support it. Talk like a person. A few sentences, not a spreadsheet.
 
-Facts still come from tools. For what was booked or paid, call payment_audit. For money coming in, also call payment_audit and use incoming_30. That is unpaid installments due in the next 30 days. Add incoming_30.amount and name the rows. Do not use the wedding date, and do not say nothing is due if incoming_30.amount is above zero. A row with is_first true is a new booking. Say first payment. Never say is_first or audit_paid to the user. For how to do something, call help and follow that article. The questionnaire is in the bride portal, sent from the wedding Actions menu as a portal reminder. If they ask what might still book, call area_records with proposals and name only still_out. Never invent a number, a name, or a date.
+Facts still come from tools. For what was booked or paid, call payment_audit. For money due, call payment_audit. overdue is already past the due date. Name those people and the amount first. incoming_30 is only the next 30 days and is not the overdue list. Never say nothing is past due when overdue.count is above zero. A row with is_first true is a new booking. Say first payment. Never say is_first or audit_paid to the user. For how to do something, call help and follow that article. The questionnaire is in the bride portal, sent from the wedding Actions menu as a portal reminder. If they ask what might still book, call area_records with proposals and name only still_out. Never invent a number, a name, or a date.
 
 You cannot change records, send messages, or pay anyone. You can tell them the next click.`,
       },

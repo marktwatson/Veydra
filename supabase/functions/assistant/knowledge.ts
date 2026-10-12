@@ -232,7 +232,7 @@ export const ARTICLES: Article[] = [
     title: "How to read money that is still coming in",
     screen: "Payment Audit",
     keywords: "next 30 days due upcoming installment incoming overdue",
-    steps: "Payment Audit rows are installments, not wedding dates. A date on the row is when that payment is due. Paid means the running paid amount already covers that row. Pending or overdue means it is still due. The next 30 days means installment dates from today through 30 days, even if the wedding itself is later. Filters include today, past, this month, next 30, and a custom range. Collected is the paid amount on weddings, already net of refunds.",
+    steps: "Payment Audit rows are installments, not wedding dates. A date on the row is when that payment is due. Paid means the running paid amount already covers that row. A row dated before today that is not paid is overdue. That is the Overdue Payments card on the dashboard. The next 30 days means installment dates from today through 30 days, and it does not include those overdue rows. Filters include today, past, this month, next 30, and a custom range. Collected is the paid amount on weddings, already net of refunds.",
   },
   {
     title: "What counts as booked",
