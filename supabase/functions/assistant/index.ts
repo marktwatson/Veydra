@@ -1330,7 +1330,7 @@ async function callAnalysis(db: any, territoryId: string, apiKey: string) {
   const day = shiftIso(today, -1);
   const conversations: any[] = [];
   let cursor = "";
-  for (let page = 0; page < 6; page++) {
+  for (let page = 0; page < 3; page++) {
     const params = new URLSearchParams({ locationId, limit: "100", sort: "desc" });
     if (cursor) params.set("startAfterDate", cursor);
     const res = await crmGet(key, `https://services.leadconnectorhq.com/conversations/search?${params}`);
@@ -1344,91 +1344,82 @@ async function callAnalysis(db: any, territoryId: string, apiKey: string) {
   }
   const onDay = (row: any) => {
     const at = new Date(row.lastMessageDate || row.last_message_date || 0).getTime();
-    return at ? dayInZone(new Date(at), timeZone).iso : "";
+    if (!at) return "";
+    try { return dayInZone(new Date(at), timeZone).iso; } catch { return ""; }
   };
-  const fromThatDay = conversations.filter((row) => onDay(row) === day);
-  const continuedToday = conversations.filter((row) => onDay(row) > day);
-  const active = [...fromThatDay, ...continuedToday].slice(0, 60);
+  const fromThatDay = conversations.filter((row) => onDay(row) === day).slice(0, 24);
   const calls: any[] = [];
   let unreadable = 0;
-  for (let index = 0; index < active.length; index += 8) {
-    const chunk = active.slice(index, index + 8);
+  const deadline = Date.now() + 18000;
+  for (let index = 0; index < fromThatDay.length; index += 6) {
+    if (Date.now() > deadline) break;
+    const chunk = fromThatDay.slice(index, index + 6);
     const pages = await Promise.all(chunk.map(async (row) => {
-      const res = await crmGet(key, `https://services.leadconnectorhq.com/conversations/${row.id}/messages?limit=100`);
+      const res = await crmGet(key, `https://services.leadconnectorhq.com/conversations/${row.id}/messages?limit=40`);
       if (!res.ok) {
         unreadable += 1;
         return [];
       }
       const list = res.body?.messages?.messages || (Array.isArray(res.body?.messages) ? res.body.messages : []);
       return (Array.isArray(list) ? list : [])
-        .filter((item: any) => isPhoneCall(item) && dayInZone(new Date(messageTime(item)), timeZone).iso === day)
+        .filter((item: any) => {
+          if (!isPhoneCall(item)) return false;
+          const at = messageTime(item);
+          if (!at) return false;
+          try { return dayInZone(new Date(at), timeZone).iso === day; } catch { return false; }
+        })
         .map((item: any) => ({ conversation: row, message: item }));
     }));
     for (const page of pages) calls.push(...page);
   }
   calls.sort((a, b) => messageTime(a.message) - messageTime(b.message));
-  const detailed = calls.slice(0, 8);
+  const detailed = calls.slice(0, 4);
   const cards = await Promise.all(detailed.map(async (row) => {
     const messageId = row.message.id || row.message.messageId;
-    const [detail, spoken] = await Promise.all([
-      messageId ? crmGet(key, `https://services.leadconnectorhq.com/conversations/messages/${messageId}`) : Promise.resolve({ ok: false, body: {} }),
-      messageId ? (async () => {
-        const path = `https://services.leadconnectorhq.com/conversations/locations/${locationId}/messages/${messageId}/transcription`;
-        const first = await crmGet(key, path);
-        if (first.ok) return first;
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 8000);
-        try {
-          const retry = await fetch(path, {
-            signal: controller.signal,
-            headers: { Authorization: `Bearer ${key}`, Version: "v3", Accept: "application/json" },
-          });
-          const text = await retry.text();
-          let body: any = {};
-          try { body = text ? JSON.parse(text) : {}; } catch { body = {}; }
-          return { ok: retry.ok, status: retry.status, body };
-        } catch {
-          return first;
-        } finally {
-          clearTimeout(timer);
-        }
-      })() : Promise.resolve({ ok: false, body: {} }),
-    ]);
-    const meta = detail.body?.message || detail.body || row.message;
-    const duration = Number(meta?.meta?.duration || meta?.duration || meta?.callDuration || row.message?.meta?.duration || 0);
-    const direction = String(meta?.direction || row.message?.direction || "unknown");
-    const when = new Date(messageTime(row.message)).toLocaleTimeString("en-US", { timeZone, hour: "numeric", minute: "2-digit" });
+    const spoken = messageId
+      ? await crmGet(key, `https://services.leadconnectorhq.com/conversations/locations/${locationId}/messages/${messageId}/transcription`)
+      : { ok: false, body: {} };
+    const meta = row.message?.meta || {};
+    const duration = Number(meta.duration || meta.callDuration || row.message?.duration || 0);
+    const direction = String(row.message?.direction || "unknown");
+    const at = messageTime(row.message);
+    const when = at ? new Date(at).toLocaleTimeString("en-US", { timeZone, hour: "numeric", minute: "2-digit" }) : "";
     return {
       name: row.conversation.fullName || row.conversation.contactName || row.conversation.name || "Unknown",
       when,
       direction,
       seconds: duration || null,
-      transcript: transcriptText(spoken.ok ? spoken.body : null).replace(/\s+/g, " ").trim().slice(0, 1200),
+      transcript: transcriptText(spoken.ok ? spoken.body : null).replace(/\s+/g, " ").trim().slice(0, 900),
     };
   }));
   if (!cards.length) {
-    return `No phone calls were found for ${company} on ${day}. Opened ${fromThatDay.length} conversations from that day and ${Math.min(continuedToday.length, Math.max(0, 60 - fromThatDay.length))} that continued after. ${unreadable ? `${unreadable} could not be read. ` : ""}A call counts only when Ovanta stored it as a phone call inside the thread.`;
+    return `No phone calls were found for ${company} on ${day}. Opened ${fromThatDay.length} conversations from that day. ${unreadable ? `${unreadable} could not be read. ` : ""}A call counts only when Ovanta stored it as a phone call inside the thread.`;
   }
   const facts = {
     company,
     day,
-    active_conversations: active.length,
+    active_conversations: fromThatDay.length,
     calls_found: calls.length,
     transcribed_here: cards.filter((row) => row.transcript).length,
     omitted: Math.max(0, calls.length - cards.length),
     calls: cards,
   };
-  const res = await fetch("https://api.x.ai/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: Deno.env.get("ASSISTANT_MODEL") || "grok-4.7",
-      temperature: 0.2,
-      max_tokens: 1200,
-      messages: [
-        {
-          role: "system",
-          content: `Write yesterday's call analysis for a phone. Use only the JSON facts. Never invent a call, a name, a time, a duration, or a quote.
+  const plain = cards.map((row) => `**${row.name}**\n\n${row.when}, ${row.direction}${row.seconds ? `, ${row.seconds}s` : ""}\n\n${row.transcript || "No transcript."}`).join("\n\n");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch("https://api.x.ai/v1/chat/completions", {
+      method: "POST",
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: Deno.env.get("ASSISTANT_MODEL") || "grok-4.7",
+        temperature: 0.2,
+        max_tokens: 900,
+        messages: [
+          {
+            role: "system",
+            content: `Write yesterday's call analysis for a phone. Use only the JSON facts. Never invent a call, a name, a time, a duration, or a quote.
 
 Start with **Yesterday**. One line: how many calls, how many inbound, how many outbound, how many had a transcript.
 
@@ -1439,15 +1430,18 @@ Then **Coaching**. One flag per call, taken from the words that were actually sa
 Then **Scorecard**. For each call, one line: greeting, offer, next step, and brand name. Mark each Good, Miss, or Unclear. Unclear means the transcript does not show it.
 
 Then **Takeaways**. Three bullets. If some calls were left out, say how many.`,
-        },
-        { role: "user", content: JSON.stringify(facts) },
-      ],
-    }),
-  });
-  const payload = await res.json().catch(() => ({}));
-  const written = payload?.choices?.[0]?.message?.content;
-  if (written) return written;
-  return cards.map((row) => `**${row.name}**\n\n${row.when}, ${row.direction}${row.seconds ? `, ${row.seconds}s` : ""}\n\n${row.transcript || "No transcript."}`).join("\n\n");
+          },
+          { role: "user", content: JSON.stringify(facts) },
+        ],
+      }),
+    });
+    const payload = await res.json().catch(() => ({}));
+    return payload?.choices?.[0]?.message?.content || plain;
+  } catch {
+    return plain;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 serve(async (req) => {
@@ -1512,8 +1506,16 @@ You cannot change records, send messages, or pay anyone. You can tell them the n
 
     const question = history[history.length - 1]?.content || "";
     if (/analyze yesterday'?s calls|yesterday'?s call analysis/i.test(question)) {
-      const reply = await callAnalysis(db, territoryId, apiKey);
-      return jsonResp({ reply, area: area?.name || null, company: settings?.company_name || null });
+      try {
+        const reply = await callAnalysis(db, territoryId, apiKey);
+        return jsonResp({ reply, area: area?.name || null, company: settings?.company_name || null });
+      } catch (error: any) {
+        return jsonResp({
+          reply: `The call analysis stopped before it finished. ${error?.message || "Try it once more."}`,
+          area: area?.name || null,
+          company: settings?.company_name || null,
+        });
+      }
     }
     if (/audit our salespeople|sales audit/i.test(question)) {
       const reply = await salesAudit(db, territoryId, req.headers.get("Authorization") || "");
