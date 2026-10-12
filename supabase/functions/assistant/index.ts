@@ -1729,15 +1729,15 @@ serve(async (req) => {
       const styles = [
         {
           label: "Classic",
-          prompt: `A classic wedding photography and videography logo, wide, like fine stationery. The studio is named "${name}".${where} The only readable words are that name, and the place if it fits, in an elegant high-contrast serif on warm ivory, with a thin gold line. No camera clipart, no mockup, no people, no extra words.`,
+          prompt: `A wedding invitation logo, wide, on warm ivory paper. The studio is a wedding photography and videography studio named "${name}".${where} Elegant high-contrast script or serif for the name, a thin gold rule, and a small hand-drawn wedding mark: a simple ring, a tiny bouquet, or a sprig of flowers. The word WEDDINGS may sit in small capitals under the name. The place may sit in small type. No people, no photos, no mockup, no extra words.`,
         },
         {
           label: "Modern",
-          prompt: `A modern wedding photography and videography logo, wide and minimal. The studio is named "${name}".${where} Clean geometric sans-serif, lots of space, black on white, with one simple abstract mark that could suggest a lens or a frame. Not a stock camera icon. The only readable words are the studio name and, if it fits, the place in small type. No mockup, no people, no extra words.`,
+          prompt: `A modern wedding studio logo, wide, white background. The studio is a wedding photography and videography studio named "${name}".${where} Clean sans-serif name, lots of space, and one simple wedding mark: two interlocking rings or a single olive sprig. Not a camera icon. The word WEDDINGS in small tracked capitals under the name. The place may sit in small type. No people, no photos, no mockup, no extra words.`,
         },
         {
           label: "Film",
-          prompt: `A cinematic wedding photo and video logo, wide. The studio is named "${name}".${where} Bold condensed type, film-still contrast, a thin frame like a viewfinder. The only readable words are the studio name and, if it fits, the place in small type. No mockup, no people, no extra words.`,
+          prompt: `A cinematic wedding film logo, wide, soft ivory. The studio is a wedding photography and videography studio named "${name}".${where} Romantic serif name, a thin frame, and a small wedding cue such as a veil line, two rings, or a candle. It should feel like a wedding film title, not a tech company. The word WEDDINGS may sit under the name. The place may sit in small type. No people, no photos, no mockup, no extra words.`,
         },
       ];
       const failures: string[] = [];
