@@ -859,15 +859,44 @@ async function crmPost(key: string, url: string, payload: any) {
   }
 }
 
+async function searchOpportunities(key: string, locationId: string, startAfter: string, startAfterId: string, style: "legacy" | "v3") {
+  const params = new URLSearchParams({ limit: "100", status: "open" });
+  params.set(style === "legacy" ? "location_id" : "locationId", locationId);
+  if (startAfter) params.set("startAfter", startAfter);
+  if (startAfterId) params.set("startAfterId", startAfterId);
+  if (style === "legacy") return crmGet(key, `https://services.leadconnectorhq.com/opportunities/search?${params}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(`https://services.leadconnectorhq.com/opportunities/search?${params}`, {
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${key}`, Version: "v3", Accept: "application/json" },
+    });
+    const text = await res.text();
+    let body: any = {};
+    try { body = text ? JSON.parse(text) : {}; } catch { body = { message: text.slice(0, 180) }; }
+    return { ok: res.ok, status: res.status, body };
+  } catch (error: any) {
+    return { ok: false, status: 0, body: { message: error?.message || "Ovanta timed out" } };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function openOpportunities(key: string, locationId: string) {
   const rows: any[] = [];
   let startAfter = "";
   let startAfterId = "";
+  let style: "legacy" | "v3" = "legacy";
   for (let page = 0; page < 3; page++) {
-    const params = new URLSearchParams({ locationId, limit: "100", status: "open" });
-    if (startAfter) params.set("startAfter", startAfter);
-    if (startAfterId) params.set("startAfterId", startAfterId);
-    const res = await crmGet(key, `https://services.leadconnectorhq.com/opportunities/search?${params}`);
+    let res = await searchOpportunities(key, locationId, startAfter, startAfterId, style);
+    if (!res.ok && page === 0) {
+      const retry = await searchOpportunities(key, locationId, "", "", "v3");
+      if (retry.ok) {
+        style = "v3";
+        res = retry;
+      }
+    }
     if (!res.ok) return { rows, error: res.body?.message || res.body?.error || `Ovanta returned ${res.status}`, capped: false };
     const batch = res.body?.opportunities || res.body?.data || [];
     rows.push(...batch);
