@@ -690,6 +690,12 @@ export default function OwnerWelcome() {
                 </div>
               ))}
             </div>
+            {/^https?:\/\//.test(draft.logoUrl) && (
+              <div className="overflow-hidden rounded-2xl border border-stone-200 dark:border-stone-800">
+                <img src={draft.logoUrl} alt="Chosen logo" className="w-full bg-white" />
+                <p className="px-3 py-2 text-sm text-stone-500">This is the logo saved on the area.</p>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="logo-url">Logo URL</Label>
               <div className="flex gap-2">
