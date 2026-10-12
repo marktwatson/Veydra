@@ -520,7 +520,7 @@ function findHelp(query: string) {
   })
     .filter((row) => row.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 2)
+    .slice(0, 3)
     .map((row) => row.article);
   if (!ranked.length) {
     return {
