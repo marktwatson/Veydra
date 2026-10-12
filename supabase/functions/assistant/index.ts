@@ -118,18 +118,20 @@ function auditRowsFor(wedding: any, timeZone: string) {
   const start = scheduleDay(isoDay(wedding.contract_date, timeZone) || isoDay(wedding.created_at, timeZone));
   const installments = Array.isArray(plan?.installments) ? plan.installments : [];
   const deposit = Number(plan?.deposit) || 0;
-  if (wedding.payment_plan === "custom" || plan?.enabled || installments.length || deposit > 0) {
+  const schedule = Array.isArray(wedding.ghl_schedule) ? wedding.ghl_schedule : [];
+  if (wedding.payment_plan === "custom" || plan?.enabled || installments.length || deposit > 0 || schedule.length) {
     if (deposit > 0 && start) rows.push({ date: start, amount: deposit, label: "Initial Retainer" });
-    installments.forEach((inst: any, index: number) => {
+    const source = installments.length ? installments : schedule;
+    source.forEach((inst: any, index: number) => {
       rows.push({
-        date: scheduleDay(inst?.date),
+        date: scheduleDay(inst?.date || inst?.dueDate),
         amount: Number(inst?.amount) || 0,
         label: inst?.label || `Installment #${index + 1}`,
       });
     });
   }
   let running = 0;
-  return rows.map((row) => {
+  return rows.map((row, index) => {
     const status = paid >= running + row.amount - 0.5 ? "paid" : paid > running + 0.5 ? "partial" : "pending";
     running += row.amount;
     return {
@@ -138,10 +140,27 @@ function auditRowsFor(wedding: any, timeZone: string) {
       date: row.date,
       amount: Math.round(row.amount * 100) / 100,
       status,
+      is_first: index === 0,
       package_total: total,
       paid,
     };
   });
+}
+
+async function loadAreaWeddings(db: any, territoryId: string) {
+  const rows: any[] = [];
+  for (let from = 0; from < 5000; from += 1000) {
+    const { data, error } = await db
+      .from("weddings")
+      .select("id, client_name, date, status, notes, total_amount, paid_amount, payment_plan, custom_payment_plan, ghl_schedule, editing_status, created_at, contract_date")
+      .eq("territory_id", territoryId)
+      .order("created_at", { ascending: false })
+      .range(from, from + 999);
+    if (error) return { rows, error: error.message };
+    rows.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+  return { rows, error: "" };
 }
 
 function summarize(rows: any[]) {
@@ -163,14 +182,14 @@ function summarize(rows: any[]) {
 }
 
 async function areaSnapshot(db: any, territoryId: string, args: any) {
-  const [{ data: area }, { data: settings }, { data: weddings }, { data: jobs }, { data: proposals }] = await Promise.all([
+  const [{ data: area }, { data: settings }, { data: jobs }, { data: proposals }, weddingLoad] = await Promise.all([
     db.from("territories").select("name").eq("id", territoryId).maybeSingle(),
     db.from("portal_settings").select("company_name, timezone").eq("territory_id", territoryId).limit(1).maybeSingle(),
-    db.from("weddings").select("id, client_name, date, status, notes, total_amount, paid_amount, payment_plan, custom_payment_plan, editing_status, created_at, contract_signed_at, contract_date, offplatform_status, offplatform_amount, offplatform_claimed_at").eq("territory_id", territoryId).limit(2000),
     db.from("jobs").select("role").eq("territory_id", territoryId).eq("status", "open"),
     db.from("proposals").select("client_name, wedding_id, status, total_amount, amount_paid_so_far, contract_signed_at, wedding_date").eq("territory_id", territoryId).limit(2000),
+    loadAreaWeddings(db, territoryId),
   ]);
-  const rows = weddings || [];
+  const rows = weddingLoad.rows || [];
   const timeZone = settings?.timezone || "America/New_York";
   const range = periodRange(String(args?.period || "all"), timeZone, args?.from, args?.to);
   const signByWedding = new Map<string, string>();
@@ -267,9 +286,11 @@ async function areaSnapshot(db: any, territoryId: string, args: any) {
     range: range.label,
     from: range.from,
     to: range.to,
-    instruction: range.from
-      ? "audit_paid is the Paid rows on Payment Audit whose date is in this range. booked_count is only the retainers and deposits in that list. Name every person in audit_paid. If audit_paid is empty, say Payment Audit has no paid rows in the range. Do not say it was a quiet week."
-      : "These numbers are all booked weddings, not a week or a month. Say that they are all-time.",
+    instruction: weddingLoad.error
+      ? `The wedding load failed: ${weddingLoad.error}. Say that. Do not invent a number.`
+      : range.from
+        ? "audit_paid is every Paid row on Payment Audit in this range. is_first true means that row is the couple's first payment, so it is a new booking. is_first false is a later installment. Name each person, the date, and which kind it is. If audit_paid is empty, say none and also say how many weddings were loaded."
+        : "These numbers are all booked weddings, not a week or a month. Say that they are all-time.",
     definitions: {
       booked: "Initial retainers, deposits, and pay-in-full rows marked Paid on Payment Audit in the range",
       audit_paid: "every Paid installment on Payment Audit in the range, including later payments",
@@ -277,6 +298,7 @@ async function areaSnapshot(db: any, territoryId: string, args: any) {
     },
     ...summarize(summarySource),
     audit_paid: auditPaid.slice(0, 40),
+    weddings_loaded: rows.length,
     payments_received: paymentsReceived.slice(0, 30),
     payment_audit_collected_all_time: Math.round(sales.reduce((sum: number, row: any) => sum + Number(row.paid_amount || 0), 0) * 100) / 100,
     open_jobs: (jobs || []).length,
@@ -586,7 +608,7 @@ serve(async (req) => {
 
 Think. After you have the rows, say what they mean: who is uncovered, what is late, what to do next, and how this week compares with a normal week if the rows support it. Talk like a person. A few sentences, not a spreadsheet.
 
-Facts still come from tools. For what was booked or paid, call payment_audit with the period they asked for. The Paid rows are in audit_paid. Name those people and the dates. A retainer or deposit is a new booking. A later installment is not. If audit_paid is empty, say so and stop. Do not compare it to a normal week. Call help before explaining a screen. Never invent a number, a name, or a date.
+Facts still come from tools. For what was booked or paid, call payment_audit with this_week or this_month. audit_paid is the Payment Audit list. is_first true is a new booking. is_first false is a later payment on an older booking. Name the people. If weddings_loaded is 0, say the files did not load. Never invent a number, a name, or a date.
 
 You cannot change records, send messages, or pay anyone. You can tell them the next click.`,
       },
