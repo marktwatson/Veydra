@@ -53,10 +53,12 @@ function dayInZone(date: Date, timeZone: string) {
 }
 
 function shiftIso(iso: string, days: number) {
-  const [year, month, day] = iso.split("-").map(Number);
+  const [year, month, day] = String(iso || "").split("-").map(Number);
+  if (!year || !month || !day) return "";
   const date = new Date(Date.UTC(year, month - 1, day));
   date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
+  const next = date.toISOString().slice(0, 10);
+  return next.startsWith("NaN") ? "" : next;
 }
 
 function periodRange(period: string, timeZone: string, from?: string, to?: string) {
@@ -687,6 +689,12 @@ You cannot change records, send messages, or pay anyone. You can tell them the n
       ...history,
     ];
 
+    const question = history[history.length - 1]?.content || "";
+    const notes = findHelp(question);
+    const noteReply = Array.isArray(notes.articles)
+      ? notes.articles.map((article: any) => article.steps).join(" ")
+      : "";
+
     const model = Deno.env.get("ASSISTANT_MODEL") || "grok-3";
     for (let round = 0; round < 3; round++) {
       const res = await fetch("https://api.x.ai/v1/chat/completions", {
@@ -705,14 +713,21 @@ You cannot change records, send messages, or pay anyone. You can tell them the n
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const detail = payload?.error?.message || payload?.error || "The assistant could not answer.";
-        return jsonResp({ error: String(detail) }, 502);
+        if (noteReply) {
+          return jsonResp({
+            reply: noteReply,
+            area: area?.name || null,
+            company: settings?.company_name || null,
+          });
+        }
+        const detail = payload?.error?.message || payload?.error || res.statusText || "no detail";
+        return jsonResp({ error: `Assistant request failed (${res.status}): ${detail}` }, 502);
       }
       const message = payload.choices?.[0]?.message;
       const calls = message?.tool_calls || [];
       if (!calls.length) {
         return jsonResp({
-          reply: message?.content || "I could not answer that from this area.",
+          reply: message?.content || noteReply || "I could not answer that from this area.",
           area: area?.name || null,
           company: settings?.company_name || null,
         });
@@ -733,7 +748,7 @@ You cannot change records, send messages, or pay anyone. You can tell them the n
         });
       }
     }
-    return jsonResp({ reply: "I could not finish that from this area's records." });
+    return jsonResp({ reply: noteReply || "I could not finish that from this area's records." });
   } catch (error: any) {
     return jsonResp({ error: error?.message || "Assistant failed" }, 500);
   }

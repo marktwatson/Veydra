@@ -46,7 +46,7 @@ export const ARTICLES: Article[] = [
     title: "How post-production works",
     screen: "Post-Production",
     keywords: "editing editor delivered invoice songs deadline raw media",
-    steps: "Post-Production is sorted with the next date first, not weddings that are years out. A row moves from awaiting raw media, to ready to edit, in progress, client review, revisions requested, then delivered. An early event, such as an engagement, gets its own row when it should be edited before the wedding. The company name on the row is the area's company, not the territory nickname. Training video: How to process a wedding post production.",
+    steps: "A finished wedding starts in Post-Production as Awaiting Raw Media. Add the Google Drive link for the footage on that wedding. Until the link is there, the dashboard lists it under Missing Drive Links. To hand it to the editor, open Post-Production and set the status to Ready to Edit, then pick the editor on that row. You can also check Mark wedding as Ready to Edit when you approve the contractor payout. Ready to Edit is what puts it on the editor's portal. The company name on the row is the area's company.",
   },
   {
     title: "How to read the dashboard",
