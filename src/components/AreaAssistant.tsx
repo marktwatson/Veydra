@@ -61,12 +61,12 @@ const HOUSE_MARK =
 const SUGGESTIONS = [
   { label: "Sales audit", question: "Audit our salespeople" },
   { label: "Yesterday's calls", question: "Analyze yesterday's calls" },
-  { label: "Ovanta pipelines", question: "Audit our Ovanta pipelines" },
-  { label: "Ovanta workflows", question: "Audit our Ovanta workflows" },
-  { label: "Money", question: "Who is past due?" },
+  { label: "Pipelines", question: "Audit our Ovanta pipelines" },
+  { label: "Workflows", question: "Audit our Ovanta workflows" },
+  { label: "Past due", question: "Who is past due?" },
   { label: "This week", question: "What did we book this week?" },
-  { label: "Around us", question: "Who are the other wedding studios around us, and what do they charge?" },
-  { label: "After the wedding", question: "How do I get a wedding ready for editing?" },
+  { label: "Studios nearby", question: "Who are the other wedding studios around us, and what do they charge?" },
+  { label: "Ready to edit", question: "How do I get a wedding ready for editing?" },
 ];
 
 function runningLabel(question: string) {
@@ -213,23 +213,6 @@ export function AreaAssistant() {
         {messages.length === 0 && !company && (
           <p className="text-sm text-muted-foreground">One second. I'm seeing which company this is.</p>
         )}
-        {!messages.some((message) => message.role === "user") && (
-          <div className="grid gap-2">
-            {SUGGESTIONS.map((suggestion) => (
-              <button
-                key={suggestion.question}
-                type="button"
-                onClick={() => ask(suggestion.question)}
-                className="rounded-2xl border border-stone-200 px-4 py-3 text-left hover:bg-stone-50 dark:border-stone-800 dark:hover:bg-stone-900"
-              >
-                <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                  {suggestion.label}
-                </span>
-                <span className="mt-0.5 block text-sm">{suggestion.question}</span>
-              </button>
-            ))}
-          </div>
-        )}
         {messages.map((message, index) => (
           <div
             key={`${message.role}-${index}`}
@@ -246,6 +229,20 @@ export function AreaAssistant() {
             )}
           </div>
         ))}
+        {!messages.some((message) => message.role === "user") && (
+          <div className="flex flex-wrap gap-2">
+            {SUGGESTIONS.map((suggestion) => (
+              <button
+                key={suggestion.question}
+                type="button"
+                onClick={() => ask(suggestion.question)}
+                className="rounded-full border border-stone-200 px-3 py-1.5 text-left text-sm hover:bg-stone-50 dark:border-stone-800 dark:hover:bg-stone-900"
+              >
+                {suggestion.label}
+              </button>
+            ))}
+          </div>
+        )}
         {pending && (
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
             <Loader2 className="h-3 w-3 animate-spin" /> {status || "Looking through this company's records"}
