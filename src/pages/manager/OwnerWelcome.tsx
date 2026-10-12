@@ -7,7 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ownerPackageKey, ownerSetupClosedKey, packageMath, pricesIn, setupChecks, setupComplete, suggestPricing, type SetupSnapshot } from "@/lib/owner-setup";
+import { honeysuckleStarter, ownerPackageKey, ownerSetupClosedKey, packageMath, setupChecks, setupComplete, type SetupSnapshot } from "@/lib/owner-setup";
 import { largestCities, peopleLabel, studioNameIdeas, timezoneFor } from "@/lib/owner-places";
 
 const STEPS = ["You", "Name", "Cities", "Mark", "Ovanta", "Stripe", "Facebook", "Pricing", "Done"];
@@ -175,7 +175,7 @@ function PricingStep({
   where: string;
   looking: boolean;
   market: string;
-  suggestion: { four: number; eight: number; deposit: number; marketMid: number; samples: number };
+  suggestion: { four: number; eight: number; deposit: number };
   price4: string;
   price8: string;
   deposit: string;
@@ -185,10 +185,11 @@ function PricingStep({
   onPrice8: (value: string) => void;
   onDeposit: (value: string) => void;
 }) {
-  const four = Number(price4);
-  const eight = Number(price8);
-  const math4 = four > 0 ? packageMath(four, 4) : null;
-  const math8 = eight > 0 ? packageMath(eight, 8) : null;
+  const four = Number(price4) > 0 ? Number(price4) : suggestion.four;
+  const eight = Number(price8) > 0 ? Number(price8) : suggestion.eight;
+  const usingTheirs = Number(price4) > 0 || Number(price8) > 0;
+  const math4 = packageMath(four, 4);
+  const math8 = packageMath(eight, 8);
   return (
     <div className="space-y-5">
       <Button type="button" onClick={onLookup} disabled={looking}>
@@ -197,11 +198,9 @@ function PricingStep({
       </Button>
       {market && <MarketResult text={market} />}
       <div className="rounded-2xl bg-stone-50 p-4 dark:bg-stone-900">
-        <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Suggested starter</p>
+        <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Honeysuckle's prices</p>
         <p className="mt-2 text-sm leading-relaxed text-stone-600 dark:text-stone-300">
-          {suggestion.samples
-            ? `A typical published price near ${where} is about ${money(suggestion.marketMid)}. Start near 40% of that.`
-            : `Before the lookup, this is the same shape as a $1,600 / 4-hour and $1,950 / 8-hour starter near ${where}.`}
+          Honeysuckle opens at these prices. Use them for {where}, or type your own.
         </p>
         <p className="mt-3 text-sm font-medium">
           4 hours {money(suggestion.four)} · 8 hours {money(suggestion.eight)} · deposit {money(suggestion.deposit)}
@@ -210,11 +209,11 @@ function PricingStep({
       </div>
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="space-y-2">
-          <Label htmlFor="price-4">Their 4-hour price</Label>
+          <Label htmlFor="price-4">4-hour package</Label>
           <Input id="price-4" value={price4} onChange={(event) => onPrice4(event.target.value)} placeholder={String(suggestion.four)} />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="price-8">Their 8-hour price</Label>
+          <Label htmlFor="price-8">8-hour package</Label>
           <Input id="price-8" value={price8} onChange={(event) => onPrice8(event.target.value)} placeholder={String(suggestion.eight)} />
         </div>
         <div className="space-y-2">
@@ -222,18 +221,24 @@ function PricingStep({
           <Input id="deposit" value={deposit} onChange={(event) => onDeposit(event.target.value)} placeholder={String(suggestion.deposit)} />
         </div>
       </div>
-      {math8 && (
-        <div className="space-y-1 rounded-2xl border border-stone-200 p-4 text-sm dark:border-stone-800">
-          <p className="mb-2 font-medium">On an 8-hour wedding at {money(eight)}</p>
+      <div className="space-y-3 rounded-2xl border border-stone-200 p-4 text-sm dark:border-stone-800">
+        <p className="font-medium">{usingTheirs ? "Expected margin on their prices" : "Expected margin on Honeysuckle's prices"}</p>
+        <div>
+          <p className="mb-1 text-stone-500">4 hours at {money(four)}</p>
+          <div className="flex justify-between gap-3"><span className="text-stone-500">Lead contractor, $50 an hour</span><span>{money(math4.contractor)}</span></div>
+          <div className="flex justify-between gap-3"><span className="text-stone-500">Edit</span><span>{money(math4.edit)}</span></div>
+          <div className="flex justify-between gap-3"><span className="text-stone-500">Sales, royalty, and payback</span><span>{money(math4.sales + math4.royalty + math4.payback)}</span></div>
+          <div className="flex justify-between gap-3 font-medium"><span>Left for the studio</span><span>{money(math4.left)}</span></div>
+        </div>
+        <div className="border-t border-stone-200 pt-3 dark:border-stone-800">
+          <p className="mb-1 text-stone-500">8 hours at {money(eight)}</p>
           <div className="flex justify-between gap-3"><span className="text-stone-500">Lead contractor, $50 an hour</span><span>{money(math8.contractor)}</span></div>
           <div className="flex justify-between gap-3"><span className="text-stone-500">Edit</span><span>{money(math8.edit)}</span></div>
-          <div className="flex justify-between gap-3"><span className="text-stone-500">Sales, 5%</span><span>{money(math8.sales)}</span></div>
-          <div className="flex justify-between gap-3"><span className="text-stone-500">Royalty, 5%</span><span>{money(math8.royalty)}</span></div>
-          <div className="flex justify-between gap-3"><span className="text-stone-500">Payback, 3%</span><span>{money(math8.payback)}</span></div>
-          <div className="flex justify-between gap-3 border-t border-stone-200 pt-2 font-medium dark:border-stone-800"><span>Left for the studio</span><span>{money(math8.left)}</span></div>
-          {math4 && <p className="pt-2 text-stone-500">A 4-hour wedding at {money(four)} leaves {money(math4.left)} after the same costs. A second shooter is extra.</p>}
+          <div className="flex justify-between gap-3"><span className="text-stone-500">Sales, royalty, and payback</span><span>{money(math8.sales + math8.royalty + math8.payback)}</span></div>
+          <div className="flex justify-between gap-3 font-medium"><span>Left for the studio</span><span>{money(math8.left)}</span></div>
         </div>
-      )}
+        <p className="text-xs leading-relaxed text-stone-400">Not exact. This leaves out second shooters and anything else this area pays. It is not final until those costs are added.</p>
+      </div>
     </div>
   );
 }
@@ -251,7 +256,6 @@ export default function OwnerWelcome() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const [market, setMarket] = useState("");
-  const [suggestion, setSuggestion] = useState(() => suggestPricing([]));
   const [looking, setLooking] = useState(false);
   const [making, setMaking] = useState(false);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
@@ -448,7 +452,6 @@ export default function OwnerWelcome() {
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload.error || "The lookup did not finish.");
       setMarket(payload.reply || "Nothing came back. Try it once more.");
-      setSuggestion(suggestPricing(pricesIn(payload.reply || "")));
     } catch (error: any) {
       setNotice(error?.message || "The lookup did not finish.");
     } finally {
@@ -853,21 +856,21 @@ export default function OwnerWelcome() {
         {step === 7 && (
           <div className="space-y-4">
             <AssistantSays>
-              Start low so the first bookings come in. I'll look at what couples around {cities.join(", ") || draft.state || "here"} are paying, then you tell me the two prices you want to open with.
+              Pick a 4-hour package and an 8-hour package. I'd open with the same prices Honeysuckle uses, then you can change them. The margin under that is an estimate.
             </AssistantSays>
             <PricingStep
             where={cities.join(", ") || draft.state || "this area"}
             looking={looking}
             market={market}
-            suggestion={suggestion}
+            suggestion={honeysuckleStarter}
             price4={draft.price4}
             price8={draft.price8}
             deposit={draft.deposit}
             onLookup={lookUpMarket}
             onUseSuggestion={() => {
-              set("price4", String(suggestion.four));
-              set("price8", String(suggestion.eight));
-              set("deposit", String(suggestion.deposit));
+              set("price4", String(honeysuckleStarter.four));
+              set("price8", String(honeysuckleStarter.eight));
+              set("deposit", String(honeysuckleStarter.deposit));
             }}
             onPrice4={(value) => set("price4", value)}
             onPrice8={(value) => set("price8", value)}

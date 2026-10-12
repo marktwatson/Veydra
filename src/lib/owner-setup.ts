@@ -51,6 +51,8 @@ export function pricesIn(text: string) {
     .filter((amount) => amount >= 400 && amount <= 20000);
 }
 
+export const honeysuckleStarter = { four: 1600, eight: 1950, deposit: 99 };
+
 export function suggestPricing(published: number[]) {
   const sorted = [...published].sort((a, b) => a - b);
   const mid = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 4000;
