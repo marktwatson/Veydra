@@ -1373,7 +1373,22 @@ async function callAnalysis(db: any, territoryId: string, apiKey: string) {
     for (const page of pages) calls.push(...page);
   }
   calls.sort((a, b) => messageTime(a.message) - messageTime(b.message));
-  const detailed = calls.slice(0, 4);
+  const seenCall = new Set<string>();
+  const uniqueCalls = calls.filter((row) => {
+    const at = messageTime(row.message);
+    const key = `${row.conversation.id || row.conversation.fullName}|${Math.floor(at / 60000)}`;
+    if (seenCall.has(key)) return false;
+    seenCall.add(key);
+    return true;
+  });
+  const detailed = uniqueCalls.slice(0, 4);
+  const clipSaid = (value: string) => {
+    const clean = value.replace(/\s+/g, " ").trim();
+    if (clean.length <= 700) return clean;
+    const cut = clean.slice(0, 700);
+    const stop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("? "), cut.lastIndexOf("! "));
+    return (stop > 240 ? cut.slice(0, stop + 1) : cut).trim();
+  };
   const cards = await Promise.all(detailed.map(async (row) => {
     const messageId = row.message.id || row.message.messageId;
     const spoken = messageId
@@ -1389,7 +1404,7 @@ async function callAnalysis(db: any, territoryId: string, apiKey: string) {
       when,
       direction,
       seconds: duration || null,
-      transcript: transcriptText(spoken.ok ? spoken.body : null).replace(/\s+/g, " ").trim().slice(0, 900),
+      transcript: clipSaid(transcriptText(spoken.ok ? spoken.body : row.message?.meta?.callTranscriptions || null)),
     };
   }));
   if (!cards.length) {
@@ -1399,14 +1414,14 @@ async function callAnalysis(db: any, territoryId: string, apiKey: string) {
     company,
     day,
     active_conversations: fromThatDay.length,
-    calls_found: calls.length,
+    calls_found: uniqueCalls.length,
     transcribed_here: cards.filter((row) => row.transcript).length,
-    omitted: Math.max(0, calls.length - cards.length),
+    omitted: Math.max(0, uniqueCalls.length - cards.length),
     calls: cards,
   };
   const plain = cards.map((row) => `**${row.name}**\n\n${row.when}, ${row.direction}${row.seconds ? `, ${row.seconds}s` : ""}\n\n${row.transcript || "No transcript."}`).join("\n\n");
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
+  const timer = setTimeout(() => controller.abort(), 25000);
   try {
     const res = await fetch("https://api.x.ai/v1/chat/completions", {
       method: "POST",
@@ -1415,7 +1430,7 @@ async function callAnalysis(db: any, territoryId: string, apiKey: string) {
       body: JSON.stringify({
         model: Deno.env.get("ASSISTANT_MODEL") || "grok-4.7",
         temperature: 0.2,
-        max_tokens: 900,
+        max_tokens: 1400,
         messages: [
           {
             role: "system",
@@ -1436,7 +1451,10 @@ Then **Takeaways**. Three bullets. If some calls were left out, say how many.`,
       }),
     });
     const payload = await res.json().catch(() => ({}));
-    return payload?.choices?.[0]?.message?.content || plain;
+    const message = payload?.choices?.[0]?.message || {};
+    const parts = Array.isArray(message.content) ? message.content.map((part: any) => part?.text || "").join("\n") : message.content;
+    const written = String(parts || "").trim();
+    return written || plain;
   } catch {
     return plain;
   } finally {
