@@ -65,6 +65,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useRoyaltyTerritory } from "@/lib/use-royalty-territory";
 import {
   ResponsiveContainer,
   BarChart,
@@ -98,6 +99,7 @@ export interface ManualExpense {
 export default function ManagerAccounting() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { effectiveTerritoryId } = useRoyaltyTerritory();
 
   // Filters & State
   const currentYear = new Date().getFullYear().toString();
@@ -143,14 +145,19 @@ export default function ManagerAccounting() {
   });
 
   const { data: paidEventEdits = [] } = useQuery({
-    queryKey: ["accounting-event-edits"],
+    queryKey: ["accounting-event-edits", effectiveTerritoryId],
     queryFn: async () => {
+      if (!effectiveTerritoryId) return [];
       const { data, error } = await supabase
         .from("wedding_events")
-        .select("id, title, event_date, edit_details, weddings(client_name)")
+        .select("id, title, event_date, edit_details, weddings(client_name, territory_id)")
         .eq("needs_early_edit", true);
       if (error) return [];
-      return (data || []).filter((event: any) => event.edit_details?.invoice_status === "paid");
+      return (data || []).filter(
+        (event: any) =>
+          event.edit_details?.invoice_status === "paid" &&
+          event.weddings?.territory_id === effectiveTerritoryId,
+      );
     },
   });
 
@@ -161,16 +168,10 @@ export default function ManagerAccounting() {
 
   // Royalty periods — used to fold royalty + payback collections into the P&L
   // so net income reflects real money that left the business.
-  const { data: royaltyTerritory } = useQuery({
-    queryKey: ["own-royalty-territory"],
-    queryFn: () => api.getOwnRoyaltyTerritory(),
-    retry: false,
-  });
-
   const { data: royaltyPeriods = [] } = useQuery({
-    queryKey: ["royalty-periods", royaltyTerritory?.id],
-    queryFn: () => api.getRoyaltyPeriods(royaltyTerritory!.id),
-    enabled: !!royaltyTerritory?.id,
+    queryKey: ["royalty-periods", effectiveTerritoryId],
+    queryFn: () => api.getRoyaltyPeriods(effectiveTerritoryId!),
+    enabled: !!effectiveTerritoryId,
     retry: false,
   });
 
