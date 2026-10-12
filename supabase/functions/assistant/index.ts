@@ -834,7 +834,7 @@ You cannot change records, send messages, or pay anyone. You can tell them the n
     }
     chat[0].content += `\n\n${deskText}`;
 
-    const model = Deno.env.get("ASSISTANT_MODEL") || "grok-3";
+    const model = Deno.env.get("ASSISTANT_MODEL") || "grok-4.7";
     for (let round = 0; round < 3; round++) {
       const res = await fetch("https://api.x.ai/v1/chat/completions", {
         method: "POST",
