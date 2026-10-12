@@ -1498,38 +1498,38 @@ function formatCallReport(company: string, day: string, found: number, cards: an
   return lines.join("\n");
 }
 
+function agentText(payload: any) {
+  if (typeof payload?.output_text === "string" && payload.output_text.trim()) return payload.output_text.trim();
+  const chunks: string[] = [];
+  for (const item of payload?.output || []) {
+    for (const part of item?.content || []) {
+      if (typeof part?.text === "string" && part.text.trim()) chunks.push(part.text.trim());
+    }
+  }
+  return chunks.join("\n\n").trim();
+}
+
 async function marketLook(company: string, area: string, places: string, question: string, apiKey: string) {
   const where = [places, area.replace(/\s*\([^)]*\)/g, "").trim()].filter(Boolean).join(", ");
   const model = Deno.env.get("ASSISTANT_MODEL") || "grok-4.7";
-  const ask = `Name up to 5 other wedding photography or videography studios near ${where}. ${question}. Only studios you found on a public page. If a price is not published, say not listed. One bullet each: "- **Name**, city, what they shoot, published price". Then one line on what ${company} should notice. Do not invent a studio or a price.`;
+  const ask = `One web search only. Name up to 5 other wedding photography or videography studios near ${where}. ${question}. Only studios on a public page. If a price is not published, say not listed. One bullet each: "- **Name**, city, what they shoot, published price". Then one line on what ${company} should notice. Do not invent a studio or a price.`;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25000);
+  const timer = setTimeout(() => controller.abort(), 45000);
   try {
-    const res = await fetch("https://api.x.ai/v1/chat/completions", {
+    const res = await fetch("https://api.x.ai/v1/responses", {
       method: "POST",
       signal: controller.signal,
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model,
-        temperature: 0.2,
-        max_tokens: 700,
-        search_parameters: {
-          mode: "on",
-          return_citations: false,
-          max_search_results: 5,
-          sources: [{ type: "web", country: "US" }],
-        },
-        messages: [
-          { role: "system", content: "You only look up other wedding studios. If this is not about that, say you only look up other wedding studios for this company." },
-          { role: "user", content: ask },
-        ],
+        max_output_tokens: 600,
+        tools: [{ type: "web_search" }],
+        input: [{ role: "user", content: ask }],
       }),
     });
     const payload = await res.json().catch(() => ({}));
-    const written = payload?.choices?.[0]?.message?.content;
-    if (typeof written === "string" && written.trim()) return written.trim();
-    const reason = payload?.error?.message || payload?.error || "";
-    if (reason) return `I could not look up other studios. ${String(reason).slice(0, 180)}`;
+    const written = agentText(payload);
+    if (written) return written;
     return "I could not look up other studios just now. Try it once more.";
   } catch {
     return "The studio lookup took too long. Try it once more.";
