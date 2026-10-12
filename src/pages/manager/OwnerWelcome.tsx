@@ -239,7 +239,7 @@ export default function OwnerWelcome() {
   const [looking, setLooking] = useState(false);
   const [making, setMaking] = useState(false);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
-  const [marks, setMarks] = useState<string[]>([]);
+  const [marks, setMarks] = useState<{ url: string; style: string }[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -446,11 +446,20 @@ export default function OwnerWelcome() {
           Authorization: `Bearer ${token}`,
           apikey: supabaseAnonKey,
         },
-        body: JSON.stringify({ action: "logos", territoryId, name: previewName }),
+        body: JSON.stringify({
+          action: "logos",
+          territoryId,
+          name: previewName,
+          place: cities.join(", ") || draft.state || areaName,
+        }),
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload.error || "The logos did not come back.");
-      const logos = Array.isArray(payload.logos) ? payload.logos.filter((url: unknown) => typeof url === "string") : [];
+      const logos = Array.isArray(payload.logos)
+        ? payload.logos
+            .map((item: any) => (typeof item === "string" ? { url: item, style: "" } : { url: item?.url, style: item?.style || "" }))
+            .filter((item: { url?: string }) => !!item.url)
+        : [];
       if (!logos.length) throw new Error("No logos came back. Try once more.");
       setMarks(logos);
     } catch (error: any) {
@@ -662,20 +671,23 @@ export default function OwnerWelcome() {
 
         {step === 2 && (
           <div className="space-y-4">
-            <p className="text-stone-700 dark:text-stone-300">Three logo directions for {previewName}. Pick one, or paste a logo you already have.</p>
+            <p className="text-stone-700 dark:text-stone-300">Three different directions for {previewName}{cities.length || draft.state ? ` in ${cities.join(", ") || draft.state}` : ""}. Classic, modern, and film. It is a wedding photo and video studio. Pick one, or paste a logo you already have.</p>
             <Button type="button" variant="outline" onClick={makeMarks} disabled={making}>
               {making ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Make three logos
             </Button>
             <div className="grid gap-3">
-              {marks.map((src, index) => (
-                <div key={index} className="overflow-hidden rounded-2xl border border-stone-200 dark:border-stone-800">
-                  <img src={src} alt="" className="w-full" />
-                  <div className="flex justify-end gap-2 p-2">
-                    <Button type="button" size="sm" variant="ghost" onClick={() => downloadMark(src, index)}>
-                      <Download className="mr-1.5 h-3.5 w-3.5" /> Download
-                    </Button>
-                    <Button type="button" size="sm" onClick={() => saveLogo(src)}>Use this</Button>
+              {marks.map((mark, index) => (
+                <div key={mark.url} className="overflow-hidden rounded-2xl border border-stone-200 dark:border-stone-800">
+                  <img src={mark.url} alt="" className="w-full" />
+                  <div className="flex items-center justify-between gap-2 p-2">
+                    <p className="pl-2 text-sm text-stone-500">{mark.style}</p>
+                    <div className="flex gap-2">
+                      <Button type="button" size="sm" variant="ghost" onClick={() => downloadMark(mark.url, index)}>
+                        <Download className="mr-1.5 h-3.5 w-3.5" /> Download
+                      </Button>
+                      <Button type="button" size="sm" onClick={() => saveLogo(mark.url)}>Use this</Button>
+                    </div>
                   </div>
                 </div>
               ))}

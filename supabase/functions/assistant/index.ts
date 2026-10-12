@@ -1723,19 +1723,30 @@ serve(async (req) => {
 
     if (body.action === "logos") {
       const name = String(body.name || "").trim().slice(0, 48);
+      const place = String(body.place || "").trim().slice(0, 80);
       if (name.length < 2) return jsonResp({ error: "Add the business name first." }, 400);
-      const prompts = [
-        `A refined wedding photography studio logo, wide, on warm ivory paper. The only readable text is "${name}" in an elegant high-contrast serif, with a thin gold line above and the small tracked capitals WEDDINGS underneath. Generous empty space. No mockup, no extra words, no people.`,
-        `A quiet luxury wedding studio logo, wide, on deep charcoal. The only readable text is "${name}" in ivory serif, with one hairline gold rule. Expensive and spare. No mockup, no extra words, no people.`,
-        `A wedding studio logo, wide, on soft sage paper. A small simple olive branch drawn in ink beside the only readable text, "${name}", in a classic serif, with WEDDINGS in small capitals below. No mockup, no extra words, no people.`,
+      const where = place ? ` The studio is in ${place}. Let that place inform the mood, and you may set the place in small type under the name.` : "";
+      const styles = [
+        {
+          label: "Classic",
+          prompt: `A classic wedding photography and videography logo, wide, like fine stationery. The studio is named "${name}".${where} The only readable words are that name, and the place if it fits, in an elegant high-contrast serif on warm ivory, with a thin gold line. No camera clipart, no mockup, no people, no extra words.`,
+        },
+        {
+          label: "Modern",
+          prompt: `A modern wedding photography and videography logo, wide and minimal. The studio is named "${name}".${where} Clean geometric sans-serif, lots of space, black on white, with one simple abstract mark that could suggest a lens or a frame. Not a stock camera icon. The only readable words are the studio name and, if it fits, the place in small type. No mockup, no people, no extra words.`,
+        },
+        {
+          label: "Film",
+          prompt: `A cinematic wedding photo and video logo, wide. The studio is named "${name}".${where} Bold condensed type, film-still contrast, a thin frame like a viewfinder. The only readable words are the studio name and, if it fits, the place in small type. No mockup, no people, no extra words.`,
+        },
       ];
-      const made = await Promise.all(prompts.map(async (prompt) => {
+      const made = await Promise.all(styles.map(async (style) => {
         const res = await fetch("https://api.x.ai/v1/images/generations", {
           method: "POST",
           headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({
             model: "grok-imagine-image-2.0",
-            prompt,
+            prompt: style.prompt,
             n: 1,
             aspect_ratio: "16:9",
             response_format: "url",
@@ -1743,21 +1754,24 @@ serve(async (req) => {
         });
         const payload = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(payload?.error?.message || payload?.error || "The logo maker did not answer.");
-        return payload?.data?.[0]?.url as string | undefined;
+        const url = payload?.data?.[0]?.url as string | undefined;
+        return url ? { url, style: style.label } : null;
       }));
-      const urls = made.filter((url): url is string => !!url);
+      const urls = made.filter((item): item is { url: string; style: string } => !!item?.url);
       if (!urls.length) return jsonResp({ error: "No logos came back. Try once more." }, 502);
-      const saved: string[] = [];
-      for (const url of urls) {
-        const image = await fetch(url);
+      const saved: { url: string; style: string }[] = [];
+      for (const item of urls) {
+        const image = await fetch(item.url);
         if (!image.ok) continue;
         const bytes = new Uint8Array(await image.arrayBuffer());
         const path = `owner-logos/${territoryId}/${crypto.randomUUID()}.jpg`;
         const { error } = await db.storage.from("avatars").upload(path, bytes, { contentType: "image/jpeg", upsert: true });
-        if (error) continue;
-        saved.push(db.storage.from("avatars").getPublicUrl(path).data.publicUrl);
+        if (error) {
+          saved.push(item);
+          continue;
+        }
+        saved.push({ url: db.storage.from("avatars").getPublicUrl(path).data.publicUrl, style: item.style });
       }
-      if (!saved.length) return jsonResp({ logos: urls });
       return jsonResp({ logos: saved });
     }
 
