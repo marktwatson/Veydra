@@ -963,38 +963,7 @@ function formatWorkflows(company: string, workflows: { name: string; status: str
   return lines.join("\n");
 }
 
-async function messageTranscript(key: string, locationId: string, messageId: string) {
-  const path = `https://services.leadconnectorhq.com/conversations/locations/${locationId}/messages/${messageId}/transcription`;
-  let res = await crmGet(key, path);
-  if (!res.ok) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
-    try {
-      const retry = await fetch(path, {
-        signal: controller.signal,
-        headers: { Authorization: `Bearer ${key}`, Version: "v3", Accept: "application/json" },
-      });
-      const text = await retry.text();
-      let body: any = {};
-      try { body = text ? JSON.parse(text) : {}; } catch { body = { message: text.slice(0, 180) }; }
-      res = { ok: retry.ok, status: retry.status, body };
-    } catch {
-      return "";
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-  if (!res.ok) return "";
-  if (typeof res.body?.transcript === "string") return res.body.transcript.slice(0, 500);
-  const rows = Array.isArray(res.body) ? res.body : res.body?.transcription || res.body?.sentences || [];
-  return rows
-    .map((row: any) => row.text || row.transcript || row.sentence || row.content || "")
-    .filter(Boolean)
-    .join(" ")
-    .slice(0, 500);
-}
-
-async function salesAudit(db: any, territoryId: string) {
+async function salesAudit(db: any, territoryId: string, authHeader: string) {
   const { data: settings } = await db
     .from("portal_settings")
     .select("company_name, timezone, hl_api_key, hl_location_id")
@@ -1041,77 +1010,45 @@ async function salesAudit(db: any, territoryId: string) {
     repLines.length ? repLines.join("\n") : "- No salesperson is on a proposal this week.",
   ];
   if (!key || !locationId) {
-    lines.push("", "Ovanta is not connected, so texts, calls, and voicemails are not in this audit.");
+    lines.push("", "Ovanta is not connected, so the lead audit is not in this report.");
     return lines.join("\n");
   }
-  const [usersRes, recentRes, callRes, vmRes] = await Promise.all([
-    crmGet(key, `https://services.leadconnectorhq.com/users/?locationId=${locationId}`),
-    crmGet(key, `https://services.leadconnectorhq.com/conversations/search?locationId=${locationId}&limit=100`),
-    crmGet(key, `https://services.leadconnectorhq.com/conversations/search?locationId=${locationId}&limit=30&lastMessageType=TYPE_CALL`),
-    crmGet(key, `https://services.leadconnectorhq.com/conversations/search?locationId=${locationId}&limit=20&lastMessageType=TYPE_CAMPAIGN_VOICEMAIL`),
-  ]);
-  if (!recentRes.ok && !callRes.ok) {
-    lines.push("", `Ovanta inbox could not be read: ${recentRes.body?.message || recentRes.body?.error || recentRes.status}. The key may be missing conversations.readonly.`);
+  const url = Deno.env.get("SUPABASE_URL") || "";
+  const anon = Deno.env.get("SUPABASE_ANON_KEY") || "";
+  if (!url || !authHeader) {
+    lines.push("", "The lead audit could not run because this login was not passed through.");
     return lines.join("\n");
   }
-  const userName = new Map<string, string>();
-  for (const user of usersRes.body?.users || []) {
-    const label = user.name || [user.firstName, user.lastName].filter(Boolean).join(" ");
-    if (user.id && label) userName.set(user.id, label);
-  }
-  const weekStart = new Date(`${range.from}T00:00:00`).getTime();
-  const seen = new Set<string>();
-  const conversations = [...(recentRes.body?.conversations || []), ...(callRes.body?.conversations || []), ...(vmRes.body?.conversations || [])]
-    .filter((row: any) => {
-      if (!row?.id || seen.has(row.id)) return false;
-      seen.add(row.id);
-      const at = new Date(row.lastMessageDate || row.last_message_date || 0).getTime();
-      return at >= weekStart;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 50000);
+  try {
+    const res = await fetch(`${url}/functions/v1/sales-activity`, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: authHeader,
+        apikey: anon,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ range: 1, territoryId, skipStore: true }),
     });
-  const person = (row: any) => userName.get(row.assignedTo || row.assigned_to || "") || "Unassigned";
-  const lead = (row: any) => row.fullName || row.contactName || row.name || "Unknown lead";
-  const kind = (row: any) => {
-    const type = String(row.lastMessageType || row.last_message_type || "").toUpperCase();
-    if (type.includes("VOICEMAIL")) return "voicemail";
-    if (type.includes("CALL")) return "call";
-    if (type.includes("EMAIL")) return "email";
-    return "text";
-  };
-  const hours = (row: any) => {
-    const at = new Date(row.lastMessageDate || row.last_message_date || 0).getTime();
-    return at ? Math.max(0, Math.round((Date.now() - at) / 36e5)) : null;
-  };
-  const inbound = conversations.filter((row: any) => String(row.lastMessageDirection || row.last_message_direction || "").toLowerCase() === "inbound");
-  const missed = inbound.filter((row: any) => kind(row) === "call" || kind(row) === "voicemail").slice(0, 6);
-  const waiting = inbound.filter((row: any) => kind(row) === "text" || kind(row) === "email").slice(0, 8);
-  lines.push(
-    "",
-    `**Ovanta inbox**`,
-    "",
-    `${conversations.length} conversations this week. ${waiting.length} texts or emails are still waiting. ${missed.length} calls or voicemails were last inbound.`,
-    "",
-    "**Still waiting**",
-    "",
-  );
-  if (!waiting.length) lines.push("- None in the latest inbox.");
-  for (const row of waiting) {
-    const snippet = String(row.lastMessageBody || row.last_message_body || "").replace(/\s+/g, " ").trim().slice(0, 140);
-    lines.push(`- **${lead(row)}**, ${person(row)}, ${kind(row)}, ${hours(row) ?? "?"}h${snippet ? `. "${snippet}"` : ""}`);
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok || payload?.error) {
+      lines.push("", `The lead audit could not run: ${payload?.error || payload?.detail || res.status}.`);
+      return lines.join("\n");
+    }
+    lines.push(
+      "",
+      "**Ovanta lead audit**",
+      "Same rules as the daily sales report. New leads only, excluding booked and hired. A human touch is a call, voicemail, manual text, or email. Automation does not count.",
+      "",
+      String(payload.reportText || "The lead audit returned no text."),
+    );
+  } catch (error: any) {
+    lines.push("", `The lead audit timed out: ${error?.message || "unknown error"}.`);
+  } finally {
+    clearTimeout(timer);
   }
-  lines.push("", "**Calls and voicemails with no reply after**", "");
-  if (!missed.length) lines.push("- None in the latest inbox.");
-  const transcripts = await Promise.all(missed.slice(0, 4).map(async (row: any) => {
-    const messages = await crmGet(key, `https://services.leadconnectorhq.com/conversations/${row.id}/messages?limit=8`);
-    const list = messages.body?.messages?.messages || messages.body?.messages || [];
-    const hit = (Array.isArray(list) ? list : []).find((item: any) => /CALL|VOICE/i.test(String(item.messageType || item.type || "")));
-    const messageId = hit?.id || hit?.messageId;
-    const text = messageId ? await messageTranscript(key, locationId, messageId) : "";
-    return text;
-  }));
-  missed.forEach((row: any, index: number) => {
-    const text = transcripts[index];
-    lines.push(`- **${lead(row)}**, ${person(row)}, ${kind(row)}, ${hours(row) ?? "?"}h${text ? `. ${text}` : index < 4 ? ". No transcript on that message." : ""}`);
-  });
   return lines.join("\n");
 }
 
@@ -1348,7 +1285,7 @@ You cannot change records, send messages, or pay anyone. You can tell them the n
 
     const question = history[history.length - 1]?.content || "";
     if (/audit our salespeople|sales audit/i.test(question)) {
-      const reply = await salesAudit(db, territoryId);
+      const reply = await salesAudit(db, territoryId, req.headers.get("Authorization") || "");
       return jsonResp({ reply, area: area?.name || null, company: settings?.company_name || null });
     }
     if (/automation|workflow/i.test(question)) {

@@ -257,13 +257,18 @@ Deno.serve(async (req) => {
   if (!uemail && callerEmail) uemail = callerEmail;
   if (!uemail && !uid) return json({ error: "Unauthorized — invalid session", tokenLen: tok.length, tokenPrefix: tok ? tok.slice(0, 8) : "none" }, 401);
   let mgr: any = null;
-  if (uemail) { const { data } = await db.from("managers").select("id, email, role, status, territory_id").ilike("email", uemail).maybeSingle(); mgr = data; }
-  if (!mgr && uid && /^[0-9a-f-]{36}$/i.test(uid)) { try { const { data } = await db.from("managers").select("id, email, role, status, territory_id").eq("id", uid).maybeSingle(); mgr = data; } catch {} }
+  if (uemail) { const { data } = await db.from("managers").select("id, email, role, status, territory_id, territory_ids").ilike("email", uemail).maybeSingle(); mgr = data; }
+  if (!mgr && uid && /^[0-9a-f-]{36}$/i.test(uid)) { try { const { data } = await db.from("managers").select("id, email, role, status, territory_id, territory_ids").eq("id", uid).maybeSingle(); mgr = data; } catch {} }
   const role = String(mgr?.role || "").toLowerCase().trim();
   if (!["owner", "owner_readonly", "super_admin", "manager"].includes(role)) return json({ error: "Forbidden — owner, super_admin, or manager only", email: uemail, userId: uid, managerRowFound: !!mgr, roleFound: role || null }, 403);
 
   const HONEY = "0bbaebfc-1c51-4ebe-98b4-e2e9697ef33d";
-  const territoryId = mgr?.territory_id || HONEY;
+  const requestedTerritory = String(body?.territoryId || "").trim();
+  const allowedTerritories = Array.isArray(mgr?.territory_ids) ? mgr.territory_ids : [];
+  let territoryId = mgr?.territory_id || HONEY;
+  if (requestedTerritory && (role === "super_admin" || requestedTerritory === territoryId || allowedTerritories.includes(requestedTerritory))) {
+    territoryId = requestedTerritory;
+  }
   let ps: any = null;
   try {
     const { data, error } = await db.from("portal_settings").select("hl_api_key, hl_location_id, app_url, company_name").eq("territory_id", territoryId).limit(1);
@@ -667,7 +672,7 @@ Deno.serve(async (req) => {
   if (body?.sendEmail && reportText) { const recips = Array.isArray(body.recipients) && body.recipients.length > 0 ? body.recipients : undefined; emailResult = await sendEmails(loc, H, co, reportText, htmlReport, recips); }
   const history = body?.includeHistory ? await fetchHistory(db, 30) : [];
   const result = { ...summary, reportText, htmlReport, emailResult, history, triggeredBy: body?.triggeredBy || "manual" };
-  await storeRun(db, result);
+  if (!body?.skipStore) await storeRun(db, result);
   console.log("[sales-activity] done", poolArr.length, "range", range);
   return json(result);
   } catch (e: any) { console.error("[sales-activity] error", e?.message || String(e)); return json({ error: "Report failed", detail: e?.message || String(e), poolSize: 0, errors: [String(e?.message || e)] }, 500); }
