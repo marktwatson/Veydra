@@ -60,6 +60,7 @@ const HOUSE_MARK =
 
 const SUGGESTIONS = [
   { label: "Sales audit", question: "Audit our salespeople" },
+  { label: "Yesterday's calls", question: "Analyze yesterday's calls" },
   { label: "Ovanta pipelines", question: "Audit our Ovanta pipelines" },
   { label: "Ovanta workflows", question: "Audit our Ovanta workflows" },
   { label: "Money", question: "Who is past due?" },

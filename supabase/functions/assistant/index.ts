@@ -1291,6 +1291,170 @@ async function runTool(db: any, territoryId: string, name: string, args: any, ca
   return { error: "Unknown tool" };
 }
 
+function zonedInstant(day: string, clock: string, timeZone: string) {
+  const guess = new Date(`${day}T${clock}Z`).getTime();
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(new Date(guess));
+  const get = (type: string) => Number(parts.find((part) => part.type === type)?.value || 0);
+  const seen = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour") % 24, get("minute"), get("second"));
+  return guess - (seen - guess);
+}
+
+function isPhoneCall(item: any) {
+  const type = item?.type ?? item?.messageType ?? item?.message_type;
+  if (type === 1 || type === "1") return true;
+  return String(type || "").toUpperCase() === "TYPE_CALL";
+}
+
+function messageTime(item: any) {
+  return new Date(item?.dateAdded || item?.date_added || item?.createdAt || item?.meta?.date || 0).getTime();
+}
+
+function transcriptText(body: any) {
+  if (!body) return "";
+  if (typeof body === "string") return body;
+  if (typeof body.transcript === "string") return body.transcript;
+  const rows = Array.isArray(body) ? body : body.transcription || body.sentences || [];
+  return rows.map((row: any) => row.text || row.transcript || row.sentence || row.content || "").filter(Boolean).join(" ");
+}
+
+async function callAnalysis(db: any, territoryId: string, apiKey: string) {
+  const { data: settings } = await db
+    .from("portal_settings")
+    .select("company_name, timezone, hl_api_key, hl_location_id")
+    .eq("territory_id", territoryId)
+    .limit(1)
+    .maybeSingle();
+  const company = settings?.company_name || "this company";
+  const key = String(settings?.hl_api_key || "").trim();
+  const locationId = String(settings?.hl_location_id || "").trim();
+  const timeZone = settings?.timezone || "America/Chicago";
+  if (!key || !locationId) return `${company} has no Ovanta key, so yesterday's calls could not be read.`;
+  const today = dayInZone(new Date(), timeZone).iso;
+  const day = shiftIso(today, -1);
+  const start = zonedInstant(day, "00:00:00", timeZone);
+  const end = zonedInstant(day, "23:59:59", timeZone);
+  const conversations: any[] = [];
+  let cursor = "";
+  for (let page = 0; page < 2; page++) {
+    const params = new URLSearchParams({ locationId, limit: "100", sort: "desc" });
+    if (cursor) params.set("startAfterDate", cursor);
+    const res = await crmGet(key, `https://services.leadconnectorhq.com/conversations/search?${params}`);
+    if (!res.ok) return `Ovanta would not open the inbox: ${res.body?.message || res.body?.error || res.status}. The key may be missing conversations.readonly.`;
+    const batch = res.body?.conversations || [];
+    conversations.push(...batch);
+    if (batch.length < 100) break;
+    cursor = String(batch[batch.length - 1]?.lastMessageDate || batch[batch.length - 1]?.last_message_date || "");
+    if (!cursor) break;
+  }
+  const active = conversations.filter((row) => {
+    const at = new Date(row.lastMessageDate || row.last_message_date || 0).getTime();
+    return at >= start;
+  }).slice(0, 40);
+  const calls: any[] = [];
+  for (let index = 0; index < active.length; index += 8) {
+    const chunk = active.slice(index, index + 8);
+    const pages = await Promise.all(chunk.map(async (row) => {
+      const res = await crmGet(key, `https://services.leadconnectorhq.com/conversations/${row.id}/messages?limit=50`);
+      const list = res.body?.messages?.messages || res.body?.messages || [];
+      return (Array.isArray(list) ? list : [])
+        .filter((item: any) => isPhoneCall(item) && messageTime(item) >= start && messageTime(item) <= end)
+        .map((item: any) => ({ conversation: row, message: item }));
+    }));
+    for (const page of pages) calls.push(...page);
+  }
+  calls.sort((a, b) => messageTime(a.message) - messageTime(b.message));
+  const detailed = calls.slice(0, 8);
+  const cards = await Promise.all(detailed.map(async (row) => {
+    const messageId = row.message.id || row.message.messageId;
+    const [detail, spoken] = await Promise.all([
+      messageId ? crmGet(key, `https://services.leadconnectorhq.com/conversations/messages/${messageId}`) : Promise.resolve({ ok: false, body: {} }),
+      messageId ? (async () => {
+        const path = `https://services.leadconnectorhq.com/conversations/locations/${locationId}/messages/${messageId}/transcription`;
+        const first = await crmGet(key, path);
+        if (first.ok) return first;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 8000);
+        try {
+          const retry = await fetch(path, {
+            signal: controller.signal,
+            headers: { Authorization: `Bearer ${key}`, Version: "v3", Accept: "application/json" },
+          });
+          const text = await retry.text();
+          let body: any = {};
+          try { body = text ? JSON.parse(text) : {}; } catch { body = {}; }
+          return { ok: retry.ok, status: retry.status, body };
+        } catch {
+          return first;
+        } finally {
+          clearTimeout(timer);
+        }
+      })() : Promise.resolve({ ok: false, body: {} }),
+    ]);
+    const meta = detail.body?.message || detail.body || row.message;
+    const duration = Number(meta?.meta?.duration || meta?.duration || meta?.callDuration || row.message?.meta?.duration || 0);
+    const direction = String(meta?.direction || row.message?.direction || "unknown");
+    const when = new Date(messageTime(row.message)).toLocaleTimeString("en-US", { timeZone, hour: "numeric", minute: "2-digit" });
+    return {
+      name: row.conversation.fullName || row.conversation.contactName || row.conversation.name || "Unknown",
+      when,
+      direction,
+      seconds: duration || null,
+      transcript: transcriptText(spoken.ok ? spoken.body : null).replace(/\s+/g, " ").trim().slice(0, 1200),
+    };
+  }));
+  if (!cards.length) {
+    return `No phone calls were found for ${company} on ${day}. Looked through ${active.length} recent conversations. A call only counts when Ovanta stored it as a phone call.`;
+  }
+  const facts = {
+    company,
+    day,
+    active_conversations: active.length,
+    calls_found: calls.length,
+    transcribed_here: cards.filter((row) => row.transcript).length,
+    omitted: Math.max(0, calls.length - cards.length),
+    calls: cards,
+  };
+  const res = await fetch("https://api.x.ai/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: Deno.env.get("ASSISTANT_MODEL") || "grok-4.7",
+      temperature: 0.2,
+      max_tokens: 1200,
+      messages: [
+        {
+          role: "system",
+          content: `Write yesterday's call analysis for a phone. Use only the JSON facts. Never invent a call, a name, a time, a duration, or a quote.
+
+Start with **Yesterday**. One line: how many calls, how many inbound, how many outbound, how many had a transcript.
+
+Then one block per call. Bold the contact name. Next line: time, direction, and duration in seconds when it is known. Then the transcript in short sentences. If there is no transcript, say Ovanta did not store one.
+
+Then **Coaching**. One flag per call, taken from the words that were actually said. If the call was a voicemail or a clean call, say that.
+
+Then **Scorecard**. For each call, one line: greeting, offer, next step, and brand name. Mark each Good, Miss, or Unclear. Unclear means the transcript does not show it.
+
+Then **Takeaways**. Three bullets. If some calls were left out, say how many.`,
+        },
+        { role: "user", content: JSON.stringify(facts) },
+      ],
+    }),
+  });
+  const payload = await res.json().catch(() => ({}));
+  const written = payload?.choices?.[0]?.message?.content;
+  if (written) return written;
+  return cards.map((row) => `**${row.name}**\n\n${row.when}, ${row.direction}${row.seconds ? `, ${row.seconds}s` : ""}\n\n${row.transcript || "No transcript."}`).join("\n\n");
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
@@ -1352,6 +1516,10 @@ You cannot change records, send messages, or pay anyone. You can tell them the n
     ];
 
     const question = history[history.length - 1]?.content || "";
+    if (/analyze yesterday'?s calls|yesterday'?s call analysis/i.test(question)) {
+      const reply = await callAnalysis(db, territoryId, apiKey);
+      return jsonResp({ reply, area: area?.name || null, company: settings?.company_name || null });
+    }
     if (/audit our salespeople|sales audit/i.test(question)) {
       const reply = await salesAudit(db, territoryId, req.headers.get("Authorization") || "");
       return jsonResp({ reply, area: area?.name || null, company: settings?.company_name || null });
