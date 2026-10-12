@@ -72,6 +72,21 @@ function periodRange(period: string, timeZone: string, from?: string, to?: strin
   return { from: null, to: null, label: "all time" };
 }
 
+function isoDay(value: unknown, timeZone: string) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+    if (raw.length > 10) {
+      const date = new Date(raw);
+      if (!Number.isNaN(date.getTime())) return dayInZone(date, timeZone).iso;
+    }
+    return raw.slice(0, 10);
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return dayInZone(parsed, timeZone).iso;
+}
+
 function bookedOn(wedding: any) {
   return String(wedding.contract_signed_at || wedding.created_at || "").slice(0, 10);
 }
@@ -95,23 +110,44 @@ function summarize(rows: any[]) {
 }
 
 async function areaSnapshot(db: any, territoryId: string, args: any) {
-  const [{ data: area }, { data: settings }, { data: weddings }, { data: jobs }] = await Promise.all([
+  const [{ data: area }, { data: settings }, { data: weddings }, { data: jobs }, { data: proposals }] = await Promise.all([
     db.from("territories").select("name").eq("id", territoryId).maybeSingle(),
     db.from("portal_settings").select("company_name, timezone").eq("territory_id", territoryId).limit(1).maybeSingle(),
-    db.from("weddings").select("client_name, date, status, total_amount, paid_amount, editing_status, created_at, contract_signed_at").eq("territory_id", territoryId).limit(2000),
+    db.from("weddings").select("id, client_name, date, status, total_amount, paid_amount, editing_status, created_at, contract_signed_at").eq("territory_id", territoryId).limit(2000),
     db.from("jobs").select("role").eq("territory_id", territoryId).eq("status", "open"),
+    db.from("proposals").select("client_name, wedding_id, status, total_amount, amount_paid_so_far, contract_signed_at, wedding_date").eq("territory_id", territoryId).limit(2000),
   ]);
   const rows = weddings || [];
   const booked = rows.filter(isBooked);
-  const range = periodRange(String(args?.period || "all"), settings?.timezone || "America/New_York", args?.from, args?.to);
-  const inRange = range.from
-    ? booked.filter((row: any) => {
-      const day = bookedOn(row);
-      return !!day && day >= range.from && day <= range.to;
+  const timeZone = settings?.timezone || "America/New_York";
+  const range = periodRange(String(args?.period || "all"), timeZone, args?.from, args?.to);
+  const weddingById = new Map(rows.map((row: any) => [row.id, row]));
+  const signedSales = (proposals || [])
+    .map((proposal: any) => {
+      const day = isoDay(proposal.contract_signed_at, timeZone);
+      const wedding = weddingById.get(proposal.wedding_id);
+      return {
+        day,
+        wedding_id: proposal.wedding_id,
+        client_name: proposal.client_name,
+        date: proposal.wedding_date,
+        total_amount: proposal.total_amount,
+        paid_amount: wedding?.paid_amount ?? proposal.amount_paid_so_far ?? 0,
+        contract_signed_at: day,
+        status: proposal.status,
+      };
     })
-    : booked;
+    .filter((proposal: any) => proposal.day && (!range.from || (proposal.day >= range.from && proposal.day <= range.to)));
+  const linked = new Set(signedSales.map((proposal: any) => proposal.wedding_id).filter(Boolean));
+  const manualSales = booked
+    .filter((row: any) => {
+      const day = isoDay(row.created_at, timeZone);
+      return day && !linked.has(row.id) && (!range.from || (day >= range.from && day <= range.to));
+    })
+    .map((row: any) => ({ ...row, contract_signed_at: isoDay(row.created_at, timeZone) }));
+  const inRange = range.from ? [...signedSales, ...manualSales] : booked;
   const editing = ["ready_to_edit", "in_progress", "revisions_requested", "client_review"];
-  const today = dayInZone(new Date(), settings?.timezone || "America/New_York").iso;
+  const today = dayInZone(new Date(), timeZone).iso;
   return {
     area: area?.name || territoryId,
     company: settings?.company_name || null,
@@ -122,8 +158,10 @@ async function areaSnapshot(db: any, territoryId: string, args: any) {
       ? "These numbers are only weddings booked in the range. Say the range in the answer. Do not call this all-time sales."
       : "These numbers are all booked weddings, not a week or a month. Say that they are all-time.",
     definitions: {
-      booked: "upcoming or completed weddings in this area",
-      booked_on: "contract signed date, or the day the wedding record was created",
+      booked: range.from
+        ? "proposals signed in that range, plus weddings typed in by hand that same range"
+        : "upcoming or completed weddings in this area",
+      booked_on: "the day the couple signed the proposal",
       booked_value: "package total, not cash collected",
     },
     ...summarize(inRange),
