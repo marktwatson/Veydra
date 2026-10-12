@@ -699,6 +699,17 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "ovanta",
+      description: "Read this area's Ovanta account: location, calendars, pipelines, and recent contacts. Use for CRM, leads, and setup. It cannot add or edit users, send messages, or change records.",
+      parameters: {
+        type: "object",
+        properties: { question: { type: "string" } },
+      },
+    },
+  },
 ];
 
 function deskLines(rows: any[], render: (row: any) => string, empty: string) {
@@ -781,7 +792,92 @@ Proposals still waiting, not booked:
 ${proposals}
 
 Salespeople. The name is the person who sent the proposal.
-${salespeople}`;
+${salespeople}
+
+Ovanta is not in this desk. If they ask about Ovanta, leads, calendars, pipelines, or setup, call the ovanta tool.`;
+}
+
+async function crmGet(key: string, url: string) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${key}`,
+        Version: "2021-07-28",
+        Accept: "application/json",
+      },
+    });
+    const text = await res.text();
+    let body: any = {};
+    try {
+      body = text ? JSON.parse(text) : {};
+    } catch {
+      body = { message: text.slice(0, 180) };
+    }
+    return { ok: res.ok, status: res.status, body };
+  } catch (error: any) {
+    return { ok: false, status: 0, body: { message: error?.message || "Ovanta timed out" } };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function ovantaReport(db: any, territoryId: string) {
+  const { data: settings } = await db
+    .from("portal_settings")
+    .select("company_name, hl_api_key, hl_location_id, interview_calendar_id")
+    .eq("territory_id", territoryId)
+    .limit(1)
+    .maybeSingle();
+  const key = String(settings?.hl_api_key || "").trim();
+  const locationId = String(settings?.hl_location_id || "").trim();
+  if (!key || !locationId) {
+    return {
+      connected: false,
+      error: "This company has no Ovanta key or location id. Add both in Settings, Integrations.",
+    };
+  }
+  const [location, calendars, pipelines, contacts] = await Promise.all([
+    crmGet(key, `https://services.leadconnectorhq.com/locations/${locationId}`),
+    crmGet(key, `https://services.leadconnectorhq.com/calendars/?locationId=${locationId}`),
+    crmGet(key, `https://services.leadconnectorhq.com/opportunities/pipelines?locationId=${locationId}`),
+    crmGet(key, `https://services.leadconnectorhq.com/contacts/?locationId=${locationId}&limit=20`),
+  ]);
+  const calendarRows = (calendars.body?.calendars || calendars.body?.data || [])
+    .map((row: any) => ({ id: row.id, name: row.name || row.id }))
+    .filter((row: any) => row.id)
+    .slice(0, 20);
+  const savedCalendar = String(settings?.interview_calendar_id || "");
+  const interview = calendarRows.find((row: any) => row.id === savedCalendar);
+  const pipelineRows = (pipelines.body?.pipelines || []).slice(0, 8).map((row: any) => ({
+    name: row.name,
+    stages: (row.stages || []).map((stage: any) => stage.name).filter(Boolean).slice(0, 12),
+  }));
+  const recent = (contacts.body?.contacts || []).slice(0, 12).map((row: any) => ({
+    name: [row.firstName, row.lastName].filter(Boolean).join(" ") || row.email || row.phone || "Unnamed",
+    added: String(row.dateAdded || row.date_added || "").slice(0, 10),
+    source: typeof row.source === "string" ? row.source : row.source?.source || "",
+    tags: Array.isArray(row.tags) ? row.tags.slice(0, 5) : [],
+  }));
+  const missing = [
+    !location.ok ? "The location did not answer. The key may not match this location." : "",
+    !savedCalendar ? "No interview calendar is chosen in Settings, Integrations." : "",
+    savedCalendar && !interview ? "The saved interview calendar is not in this Ovanta account." : "",
+    !pipelines.ok ? "Pipelines could not be read." : "",
+  ].filter(Boolean);
+  return {
+    connected: location.ok || calendars.ok || contacts.ok,
+    company: settings?.company_name || null,
+    location_name: location.body?.location?.name || location.body?.name || null,
+    calendars: calendarRows.map((row: any) => row.name),
+    interview_calendar: interview?.name || null,
+    pipelines: pipelineRows,
+    recent_contacts: recent,
+    setup_missing: missing,
+    cannot: "Cannot add or edit Ovanta users, send a message, or change a record.",
+  };
 }
 
 async function runTool(db: any, territoryId: string, name: string, args: any, cache?: Map<string, Promise<any>>) {
@@ -796,6 +892,7 @@ async function runTool(db: any, territoryId: string, name: string, args: any, ca
   if (name === "find_wedding") return findWedding(db, territoryId, String(args?.name || ""));
   if (name === "area_records") return areaRecords(db, territoryId, String(args?.kind || ""));
   if (name === "help") return findHelp(String(args?.query || ""));
+  if (name === "ovanta") return ovantaReport(db, territoryId);
   return { error: "Unknown tool" };
 }
 
@@ -852,7 +949,7 @@ serve(async (req) => {
 
 Think, then write for a phone. Short lines. Put a blank line between ideas. When you name people or amounts, use a bullet list, one person per line, as "- **Name**, date, amount". Bold only the name. Do not write a wall of text. No tables. No field names.
 
-Facts still come from the desk below. overdue is already past the due date. Name those people and the amount first. incoming rows are only the next 30 days. A booked row this week is a new booking, the first payment, and the package value is not the cash collected. For how to do something, call help and repeat that article. Do not swap in a different screen. A wedding that is finished but not edited is Post-Production: Drive link, Ready to Edit, then the editor. That is not a portal reminder. If they name one couple, call find_wedding. Never invent a number, a name, or a date.
+Facts still come from the desk below. overdue is already past the due date. Name those people and the amount first. incoming rows are only the next 30 days. A booked row this week is a new booking, the first payment, and the package value is not the cash collected. For how to do something, call help and repeat that article. Do not swap in a different screen. A wedding that is finished but not edited is Post-Production: Drive link, Ready to Edit, then the editor. That is not a portal reminder. If they name one couple, call find_wedding. If they ask about Ovanta, leads, the CRM, calendars, pipelines, or setup, call ovanta and answer from that. Do not say you cannot see Ovanta. Never invent a number, a name, or a date. You cannot add or edit Ovanta users.
 
 You cannot change records, send messages, or pay anyone. You can tell them the next click.`,
       },
