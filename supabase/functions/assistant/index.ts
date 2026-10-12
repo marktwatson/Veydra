@@ -172,6 +172,7 @@ function auditRowsFor(wedding: any, timeZone: string) {
       is_first: index === 0,
       package_total: total,
       paid,
+      wedding_status: wedding.status,
     };
   });
 }
@@ -304,7 +305,7 @@ async function areaSnapshot(db: any, territoryId: string, args: any) {
     .sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)));
   const incomingTotal = Math.round(incomingRows.reduce((sum: number, row: any) => sum + row.due, 0) * 100) / 100;
   const overdueRows = auditRows
-    .filter((row: any) => row.due > 0 && row.date && row.date < today)
+    .filter((row: any) => row.wedding_status === "upcoming" && row.status !== "paid" && row.due > 0 && row.date && row.date < today)
     .sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)));
   const overdueTotal = Math.round(overdueRows.reduce((sum: number, row: any) => sum + row.due, 0) * 100) / 100;
   const bookedFromAudit = auditPaid.filter((row: any) => /retainer|deposit|pay in full|package payment/i.test(row.label));
@@ -673,8 +674,16 @@ function formatDesk(snap: any) {
     "- None",
   );
   const overdue = deskLines(
-    snap.overdue?.rows,
+    (snap.overdue?.rows || []).filter((row: any) => Number(row.due) >= 100),
     (row) => `- **${row.name}**, due ${row.date}, ${money(row.due)} still unpaid`,
+    "- No balance over $100",
+  );
+  const smallOverdue = (snap.overdue?.rows || []).filter((row: any) => Number(row.due) < 100);
+  const smallTotal = Math.round(smallOverdue.reduce((sum: number, row: any) => sum + Number(row.due || 0), 0) * 100) / 100;
+  const dueSoon = (snap.incoming_30?.rows || []).filter((row: any) => row.date <= shiftIso(snap.today, 7));
+  const soon = deskLines(
+    dueSoon.slice(0, 6),
+    (row) => `- **${row.name}**, ${row.label}, due ${row.date}, ${money(row.due)}`,
     "- None",
   );
   const incoming = deskLines(
@@ -698,13 +707,19 @@ function formatDesk(snap: any) {
     (row) => `- **${row.name}**, ${row.status}, ${money(row.total)}`,
     "- None",
   );
-  return `Desk for ${snap.company || "this company"} in ${snap.area}. Today is ${snap.today}. These rows are already loaded. Answer from them. Do not say a list is empty when names are written here. Do not call a tool unless they name one couple or ask for a different date range.
+  return `Desk for ${snap.company || "this company"} in ${snap.area}. Today is ${snap.today}. Answer from this. Do not invent a name or an amount.
 
-Past due: ${snap.overdue?.count || 0} payments, ${money(snap.overdue?.amount)}.
+When they ask how we are doing, or how the week is going, do not paste this desk. Write four short lines. First, the new bookings and the package value. Second, the past-due total, and name only the balances over $100. Third, what is due in the next 7 days. Fourth, the one thing to do next. Leave every smaller balance as a single total. Never stop in the middle of a name.
+
+Past due on upcoming weddings: ${snap.overdue?.count || 0} payments, ${money(snap.overdue?.amount)}.
 ${overdue}
+${smallOverdue.length ? `- ${smallOverdue.length} smaller balances, ${money(smallTotal)} together. Do not list them.` : ""}
 
 Booked this week (${snap.range}): ${snap.booked_count || 0} new bookings, package value ${money(snap.booked_value)}.
 ${booked}
+
+Due in the next 7 days:
+${soon}
 
 Due in the next 30 days: ${snap.incoming_30?.count || 0} payments, ${money(snap.incoming_30?.amount)}.
 ${incoming}${extraIncoming ? `\n- and ${extraIncoming} more` : ""}
