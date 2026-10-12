@@ -1381,7 +1381,7 @@ async function callAnalysis(db: any, territoryId: string, apiKey: string) {
     seenCall.add(key);
     return true;
   });
-  const detailed = uniqueCalls.slice(0, 4);
+  const detailed = uniqueCalls.slice(0, 12);
   const clipSaid = (value: string) => {
     const clean = value.replace(/\s+/g, " ").trim();
     if (clean.length <= 700) return clean;
@@ -1410,10 +1410,16 @@ async function callAnalysis(db: any, territoryId: string, apiKey: string) {
   if (!cards.length) {
     return `No phone calls were found for ${company} on ${day}. Opened ${fromThatDay.length} conversations from that day. ${unreadable ? `${unreadable} could not be read. ` : ""}A call counts only when Ovanta stored it as a phone call inside the thread.`;
   }
-  return formatCallReport(company, day, uniqueCalls.length, cards);
+  const omitted = uniqueCalls.slice(12).map((row) => {
+    const at = messageTime(row.message);
+    const when = at ? new Date(at).toLocaleTimeString("en-US", { timeZone, hour: "numeric", minute: "2-digit" }) : "";
+    const name = row.conversation.fullName || row.conversation.contactName || row.conversation.name || "Unknown";
+    return when ? `${name}, ${when}` : name;
+  });
+  return formatCallReport(company, day, uniqueCalls.length, cards, omitted);
 }
 
-function formatCallReport(company: string, day: string, found: number, cards: any[]) {
+function formatCallReport(company: string, day: string, found: number, cards: any[], omitted: string[] = []) {
   const brandWord = company.toLowerCase().split(" ")[0] || "";
   const read = (transcript: string) => {
     const said = transcript.toLowerCase();
@@ -1439,7 +1445,7 @@ function formatCallReport(company: string, day: string, found: number, cards: an
   const lines = [
     "**Yesterday**",
     "",
-    `${day}. ${found} call${found === 1 ? "" : "s"}. ${inbound} inbound. ${cards.length - inbound} outbound in this write-up. ${recorded} had a recording.`,
+    `${day}. ${found} call${found === 1 ? "" : "s"}. ${inbound} inbound. ${Math.max(0, cards.length - inbound)} outbound. ${recorded} had a recording.`,
     "",
   ];
   for (const row of cards) {
@@ -1485,7 +1491,9 @@ function formatCallReport(company: string, day: string, found: number, cards: an
   const missedOffer = cards.filter((row) => read(row.transcript)?.offer === "Miss").length;
   if (missedOffer) lines.push(`- ${missedOffer} recorded call${missedOffer === 1 ? "" : "s"} never mentioned a price or package.`);
   if (cards.some((row) => read(row.transcript)?.logistics)) lines.push("- At least one call was a logistics check-in, not a booking conversation.");
-  if (found > cards.length) lines.push(`- ${found - cards.length} more calls were found and left out of this write-up.`);
+  if (omitted.length) {
+    lines.push(`- ${omitted.length} more ${omitted.length === 1 ? "call was" : "calls were"} not graded: ${omitted.join("; ")}.`);
+  }
   if (lines[lines.length - 1] === "**Takeaways**") lines.push("- Nothing else stood out.");
   return lines.join("\n");
 }
@@ -1545,7 +1553,7 @@ Think, then write for a phone. Short lines. Put a blank line between ideas. When
 
 Facts still come from the desk below. overdue is already past the due date. Name those people and the amount first. incoming rows are only the next 30 days. A booked row this week is a new booking, the first payment, and the package value is not the cash collected. For how to do something, call help and repeat that article. Do not swap in a different screen. A wedding that is finished but not edited is Post-Production: Drive link, Ready to Edit, then the editor. That is not a portal reminder. If they name one couple, call find_wedding. If they say automation or workflow, those are Ovanta workflows, not pipelines and not a Veydra settings page. Name each one and say published or draft. Do not invent the steps inside a workflow. Do not answer with Settings, job posting, or Messages. If they ask about Ovanta pipelines, calendars, or leads, call ovanta. A pipeline audit names each pipeline, then each stage with open deals, the count, the money, and how many have not moved in 14 days. You cannot add or edit users, send a text or email, or touch another location. Never invent a number, a name, or a date.
 
-You cannot change records, send messages, or pay anyone. You can tell them the next click.`,
+You cannot change records, send messages, or pay anyone. You can tell them the next click. If an earlier message in this chat already named calls, use that message when they ask about those calls. Do not claim the calls were never found.`,
       },
       ...history,
     ];
