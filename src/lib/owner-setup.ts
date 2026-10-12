@@ -16,7 +16,17 @@ export type SetupSnapshot = {
   stripeReady: boolean;
   packagePrice: string;
   packageSkipped?: boolean;
+  legalName?: string;
+  ein?: string;
+  businessAddress?: string;
+  businessPhone?: string;
 };
+
+export function a2pReady(input: { legalName?: string; ein?: string; businessAddress?: string; businessPhone?: string }) {
+  const ein = (input.ein || "").replace(/\D/g, "");
+  const phone = (input.businessPhone || "").replace(/\D/g, "");
+  return (input.legalName || "").trim().length > 1 && ein.length === 9 && (input.businessAddress || "").trim().length > 5 && phone.length >= 10;
+}
 
 export function setupChecks(input: SetupSnapshot) {
   const name = input.companyName.trim();
@@ -26,7 +36,7 @@ export function setupChecks(input: SetupSnapshot) {
     { id: "timezone", label: "Timezone", done: !!input.timezone.trim() },
     { id: "package", label: input.packageSkipped ? "Starter prices, talking with Nik" : "Starter prices", done: !!input.packagePrice.trim() || !!input.packageSkipped },
     { id: "logo", label: "Logo", done: /^https?:\/\//.test(input.logoUrl || "") },
-    { id: "ovanta", label: "Ovanta signup", done: input.ovantaSignedUp || input.hasOvanta },
+    { id: "ovanta", label: "Ovanta signup", done: (input.ovantaSignedUp || input.hasOvanta) && a2pReady(input) },
     { id: "stripe", label: "Stripe account", done: input.stripeReady || (input.hasContractorStripe && input.hasEditorStripe) },
     { id: "facebook", label: "Facebook ads", done: input.facebookReady || input.hasFacebook },
   ];

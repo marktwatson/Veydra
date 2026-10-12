@@ -333,6 +333,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
         stripeReady: Boolean(settings?.owner_setup?.stripe_ready),
         packagePrice: settings?.owner_setup?.package?.price || localStorage.getItem(ownerPackageKey(areaId)) || "",
         packageSkipped: Boolean(settings?.owner_setup?.package_skipped),
+        legalName: settings?.owner_setup?.a2p?.legal_name || "",
+        ein: settings?.owner_setup?.a2p?.ein || "",
+        businessAddress: settings?.owner_setup?.a2p?.address || "",
+        businessPhone: settings?.owner_setup?.a2p?.phone || "",
       });
       if (done) return;
       navigate("/manager/welcome", { replace: true });

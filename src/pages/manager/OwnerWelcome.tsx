@@ -7,7 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { newTerritoryPricing, ownerPackageKey, ownerSetupClosedKey, packageMath, setupChecks, setupComplete, type SetupSnapshot } from "@/lib/owner-setup";
+import { newTerritoryPricing, ownerPackageKey, ownerSetupClosedKey, packageMath, setupChecks, setupComplete, a2pReady, type SetupSnapshot } from "@/lib/owner-setup";
 import { largestCities, peopleLabel, studioNameIdeas, timezoneFor } from "@/lib/owner-places";
 
 const STEPS = ["You", "Name", "Cities", "Mark", "Ovanta", "Stripe", "Facebook", "Pricing", "Done"];
@@ -31,6 +31,10 @@ type Draft = {
   apiKey: string;
   ovantaConnected: boolean;
   ovantaSignedUp: boolean;
+  legalName: string;
+  ein: string;
+  businessAddress: string;
+  businessPhone: string;
   ovantaName: string;
   fbAdAccount: string;
   fbToken: string;
@@ -58,6 +62,10 @@ const emptyDraft: Draft = {
   apiKey: "",
   ovantaConnected: false,
   ovantaSignedUp: false,
+  legalName: "",
+  ein: "",
+  businessAddress: "",
+  businessPhone: "",
   ovantaName: "",
   fbAdAccount: "",
   fbToken: "",
@@ -282,6 +290,11 @@ export default function OwnerWelcome() {
         next.price8 = "";
         next.deposit = "";
       }
+      const a2p = settings?.owner_setup?.a2p || {};
+      if (a2p.legal_name) next.legalName = a2p.legal_name;
+      if (a2p.ein) next.ein = a2p.ein;
+      if (a2p.address) next.businessAddress = a2p.address;
+      if (a2p.phone) next.businessPhone = a2p.phone;
       if (settings?.company_name && area?.name && settings.company_name !== area.name) setNaming("have");
       if (area?.contractor_payout_stripe_key) next.hasContractorStripe = true;
       if (settings?.fb_ad_account_id && settings?.fb_access_token) next.fbConnected = true;
@@ -302,7 +315,7 @@ export default function OwnerWelcome() {
 
   useEffect(() => {
     if (!territoryId) return;
-    const stored = { ...draft, apiKey: "", fbToken: "" };
+    const stored = { ...draft, apiKey: "", fbToken: "", ein: "" };
     localStorage.setItem(draftKey(territoryId), JSON.stringify(stored));
     localStorage.setItem(ownerPackageKey(territoryId), draft.price4.trim() && draft.price8.trim() ? draft.price8.trim() : "");
   }, [draft, territoryId]);
@@ -349,6 +362,12 @@ export default function OwnerWelcome() {
         ovanta_signed_up: current.ovantaSignedUp,
         stripe_ready: current.stripeReady,
         facebook_ready: current.facebookReady,
+        a2p: {
+          legal_name: current.legalName.trim(),
+          ein: current.ein.trim(),
+          address: current.businessAddress.trim(),
+          phone: current.businessPhone.trim(),
+        },
       },
     };
     let { error } = await supabase.from("portal_settings").update(payload).eq("territory_id", territoryId);
@@ -481,6 +500,10 @@ export default function OwnerWelcome() {
   };
 
   const confirmOvanta = async () => {
+    if (!a2pReady(draft)) {
+      setNotice("Texting setup needs the legal business name, a 9-digit EIN, the business address, and a phone number.");
+      return;
+    }
     set("ovantaSignedUp", true);
     setNotice("");
     if (!territoryId || locked) return;
@@ -493,6 +516,12 @@ export default function OwnerWelcome() {
           started: true,
           ovanta_signed_up: true,
           ovanta_signed_up_at: new Date().toISOString(),
+          a2p: {
+            legal_name: draft.legalName.trim(),
+            ein: draft.ein.trim(),
+            address: draft.businessAddress.trim(),
+            phone: draft.businessPhone.trim(),
+          },
         },
       })
       .eq("territory_id", territoryId);
@@ -514,6 +543,10 @@ export default function OwnerWelcome() {
     stripeReady: draft.stripeReady,
     packagePrice: draft.packageSkipped ? "" : draft.price4.trim() && draft.price8.trim() ? draft.price8 : "",
     packageSkipped: draft.packageSkipped,
+    legalName: draft.legalName,
+    ein: draft.ein,
+    businessAddress: draft.businessAddress,
+    businessPhone: draft.businessPhone,
   };
   const checks = setupChecks(snapshot);
   const finished = setupComplete(snapshot);
@@ -530,7 +563,7 @@ export default function OwnerWelcome() {
       setNotice("Approve these prices, or skip this and talk to Nik.");
       return;
     }
-    if (step === 1 || step === 2 || step === 7) {
+    if (step === 1 || step === 2 || step === 4 || step === 7) {
       const ok = await saveStudio();
       if (!ok && !locked) return;
     }
@@ -740,11 +773,29 @@ export default function OwnerWelcome() {
         {step === 4 && (
           <div className="space-y-4">
             <AssistantSays>
-              Ovanta is where the leads live. Open the signup, create the account, and pay there. Mark connects it after you come back.
+              Ovanta is where the leads live. Open the signup, create the account, and pay there. Texting also needs the legal business name, EIN, address, and phone. Mark connects it after you come back.
             </AssistantSays>
             <div className="space-y-3 pl-11">
+              <div className="grid gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="legal-name">Legal business name</Label>
+                  <Input id="legal-name" value={draft.legalName} onChange={(event) => set("legalName", event.target.value)} placeholder="Name on the EIN" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="ein">EIN</Label>
+                  <Input id="ein" value={draft.ein} onChange={(event) => set("ein", event.target.value)} placeholder="12-3456789" inputMode="numeric" autoComplete="off" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="business-address">Business address</Label>
+                  <Input id="business-address" value={draft.businessAddress} onChange={(event) => set("businessAddress", event.target.value)} placeholder="Street, city, state, ZIP" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="business-phone">Business phone</Label>
+                  <Input id="business-phone" value={draft.businessPhone} onChange={(event) => set("businessPhone", event.target.value)} placeholder="(555) 555-5555" inputMode="tel" />
+                </div>
+              </div>
               {draft.ovantaConnected ? (
-                <p className="text-sm text-stone-600 dark:text-stone-300">This area is already connected{draft.ovantaName ? ` to ${draft.ovantaName}` : ""}.</p>
+                <p className="text-sm text-stone-600 dark:text-stone-300">This area is already connected{draft.ovantaName ? ` to ${draft.ovantaName}` : ""}. Save the business details if they are not stored yet.</p>
               ) : draft.ovantaSignedUp ? (
                 <p className="rounded-2xl border border-stone-200 px-4 py-3 text-sm text-stone-600 dark:border-stone-800 dark:text-stone-300">You confirmed the signup. Mark still has to connect it.</p>
               ) : (
@@ -760,11 +811,26 @@ export default function OwnerWelcome() {
                   </a>
                   {openedOffer && (
                     <div className="rounded-2xl border border-stone-200 px-4 py-4 dark:border-stone-800">
-                      <p className="text-sm text-stone-600 dark:text-stone-300">Once the account is created and paid, confirm it here.</p>
+                      <p className="text-sm text-stone-600 dark:text-stone-300">Once the account is created and paid, confirm it here. The four fields above have to be filled in first.</p>
                       <Button type="button" className="mt-3" onClick={confirmOvanta}>I signed up</Button>
                     </div>
                   )}
                 </>
+              )}
+              {(draft.ovantaConnected || draft.ovantaSignedUp) && (
+                <Button
+                  type="button"
+                  onClick={async () => {
+                    if (!a2pReady(draft)) {
+                      setNotice("Texting setup needs the legal business name, a 9-digit EIN, the business address, and a phone number.");
+                      return;
+                    }
+                    const ok = await saveStudio();
+                    if (ok) setNotice("Business details saved for texting setup.");
+                  }}
+                >
+                  Save business details
+                </Button>
               )}
             </div>
           </div>
