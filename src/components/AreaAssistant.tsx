@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X, Loader2, ArrowUp } from "lucide-react";
 import { supabase, supabaseAnonKey, supabaseUrl } from "@/lib/supabase";
 import { currentTerritoryId } from "@/lib/current-territory";
@@ -71,6 +71,13 @@ export function AreaAssistant() {
   const [error, setError] = useState("");
   const [company, setCompany] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const threadRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const node = threadRef.current;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+  }, [messages, pending, error, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -169,7 +176,7 @@ export function AreaAssistant() {
         </button>
       </header>
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+      <div ref={threadRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
         {messages.length === 0 && (
           <div className="space-y-4">
             <p className="max-w-[18rem] font-serif text-2xl leading-snug">
