@@ -99,7 +99,7 @@ function studioCards(text: string) {
       const city = body.split(",").map((part) => part.trim()).filter(Boolean)[0] || "";
       return { name: name.trim(), city, price, url };
     })
-    .filter((card) => card.name);
+    .filter((card) => card.name && card.name.length < 48 && card.name.split(" ").length <= 6 && !/no studios|not found|should notice|competitors|published pricing|search/i.test(card.name));
   const note = cleaned
     .split("\n")
     .map((line) => line.trim())
@@ -113,7 +113,7 @@ function studioCards(text: string) {
 function MarketResult({ text }: { text: string }) {
   const { cards, note } = studioCards(text);
   if (!cards.length) {
-    return <div className="whitespace-pre-wrap rounded-2xl bg-stone-50 p-4 text-sm leading-relaxed dark:bg-stone-900">{text.replace(/\[\[\d+\]\]/g, "")}</div>;
+    return <p className="text-sm leading-relaxed text-stone-600 dark:text-stone-300">Studios around here are not publishing a starting price. Use the starter below. You can change both numbers.</p>;
   }
   return (
     <div className="space-y-3">
@@ -131,7 +131,9 @@ function MarketResult({ text }: { text: string }) {
           )}
         </div>
       ))}
-      {note && <p className="text-sm leading-relaxed text-stone-600 dark:text-stone-300">{note}</p>}
+      {note && note.length < 180 && !/no studios|should notice|do not appear|published pricing/i.test(note) && (
+        <p className="text-sm leading-relaxed text-stone-600 dark:text-stone-300">{note}</p>
+      )}
     </div>
   );
 }
@@ -189,9 +191,6 @@ function PricingStep({
   const math8 = eight > 0 ? packageMath(eight, 8) : null;
   return (
     <div className="space-y-5">
-      <p className="text-stone-700 dark:text-stone-300">
-        See what couples pay near {where}, then start under that so the first bookings come in. Take a {money(suggestion.deposit)} deposit and put the rest on autopay.
-      </p>
       <Button type="button" onClick={onLookup} disabled={looking}>
         {looking ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
         Look up studios
@@ -201,8 +200,8 @@ function PricingStep({
         <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Suggested starter</p>
         <p className="mt-2 text-sm leading-relaxed text-stone-600 dark:text-stone-300">
           {suggestion.samples
-            ? `A typical published price nearby is about ${money(suggestion.marketMid)}. Start near 40% of that.`
-            : "Before the lookup, this is the same shape as a $1,600 / 4-hour and $1,950 / 8-hour starter."}
+            ? `A typical published price near ${where} is about ${money(suggestion.marketMid)}. Start near 40% of that.`
+            : `Before the lookup, this is the same shape as a $1,600 / 4-hour and $1,950 / 8-hour starter near ${where}.`}
         </p>
         <p className="mt-3 text-sm font-medium">
           4 hours {money(suggestion.four)} · 8 hours {money(suggestion.eight)} · deposit {money(suggestion.deposit)}
@@ -441,7 +440,7 @@ export default function OwnerWelcome() {
           messages: [
             {
               role: "user",
-              content: `Who are the other wedding studios around ${where}, and what do they publish for prices?`,
+              content: `List wedding photo and video studios near ${where} that publish a package price. One studio per line, exactly like this: - **Studio Name**, City, $3500, https://example.com. Skip any studio with no price. If none publish a price, reply with exactly NONE. No paragraphs.`,
             },
           ],
         }),
