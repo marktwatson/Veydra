@@ -1415,72 +1415,76 @@ async function callAnalysis(db: any, territoryId: string, apiKey: string) {
 
 function formatCallReport(company: string, day: string, found: number, cards: any[]) {
   const brandWord = company.toLowerCase().split(" ")[0] || "";
-  const grade = (transcript: string) => {
+  const read = (transcript: string) => {
     const said = transcript.toLowerCase();
     if (!said) return null;
+    const rep = transcript.match(/this is ([A-Za-z]+)/i)?.[1] || "";
+    const voicemail = /voicemail|leave a message|not available|after the tone/.test(said);
+    const logistics = /venue|minutes out|on my way|running late|behind|tree down/.test(said);
+    const price = /\$|price|package|deposit|down payment|10 down/.test(said);
     return {
+      rep,
+      voicemail,
+      logistics,
       greeting: /hello|hey|this is|my name/.test(said) ? "Good" : "Miss",
-      offer: /\$|price|package|deposit|down payment/.test(said) ? "Good" : "Miss",
+      discovery: /date|venue|how many|photographer|videographer|what are you looking/.test(said) ? "Good" : "Miss",
+      offer: price ? "Good" : "Miss",
       next: /i'?ll |let me|text you|send |call you|follow up|message /.test(said) ? "Good" : "Miss",
       brand: (brandWord && said.includes(brandWord)) || /honeysuckle|captured memories/.test(said) ? "Good" : "Miss",
-      logistics: /venue|minutes out|on my way|running late|behind/.test(said),
+      close: /book|lock it in|deposit|i'?ll send the proposal|next step/.test(said) ? "Good" : "Miss",
     };
   };
-  const spoken = (transcript: string) => {
-    if (!transcript) return "No recording was stored for this call.";
-    const sentences = transcript.match(/[^.!?]+[.!?]+/g) || [transcript];
-    const chunks: string[] = [];
-    for (let index = 0; index < sentences.length && chunks.length < 3; index += 2) {
-      chunks.push(sentences.slice(index, index + 2).join(" ").trim());
-    }
-    return chunks.join("\n\n");
-  };
   const recorded = cards.filter((row) => row.transcript).length;
-  const outbound = cards.filter((row) => String(row.direction).toLowerCase().includes("out")).length;
+  const inbound = cards.filter((row) => String(row.direction).toLowerCase().includes("in")).length;
   const lines = [
     "**Yesterday**",
     "",
-    `${day}. ${found} call${found === 1 ? "" : "s"}, ${outbound} outbound in this write-up, ${recorded} with a recording.`,
+    `${day}. ${found} call${found === 1 ? "" : "s"}. ${inbound} inbound. ${cards.length - inbound} outbound in this write-up. ${recorded} had a recording.`,
     "",
   ];
   for (const row of cards) {
-    lines.push(
-      `**${row.name}**`,
-      "",
-      `${row.when || "Time unknown"}, ${row.direction}${row.seconds ? `, ${row.seconds} seconds` : ""}.`,
-      "",
-      spoken(row.transcript),
-      "",
-    );
+    const scored = read(row.transcript);
+    const who = scored?.rep ? `${scored.rep} called. ` : "";
+    const what = !scored
+      ? "No recording, so this call cannot be graded."
+      : scored.voicemail
+        ? "Reached a voicemail or an automated line."
+        : scored.logistics
+          ? "This was about getting to the venue, not a sales conversation."
+          : scored.offer === "Good"
+            ? "A price or package was discussed."
+            : "A person answered. No price or package was mentioned.";
+    lines.push(`**${row.name}**`, "", `${row.when || "Time unknown"}, ${row.direction}${row.seconds ? `, ${row.seconds} seconds` : ""}. ${who}${what}`, "");
   }
   lines.push("**Coaching**", "");
   for (const row of cards) {
-    const scored = grade(row.transcript);
+    const scored = read(row.transcript);
     if (!scored) {
-      lines.push(`- **${row.name}**, no recording, so this call cannot be graded.`);
+      lines.push(`- **${row.name}**, no recording. Nothing to coach.`);
       continue;
     }
-    const misses = [
-      scored.greeting === "Miss" ? "no greeting" : "",
-      scored.offer === "Miss" ? "no price or package" : "",
-      scored.next === "Miss" ? "no next step" : "",
+    const flags = [
+      scored.offer === "Miss" ? "the offer was never mentioned" : "",
       scored.brand === "Miss" ? "the company name was not said" : "",
+      scored.next === "Miss" ? "no next step was set" : "",
+      scored.greeting === "Miss" ? "no greeting" : "",
+      scored.close === "Miss" && !scored.logistics ? "no close" : "",
     ].filter(Boolean);
-    const kind = scored.logistics ? " This was a logistics call, not a sales pitch." : "";
-    lines.push(`- **${row.name}**, ${misses.length ? misses.join(", ") : "greeting, offer, next step, and company name were all there"}.${kind}`);
+    lines.push(`- **${row.name}**, ${flags.length ? flags.join(", ") : "greeting, offer, next step, and company name were covered"}.`);
   }
   lines.push("", "**Scorecard**", "");
   for (const row of cards) {
-    const scored = grade(row.transcript);
+    const scored = read(row.transcript);
     lines.push(scored
-      ? `- **${row.name}**, greeting ${scored.greeting}, offer ${scored.offer}, next step ${scored.next}, brand ${scored.brand}.`
+      ? `- **${row.name}**, greeting ${scored.greeting}, discovery ${scored.discovery}, offer ${scored.offer}, next step ${scored.next}, brand ${scored.brand}, close ${scored.close}.`
       : `- **${row.name}**, no recording.`);
   }
   lines.push("", "**Takeaways**", "");
   if (recorded === 0) lines.push("- None of these calls had a recording, so there is nothing to coach yet.");
-  else if (recorded < cards.length) lines.push(`- Only ${recorded} of ${cards.length} calls had a recording. The others cannot be graded.`);
-  const logistics = cards.some((row) => grade(row.transcript)?.logistics);
-  if (logistics) lines.push("- The recorded call was about getting to the venue, not closing a booking.");
+  else if (recorded < cards.length) lines.push(`- Only ${recorded} of ${cards.length} calls had a recording. The rest cannot be graded.`);
+  const missedOffer = cards.filter((row) => read(row.transcript)?.offer === "Miss").length;
+  if (missedOffer) lines.push(`- ${missedOffer} recorded call${missedOffer === 1 ? "" : "s"} never mentioned a price or package.`);
+  if (cards.some((row) => read(row.transcript)?.logistics)) lines.push("- At least one call was a logistics check-in, not a booking conversation.");
   if (found > cards.length) lines.push(`- ${found - cards.length} more calls were found and left out of this write-up.`);
   if (lines[lines.length - 1] === "**Takeaways**") lines.push("- Nothing else stood out.");
   return lines.join("\n");
