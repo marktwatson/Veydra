@@ -1,7 +1,6 @@
-// Daily Sales Conversation Quality Report.
-// One run per Ovanta location. Reads that location, grades the new-lead
-// cohort, emails the 13-section report, and texts the short summary.
-// The 8:00 AM clock and a manual assistant command use this same path.
+// Daily Sales Conversation Quality Report, v3.
+// One Ovanta location per run. Recipients are contacts tagged veydra-sales-report.
+// The agency token is never written into the report.
 import { createClient } from "jsr:@supabase/supabase-js";
 
 const cors = {
@@ -13,7 +12,18 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 const CRM = "https://services.leadconnectorhq.com";
 const VERSION = "2021-07-28";
-const CAP = 100;
+const RANK: Record<string, number> = { Critical: 4, High: 3, Medium: 2, Low: 1 };
+const PRIMARY = [
+  "Urgent Language Unworked",
+  "Buying Intent Unworked",
+  "Missed Call Without Callback",
+  "No First Response",
+  "Unanswered Inbound Message",
+  "Stalled Thread",
+  "Slow First Response",
+];
+const URGENT = ["as soon as possible", "time sensitive", "time-sensitive", "still waiting", "no one has", "nobody has", "right now", "emergency", "immediately", "unacceptable", "frustrated", "deadline", "third time", "urgent", "asap", "today", "cancel", "refund", "angry"];
+const BUYING = ["how much", "ready to start", "when can you", "availability", "interested", "pricing", "estimate", "schedule", "available", "contract", "invoice", "payment", "deposit", "booking", "signup", "sign up", "price", "quote", "cost", "book"];
 
 function esc(value: unknown) {
   return String(value ?? "").replace(/[&<>"]/g, (ch) => {
@@ -23,145 +33,136 @@ function esc(value: unknown) {
     return "&" + "quot;";
   });
 }
-
-const badgeCss: Record<string, string> = {
-  Critical: "background:#FDECEA;color:#B00020;border:1px solid #F5C2C0;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;white-space:nowrap;",
-  High: "background:#FFF4E5;color:#B25E00;border:1px solid #F0D6B0;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;white-space:nowrap;",
-  Medium: "background:#FFFBE6;color:#8A6D00;border:1px solid #EFE3A8;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;white-space:nowrap;",
-  Low: "background:#E8F5E9;color:#1B5E20;border:1px solid #BFE3C2;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;white-space:nowrap;",
-};
-const score: Record<string, number> = { Critical: 4, High: 3, Medium: 2, Low: 1 };
-const OPT_OUT = /\b(stop all|stop|unsubscribe|cancel|quit|remove me|do not contact|wrong number|not interested)\b/i;
-
-function headers(token: string) {
-  return { Authorization: `Bearer ${token}`, Version: VERSION, "Content-Type": "application/json", Accept: "application/json" };
+function clean(value: unknown) {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
 }
-
-async function crm(token: string, url: string, init?: RequestInit, attempt = 0): Promise<{ ok: boolean; status: number; body: any; text: string }> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12000);
-  try {
-    const res = await fetch(url, { ...init, headers: { ...headers(token), ...(init?.headers || {}) }, signal: controller.signal });
-    const text = await res.text();
-    let body: any = {};
-    try { body = text ? JSON.parse(text) : {}; } catch { body = { raw: text.slice(0, 300) }; }
-    const method = String(init?.method || "GET").toUpperCase();
-    if (res.status === 429 && attempt < 1) {
-      const wait = Math.min(15000, Number(res.headers.get("Retry-After") || 2) * 1000);
-      await new Promise((resolve) => setTimeout(resolve, wait));
-      return crm(token, url, init, attempt + 1);
-    }
-    if (method === "GET" && res.status >= 500 && attempt < 2) {
-      await new Promise((resolve) => setTimeout(resolve, 2000 * (attempt + 1)));
-      return crm(token, url, init, attempt + 1);
-    }
-    return { ok: res.ok, status: res.status, body, text: text.slice(0, 300) };
-  } catch (error: any) {
-    if (attempt < 2 && String(init?.method || "GET").toUpperCase() === "GET") {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      return crm(token, url, init, attempt + 1);
-    }
-    return { ok: false, status: 0, body: {}, text: error?.message || "request failed" };
-  } finally {
-    clearTimeout(timer);
-  }
+function phrase(list: string[]) {
+  return new RegExp(`\\b(?:${list.map((item) => item.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`, "i");
 }
-
-async function pool<T, R>(items: T[], width: number, run: (item: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = new Array(items.length);
-  let next = 0;
-  const workers = Array.from({ length: Math.min(width, items.length) }, async () => {
-    while (next < items.length) {
-      const index = next++;
-      out[index] = await run(items[index]);
-    }
-  });
-  await Promise.all(workers);
-  return out;
+const urgentRe = phrase(URGENT);
+const buyingRe = phrase(BUYING);
+function stripQuoted(body: string) {
+  return body.split(/\nOn [\s\S]{0,80}wrote:/i)[0].split("\n").filter((line) => !line.trim().startsWith(">")).join("\n");
 }
-
-function tagsOf(contact: any): string[] {
-  const tags = contact?.tags;
-  const list = Array.isArray(tags) ? tags : String(tags || "").split(",");
-  return list.map((tag: unknown) => String(tag || "").trim().toLowerCase()).filter(Boolean);
+function hits(body: string, pattern: RegExp) {
+  return pattern.test(stripQuoted(body));
 }
-
 function zoned(ms: number, timeZone: string) {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone,
-      weekday: "short",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    }).formatToParts(new Date(ms)).map((part) => [part.type, part.value]),
-  );
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone, weekday: "short", year: "numeric", month: "short", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(new Date(ms)).map((part) => [part.type, part.value]));
+  const numeric = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone, weekday: "short", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23",
+  }).formatToParts(new Date(ms)).map((part) => [part.type, part.value]));
   return {
     weekday: parts.weekday || "",
-    hour: Number(parts.hour || 0),
-    label: `${parts.month}/${parts.day}/${parts.year} ${parts.hour}:${parts.minute}`,
-    day: `${parts.year}-${parts.month}-${parts.day}`,
-    short: `${parts.month}/${parts.day}`,
+    hour: Number(numeric.hour || 0),
+    label: `${parts.month} ${parts.day}, ${parts.year} ${parts.hour}:${parts.minute}`,
+    day: `${numeric.year}-${numeric.month}-${numeric.day}`,
+    short: `${numeric.month}/${numeric.day}`,
   };
 }
-
-function messagePage(body: any) {
-  if (Array.isArray(body?.messages?.messages)) {
-    return { messages: body.messages.messages, nextPage: !!body.messages.nextPage, lastMessageId: body.messages.lastMessageId || "" };
-  }
-  if (Array.isArray(body?.messages)) return { messages: body.messages, nextPage: false, lastMessageId: "" };
-  return { messages: [], nextPage: false, lastMessageId: "" };
+function clock(ms: number | null) {
+  if (ms == null) return "not available";
+  const hours = Math.floor(ms / 3600000);
+  const mins = Math.floor((ms % 3600000) / 60000);
+  return `${hours}h ${mins}m`;
 }
-
+function hours1(ms: number | null) {
+  if (ms == null) return "not available";
+  return (ms / 3600000).toFixed(1);
+}
+function gradeFor(ms: number | null) {
+  if (ms == null) return "Low";
+  if (ms >= 86400000) return "Critical";
+  if (ms >= 28800000) return "High";
+  if (ms >= 7200000) return "Medium";
+  return "Low";
+}
+function escalate(grade: string, body: string, elapsed: number | null) {
+  if (hits(body, urgentRe)) return "Critical";
+  if (hits(body, buyingRe)) return elapsed != null && elapsed >= 86400000 ? "Critical" : (RANK[grade] >= RANK.High ? grade : "High");
+  return grade;
+}
+function badge(grade: string) {
+  const bg = grade === "Critical" ? "#e74c3c" : grade === "High" ? "#e67e22" : grade === "Medium" ? "#f1c40f" : "#95a5a6";
+  const color = grade === "Medium" ? "#1a2340" : "#ffffff";
+  return `<span style="display:inline-block;background:${bg};color:${color};font-size:11px;font-weight:bold;text-transform:uppercase;padding:2px 8px;border-radius:10px;letter-spacing:0.5px;">${esc(grade)}</span>`;
+}
 function kindOf(message: any) {
-  const raw = String(message.messageType || message.type || "").toLowerCase();
-  if (raw.includes("sms") || raw === "3" || raw === "type_sms") return "SMS";
-  if (raw.includes("email") || raw === "45") return "Email";
-  if (raw.includes("call") || raw.includes("voicemail") || raw === "1" || raw === "2" || raw === "type_call") return "Call";
-  return "Activity";
+  const raw = String(message.type || message.messageType || message.lastMessageType || "").toLowerCase();
+  if (raw.includes("email")) return "Email";
+  if (raw.includes("call") || raw.includes("voicemail") || raw === "1" || raw === "2") return "Call";
+  if (raw.includes("auto") || raw.includes("activity") || raw.includes("internal")) return "Automation";
+  if (raw.includes("sms") || raw.includes("text") || raw === "3") return "SMS";
+  return "SMS";
 }
-
 function normalize(message: any) {
-  const ms = new Date(message.dateAdded || message.dateCreated || message.createdAt || 0).getTime();
+  const ms = new Date(message.dateAdded || message.dateCreated || 0).getTime();
   const direction = String(message.direction || "").toLowerCase().includes("inbound") ? "inbound" : "outbound";
   return {
     ms: Number.isFinite(ms) ? ms : 0,
     direction,
-    messageType: kindOf(message),
-    body: String(message.body || message.message || "").replace(/\s+/g, " ").trim(),
+    type: kindOf(message),
+    body: clean(message.body || message.message || ""),
     userId: String(message.userId || ""),
-    callStatus: String(message.meta?.call?.status || message.callStatus || "").toLowerCase(),
+    status: String(message.status || message.meta?.call?.status || "").toLowerCase(),
   };
 }
-
-function waitGrade(ms: number) {
-  if (ms >= 28800000) return "Critical";
-  if (ms >= 14400000) return "High";
-  if (ms >= 7200000) return "Medium";
-  return "Low";
+async function crm(token: string, url: string, init?: RequestInit, attempt = 0): Promise<{ ok: boolean; status: number; body: any }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+  try {
+    const res = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${token}`, Version: VERSION, Accept: "application/json", "Content-Type": "application/json" },
+    });
+    const text = await res.text();
+    let body: any = {};
+    try { body = text ? JSON.parse(text) : {}; } catch { body = { raw: text.slice(0, 400) }; }
+    const method = String(init?.method || "GET").toUpperCase();
+    if ((res.status >= 500 || res.status === 0) && attempt < 1 && (method === "GET" || url.endsWith("/messages"))) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      return crm(token, url, init, attempt + 1);
+    }
+    return { ok: res.ok, status: res.status, body };
+  } catch {
+    if (attempt < 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      return crm(token, url, init, attempt + 1);
+    }
+    return { ok: false, status: 0, body: {} };
+  } finally {
+    clearTimeout(timer);
+  }
 }
-
-function badge(grade: string) {
-  return `<span style="${badgeCss[grade] || badgeCss.Low}">${esc(grade)}</span>`;
+async function pool<T, R>(items: T[], width: number, run: (item: T) => Promise<R>) {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(width, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      out[index] = await run(items[index]);
+    }
+  }));
+  return out;
 }
-
+function messageList(body: any) {
+  if (Array.isArray(body?.messages?.messages)) return body.messages.messages;
+  if (Array.isArray(body?.messages)) return body.messages;
+  return [];
+}
 function table(headers: string[], rows: string[][], empty: string) {
-  const head = `<tr>${headers.map((header) => `<th align="left" style="padding:8px;border-bottom:1px solid #E3E6EB;font-size:12px;color:#5C6570;">${esc(header)}</th>`).join("")}</tr>`;
+  const head = `<tr>${headers.map((header) => `<th align="left" style="padding:8px 10px;background:#1a2340;color:#ffffff;font-size:12px;">${esc(header)}</th>`).join("")}</tr>`;
   const body = rows.length
-    ? rows.map((row) => `<tr>${row.map((cell) => `<td style="padding:8px;border-bottom:1px solid #F0F2F5;font-size:13px;vertical-align:top;">${cell}</td>`).join("")}</tr>`).join("")
-    : `<tr><td colspan="${headers.length}" style="padding:8px;font-size:13px;color:#5C6570;">${esc(empty)}</td></tr>`;
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${head}${body}</table>`;
+    ? rows.map((row, index) => `<tr style="background:${index % 2 ? "#f9fafb" : "#ffffff"};">${row.map((cell) => `<td style="padding:8px 10px;border-bottom:1px solid #e6eaef;vertical-align:top;">${cell}</td>`).join("")}</tr>`).join("")
+    : `<tr><td colspan="${headers.length}" style="padding:8px 10px;">${esc(empty)}</td></tr>`;
+  return `<table style="width:100%;border-collapse:collapse;">${head}${body}</table>`;
 }
-
 function section(title: string, inner: string) {
-  return `<tr><td style="padding:8px 24px 4px;font-size:16px;font-weight:700;">${esc(title)}</td></tr><tr><td style="padding:0 24px 16px;">${inner}</td></tr>`;
-}
-
-function unavailable(label: string) {
-  return `<p style="margin:0;font-size:13px;color:#B00020;">Data unavailable for this section — ${esc(label)}</p>`;
+  return `<h2 style="font-size:16px;margin:0 0 8px;color:#1a2340;">${esc(title)}</h2>${inner}`;
 }
 
 Deno.serve(async (req) => {
@@ -172,13 +173,12 @@ Deno.serve(async (req) => {
   if (!supabaseUrl || !serviceKey) return json({ error: "Missing Supabase env" }, 500);
   const db = createClient(supabaseUrl, serviceKey);
   let runId = "";
-  let locationId = "";
   try {
     const body = await req.json().catch(() => ({}));
     const territoryId = String(body.territoryId || "").trim();
     if (!territoryId) return json({ error: "Pick an area first." }, 400);
     const tokenHeader = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
-    const fromClock = body.source === "scheduler" && tokenHeader.length > 0 && tokenHeader === serviceKey;
+    const fromClock = body.source === "scheduler" && tokenHeader === serviceKey;
     if (!fromClock) {
       const userDb = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: req.headers.get("Authorization") || "" } } });
       const { data: userData } = await userDb.auth.getUser();
@@ -194,21 +194,18 @@ Deno.serve(async (req) => {
         const { data } = await db.from("managers").select("role, status, territory_id, territory_ids").eq("id", userId).maybeSingle();
         manager = data;
       }
-      const role = String(manager?.role || "");
       const extras = Array.isArray(manager?.territory_ids) ? manager.territory_ids : [];
-      const allowed = role === "super_admin" || manager?.territory_id === territoryId || extras.includes(territoryId);
-      if (!["owner", "super_admin"].includes(role) || !allowed) return json({ error: "Only an owner can send this report." }, 403);
+      const allowed = manager?.role === "super_admin" || manager?.territory_id === territoryId || extras.includes(territoryId);
+      if (!["owner", "super_admin"].includes(String(manager?.role || "")) || !allowed) return json({ error: "Only an owner can send this report." }, 403);
     }
 
-    const { data: settings } = await db
-      .from("portal_settings")
-      .select("company_name, timezone, hl_api_key, hl_location_id")
-      .eq("territory_id", territoryId)
-      .limit(1)
-      .maybeSingle();
+    const { data: settings } = await db.from("portal_settings").select("company_name, timezone, hl_api_key, hl_location_id, smtp_from_email").eq("territory_id", territoryId).limit(1).maybeSingle();
     const token = String(settings?.hl_api_key || "").trim();
-    locationId = String(settings?.hl_location_id || "").trim();
+    const locationId = String(settings?.hl_location_id || "").trim();
+    const timeZone = settings?.timezone || "America/New_York";
+    const fromEmail = Deno.env.get("FROM_EMAIL") || settings?.smtp_from_email || "";
     if (!token || !locationId) return json({ error: "This area has no Ovanta key or location." }, 422);
+    if (!fromEmail) return json({ error: "FROM_EMAIL is not set for this area." }, 422);
 
     await db.rpc("exec_sql_batch", { sql_texts: [
       `CREATE TABLE IF NOT EXISTS public.report_runs (
@@ -222,7 +219,7 @@ Deno.serve(async (req) => {
         error text,
         summary text
       )`,
-      `CREATE UNIQUE INDEX IF NOT EXISTS report_runs_location_day ON public.report_runs (location_id, run_date)`,
+      "CREATE UNIQUE INDEX IF NOT EXISTS report_runs_location_day ON public.report_runs (location_id, run_date)",
       `CREATE TABLE IF NOT EXISTS public.send_log (
         id uuid primary key default gen_random_uuid(),
         run_id uuid,
@@ -234,309 +231,312 @@ Deno.serve(async (req) => {
         error text,
         sent_at timestamptz default now()
       )`,
-      `CREATE TABLE IF NOT EXISTS public.conversation_cache (
-        location_id text not null,
-        contact_id text not null,
-        run_date date not null,
-        payload jsonb,
-        primary key (location_id, contact_id, run_date)
-      )`,
     ] });
 
-    const location = await crm(token, `${CRM}/locations/${locationId}`);
-    if (location.status === 401) return json({ error: "Ovanta refused the key for this area." }, 401);
-    const timeZone = location.body?.location?.timezone || location.body?.timezone || settings?.timezone || "America/New_York";
-    const business = String(location.body?.location?.name || location.body?.name || settings?.company_name || "This studio").trim();
     const now = Date.now();
     const today = zoned(now, timeZone);
-    const runDate = today.day;
-
-    const { data: existing } = await db.from("report_runs").select("id, status, started_at").eq("location_id", locationId).eq("run_date", runDate).maybeSingle();
-    const queuedFresh = existing?.status === "queued" && existing.started_at && Date.now() - new Date(existing.started_at).getTime() < 15 * 60 * 1000;
-    if (existing && (existing.status === "sent" || existing.status === "partial" || queuedFresh)) {
-      return json({ success: true, already: true, status: existing.status, company: business });
-    }
+    const monday = today.weekday === "Mon";
+    const { data: existing } = await db.from("report_runs").select("id, status, started_at").eq("location_id", locationId).eq("run_date", today.day).maybeSingle();
+    if (fromClock && existing && (existing.status === "sent" || existing.status === "partial")) return json({ success: true, already: true, status: existing.status });
     if (existing?.id) {
       runId = existing.id;
       await db.from("report_runs").update({ status: "queued", error: null, started_at: new Date().toISOString() }).eq("id", runId);
     } else {
-      const { data: created, error: createError } = await db
-        .from("report_runs")
-        .insert({ location_id: locationId, territory_id: territoryId, run_date: runDate, status: "queued" })
-        .select("id")
-        .single();
-      if (createError || !created) return json({ error: "Could not lock today's report. It may already be running." }, 409);
-      runId = created.id;
+      const { data: created } = await db.from("report_runs").insert({ location_id: locationId, territory_id: territoryId, run_date: today.day, status: "queued" }).select("id").single();
+      runId = created?.id || "";
     }
 
-    const userRes = await crm(token, `${CRM}/users/?locationId=${locationId}`);
-    const users = new Map<string, string>();
-    for (const user of userRes.body?.users || []) {
-      const name = user.name || [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email || "Unassigned";
-      if (user.id) users.set(user.id, name);
+    const recipientsRes = await crm(token, `${CRM}/contacts/search`, {
+      method: "POST",
+      body: JSON.stringify({ locationId, pageLimit: 50, filters: [{ field: "tags", operator: "contains", value: "veydra-sales-report" }] }),
+    });
+    if (recipientsRes.status === 401 || recipientsRes.status === 403) {
+      await db.from("report_runs").update({ status: "failed", finished_at: new Date().toISOString(), error: "AUTH_FAILURE" }).eq("id", runId);
+      return json({ error: "AUTH_FAILURE", status: "failed" }, 401);
     }
-    const usersFailed = !userRes.ok;
+    if (!recipientsRes.ok) return json({ error: "RECIPIENT_LOOKUP_FAILED", status: "failed" }, 502);
+    const recipients = (recipientsRes.body?.contacts || []).map((contact: any) => ({
+      contactId: contact.id,
+      name: clean(contact.name || [contact.firstName, contact.lastName].filter(Boolean).join(" ")),
+      email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(contact.email || "")) ? String(contact.email).trim() : "",
+      phone: (() => {
+        const digits = String(contact.phone || "").replace(/[^\d+]/g, "");
+        if (/^\+[1-9]\d{7,14}$/.test(digits)) return digits;
+        const bare = digits.replace(/\D/g, "");
+        if (bare.length === 10) return `+1${bare}`;
+        if (bare.length === 11 && bare.startsWith("1")) return `+${bare}`;
+        return "";
+      })(),
+    })).filter((recipient: any) => recipient.contactId && (recipient.email || recipient.phone));
+    if (!recipients.length) {
+      await db.from("report_runs").update({ status: "failed", finished_at: new Date().toISOString(), error: "NO_RECIPIENTS" }).eq("id", runId);
+      return json({ error: `NO_RECIPIENTS. Tag the people who should get this with veydra-sales-report in this Ovanta account.`, status: "failed" }, 422);
+    }
 
     const contacts: any[] = [];
-    let contactsFailed = false;
-    let truncated = false;
-    for (let page = 1; page <= 3 && contacts.length < CAP; page++) {
+    let contactPullFailed = false;
+    let reportedTotal = 0;
+    for (let page = 1; page <= 10; page++) {
       const found = await crm(token, `${CRM}/contacts/search`, {
         method: "POST",
         body: JSON.stringify({
           locationId,
           pageLimit: 100,
           page,
-          filters: [{ field: "tags", operator: "contains", value: "new lead" }],
-          sort: [{ field: "dateAdded", direction: "desc" }],
+          filters: [
+            { field: "tags", operator: "contains", value: "new lead" },
+            { field: "tags", operator: "notContains", value: "booked" },
+            { field: "tags", operator: "notContains", value: "hired" },
+          ],
         }),
       });
-      if (!found.ok) {
-        contactsFailed = true;
-        break;
-      }
+      if (!found.ok) { contactPullFailed = true; break; }
       const batch = found.body?.contacts || [];
-      for (const contact of batch) {
-        const names = tagsOf(contact);
-        if (!names.some((tag) => tag.includes("new lead"))) continue;
-        if (names.some((tag) => tag === "booked" || tag === "hired" || tag === "dnc" || tag.includes("unsubscribed") || tag === "wrong number")) continue;
-        contacts.push(contact);
-        if (contacts.length >= CAP) {
-          truncated = (found.body?.total || batch.length) > CAP;
-          break;
+      reportedTotal = Number(found.body?.total || found.body?.meta?.total || reportedTotal);
+      contacts.push(...batch);
+      if (batch.length < 100) break;
+    }
+    if (contactPullFailed && contacts.length === 0) return json({ error: "The new-lead pull failed, so the report was not sent.", status: "failed" }, 502);
+    const inScope = contacts.filter((contact) => {
+      const tags = (Array.isArray(contact.tags) ? contact.tags : []).map((tag: string) => String(tag).trim().toLowerCase());
+      return tags.some((tag: string) => tag === "new lead") && !tags.includes("booked") && !tags.includes("hired");
+    });
+    const contactIds = new Set(inScope.map((contact) => contact.id));
+
+    const recent = await crm(token, `${CRM}/conversations/search?locationId=${locationId}&limit=100&sortBy=lastMessageDate&sortOrder=desc`);
+    const oldest = await crm(token, `${CRM}/conversations/search?locationId=${locationId}&limit=100&sortBy=lastMessageDate&sortOrder=asc`);
+    const partialOldest = !oldest.ok;
+    const partialRecent = !recent.ok;
+    const merged = new Map<string, any>();
+    for (const conversation of [...(recent.body?.conversations || []), ...(oldest.body?.conversations || [])]) {
+      if (conversation?.id && !merged.has(conversation.id)) merged.set(conversation.id, conversation);
+    }
+    const conversations = [...merged.values()];
+    const matched = conversations.filter((conversation) => contactIds.has(conversation.contactId));
+    let skipped = 0;
+    const withMessages = await pool(matched, 6, async (conversation) => {
+      const pulled = await crm(token, `${CRM}/conversations/${conversation.id}/messages?limit=100`);
+      if (!pulled.ok) { skipped++; return { conversation, messages: [] as any[], failed: true }; }
+      return { conversation, failed: false, messages: messageList(pulled.body).map(normalize).filter((row) => row.ms) };
+    });
+
+    const usersRes = await crm(token, `${CRM}/users/?locationId=${locationId}`);
+    const users = new Map<string, string>();
+    for (const user of usersRes.body?.users || []) {
+      const name = clean([user.firstName, user.lastName].filter(Boolean).join(" ") || user.name || user.email || "");
+      if (user.id) users.set(user.id, name || "Unassigned");
+    }
+    const repName = (id: string) => users.get(id) || "Unassigned";
+
+    type Flag = { contactId: string; contactName: string; assignedTo: string; category: string; grade: string; elapsedMs: number | null; preview: string; lastType: string; lastAt: string; lastAtMs: number; primary: boolean };
+    const flags: Flag[] = [];
+    const byContact = new Map<string, any[]>();
+    for (const row of withMessages) {
+      if (row.failed) continue;
+      const id = row.conversation.contactId;
+      byContact.set(id, [...(byContact.get(id) || []), ...row.messages]);
+    }
+    let responseSamples: number[] = [];
+    for (const contact of inScope) {
+      const messages = (byContact.get(contact.id) || []).sort((a, b) => a.ms - b.ms);
+      if (!messages.length) continue;
+      const name = clean(contact.name || [contact.firstName, contact.lastName].filter(Boolean).join(" ") || "Unknown");
+      const assigned = repName(contact.assignedTo || "");
+      const inbound = messages.filter((row) => row.direction === "inbound");
+      const outbound = messages.filter((row) => row.direction === "outbound" && row.type !== "InternalComment");
+      const humanOutbound = outbound.filter((row) => row.type !== "Automation");
+      const last = messages[messages.length - 1];
+      const lastInbound = inbound[inbound.length - 1];
+      const elapsed = lastInbound ? now - lastInbound.ms : null;
+      const bodyText = lastInbound?.body || "";
+      const base = escalate(gradeFor(elapsed), bodyText, elapsed);
+      const preview = bodyText.slice(0, 120);
+      const lastAt = lastInbound ? zoned(lastInbound.ms, timeZone).label : "not available";
+      const push = (category: string, grade: string, age: number | null) => flags.push({
+        contactId: contact.id, contactName: name, assignedTo: assigned, category, grade, elapsedMs: age,
+        preview, lastType: lastInbound?.type || last?.type || "", lastAt, lastAtMs: lastInbound?.ms || 0, primary: false,
+      });
+      if (last?.direction === "inbound" && !outbound.some((row) => row.ms > last.ms)) push("Unanswered Inbound Message", base, elapsed);
+      if (inbound.length && humanOutbound.length === 0 && elapsed != null && elapsed >= 7200000) push("No First Response", base, elapsed);
+      if (outbound.length && last?.direction === "inbound" && elapsed != null && elapsed >= 86400000) {
+        const stalled = elapsed >= 172800000 || hits(bodyText, urgentRe) ? "Critical" : "High";
+        push("Stalled Thread", escalate(stalled, bodyText, elapsed), elapsed);
+      }
+      if (inbound.length && outbound.length) {
+        const firstResponse = outbound[0].ms - inbound[0].ms;
+        if (firstResponse >= 3600000) {
+          const slow = firstResponse >= 28800000 ? "Critical" : firstResponse >= 14400000 ? "High" : "Medium";
+          push("Slow First Response", escalate(slow, bodyText, elapsed), firstResponse);
+          responseSamples.push(firstResponse);
+        } else responseSamples.push(firstResponse);
+      }
+      for (const call of inbound.filter((row) => row.type === "Call" && ["no-answer", "no_answer", "busy", "failed", "canceled", "cancelled", "voicemail", "unanswered"].includes(row.status))) {
+        if (outbound.some((row) => row.ms > call.ms)) continue;
+        const age = now - call.ms;
+        if (age >= 1800000) push("Missed Call Without Callback", escalate(gradeFor(age), bodyText, age), age);
+      }
+      if (lastInbound && hits(bodyText, buyingRe) && !outbound.some((row) => row.ms > lastInbound.ms)) {
+        push("Buying Intent Unworked", elapsed != null && elapsed >= 86400000 ? "Critical" : "High", elapsed);
+      }
+      if (lastInbound && hits(bodyText, urgentRe) && !outbound.some((row) => row.ms > lastInbound.ms)) push("Urgent Language Unworked", "Critical", elapsed);
+    }
+    const grouped = new Map<string, Flag[]>();
+    for (const flag of flags) grouped.set(flag.contactId, [...(grouped.get(flag.contactId) || []), flag]);
+    for (const rows of grouped.values()) {
+      rows.sort((a, b) => PRIMARY.indexOf(a.category) - PRIMARY.indexOf(b.category) || RANK[b.grade] - RANK[a.grade]);
+      rows[0].primary = true;
+    }
+    const strongest = [...grouped.values()].map((rows) => rows.slice().sort((a, b) => RANK[b.grade] - RANK[a.grade] || (b.elapsedMs || 0) - (a.elapsedMs || 0))[0]);
+    const ofGrade = (grade: string) => strongest.filter((row) => row.grade === grade).sort((a, b) => (b.elapsedMs || 0) - (a.elapsedMs || 0));
+    const critical = ofGrade("Critical");
+    const high = ofGrade("High");
+    const medium = ofGrade("Medium");
+    const low = ofGrade("Low");
+    const flagRow = (row: Flag) => [esc(row.contactName), esc(row.assignedTo), esc(row.category), clock(row.elapsedMs), esc(row.preview || "not available"), esc(row.lastAt)];
+
+    const reps = new Map<string, { name: string; ids: Set<string>; Critical: number; High: number; Medium: number; Low: number; oldest: number | null; missing: boolean }>();
+    for (const row of strongest) {
+      const bucket = reps.get(row.assignedTo) || { name: row.assignedTo, ids: new Set<string>(), Critical: 0, High: 0, Medium: 0, Low: 0, oldest: null, missing: false };
+      bucket.ids.add(row.contactId);
+      (bucket as any)[row.grade]++;
+      if (row.elapsedMs == null) bucket.missing = true;
+      else bucket.oldest = Math.max(bucket.oldest || 0, row.elapsedMs);
+      reps.set(row.assignedTo, bucket);
+    }
+    const repRows = [...reps.values()].sort((a, b) => b.Critical - a.Critical || b.High - a.High || b.ids.size - a.ids.size || a.name.localeCompare(b.name));
+    const worst = repRows[0];
+
+    const channelOrder = ["SMS", "Call", "Email", "Automation"];
+    const channelCounts: Record<string, number> = { SMS: 0, Call: 0, Email: 0, Automation: 0 };
+    for (const conversation of conversations) {
+      const type = kindOf({ type: conversation.lastMessageType || conversation.type });
+      channelCounts[channelOrder.includes(type) ? type : "SMS"]++;
+    }
+    const channelTotal = conversations.length;
+    let percents = channelOrder.map((name) => channelTotal ? Math.round((channelCounts[name] / channelTotal) * 1000) / 10 : 0);
+    if (channelTotal) {
+      const residue = Math.round((100 - percents.reduce((sum, value) => sum + value, 0)) * 10) / 10;
+      const largest = percents.indexOf(Math.max(...percents));
+      percents[largest] = Math.round((percents[largest] + residue) * 10) / 10;
+    }
+
+    const wins: string[] = [];
+    for (const contact of inScope) {
+      const messages = (byContact.get(contact.id) || []).sort((a, b) => a.ms - b.ms);
+      const name = clean(contact.name || [contact.firstName, contact.lastName].filter(Boolean).join(" "));
+      const inbound = messages.filter((row) => row.direction === "inbound");
+      const outbound = messages.filter((row) => row.direction === "outbound" && row.type !== "Automation");
+      if (inbound.length && outbound.length) {
+        const delta = outbound[0].ms - inbound[0].ms;
+        if (delta >= 0 && delta < 900000 && outbound[0].ms >= now - 86400000) {
+          wins.push(`${repName(outbound[0].userId)} replied to ${name} within ${Math.max(1, Math.round(delta / 60000))} minutes at ${zoned(outbound[0].ms, timeZone).label}.`);
         }
       }
-      if (batch.length < 100) break;
-      if ((found.body?.total || 0) > CAP) truncated = true;
+      for (const call of inbound.filter((row) => row.type === "Call")) {
+        const back = outbound.find((row) => row.ms > call.ms && row.ms - call.ms <= 1800000 && row.ms >= now - 86400000);
+        if (back) wins.push(`${repName(back.userId)} returned ${name}'s missed call within ${Math.max(1, Math.round((back.ms - call.ms) / 60000))} minutes at ${zoned(back.ms, timeZone).label}.`);
+      }
     }
-    if (contactsFailed && contacts.length === 0) {
-      await db.from("report_runs").update({ status: "failed", finished_at: new Date().toISOString(), error: "Contact pull failed" }).eq("id", runId);
-      return json({ error: "Data unavailable for this section — pull failed", status: "failed" }, 502);
-    }
+    const winLines = wins.slice(0, 5);
 
-    let conversationFailures = 0;
-    const threads = await pool(contacts, 8, async (contact) => {
-      const found = await crm(token, `${CRM}/conversations/search?locationId=${locationId}&contactId=${contact.id}&limit=1`);
-      if (!found.ok) {
-        conversationFailures++;
-        return { contact, failed: true, conversationId: "", messages: [] as any[] };
-      }
-      const conversationId = found.body?.conversations?.[0]?.id || "";
-      if (!conversationId) return { contact, failed: false, conversationId: "", messages: [] as any[] };
-      const first = await crm(token, `${CRM}/conversations/${conversationId}/messages?limit=100`);
-      if (!first.ok) {
-        conversationFailures++;
-        return { contact, failed: true, conversationId, messages: [] as any[] };
-      }
-      const page = messagePage(first.body);
-      return { contact, failed: false, conversationId, messages: page.messages.map(normalize).filter((row) => row.ms) };
-    });
-    if (contacts.length && conversationFailures / contacts.length > 0.2) {
-      await db.from("report_runs").update({ status: "failed", finished_at: new Date().toISOString(), error: "More than 20 percent of conversation pulls failed" }).eq("id", runId);
-      return json({ error: "The conversation pull failed for too many leads, so the report was not sent.", status: "failed" }, 502);
-    }
-
-    type Flag = { category: string; grade: string; contactId: string; name: string; phone: string; assigned: string; when: string; age: string; detail: string; elapsed: number; action: string };
-    const flags: Flag[] = [];
-    const seen = new Map<string, Flag>();
-    const keep = (flag: Flag) => {
-      const key = `${flag.category}:${flag.contactId}`;
-      const prior = seen.get(key);
-      if (!prior || score[flag.grade] > score[prior.grade] || (flag.grade === prior.grade && flag.elapsed > prior.elapsed)) seen.set(key, flag);
-    };
-    for (const thread of threads) {
-      if (thread.failed) continue;
-      const contact = thread.contact;
-      const name = contact.name || [contact.firstName, contact.lastName].filter(Boolean).join(" ") || contact.email || "Unknown";
-      const phone = contact.phone || "";
-      const assigned = users.get(contact.assignedTo) || "Unassigned";
-      const added = new Date(contact.dateAdded || 0).getTime();
-      const messages = [...thread.messages].sort((a, b) => a.ms - b.ms);
-      const inbound = messages.filter((row) => row.direction === "inbound");
-      const outbound = messages.filter((row) => row.direction === "outbound");
-      const last = messages[messages.length - 1];
-      if (!thread.conversationId && added && now - added >= 300000) {
-        const elapsed = now - added;
-        keep({ category: "Ghost", grade: elapsed >= 86400000 ? "Critical" : "High", contactId: contact.id, name, phone, assigned, when: zoned(added, timeZone).label, age: elapsed >= 86400000 ? "24h+" : "5m+", detail: "No conversation", elapsed, action: "Call them. Nobody has spoken to this lead." });
-      }
-      if (inbound.length && outbound.length === 0 && now - inbound[0].ms >= 300000) {
-        const elapsed = now - inbound[0].ms;
-        keep({ category: "Ghost", grade: elapsed >= 86400000 ? "Critical" : "High", contactId: contact.id, name, phone, assigned, when: zoned(inbound[0].ms, timeZone).label, age: elapsed >= 86400000 ? "24h+" : "5m+", detail: "Inbound with no reply", elapsed, action: "Call them. Their message has no human reply." });
-      }
-      if (last?.direction === "inbound" && now - last.ms >= 1800000) {
-        const elapsed = now - last.ms;
-        const grade = waitGrade(elapsed);
-        const label = grade === "Critical" ? "Waiting 8h+" : grade === "High" ? "Waiting 4h+" : grade === "Medium" ? "Waiting 2h+" : "Waiting 30m+";
-        keep({ category: "Waiting", grade, contactId: contact.id, name, phone, assigned, when: zoned(last.ms, timeZone).label, age: label, detail: last.body.slice(0, 120), elapsed, action: "Reply to their last message." });
-      }
-      for (const call of inbound.filter((row) => row.messageType === "Call" && ["no-answer", "no_answer", "busy", "failed", "canceled", "cancelled", "voicemail"].includes(row.callStatus))) {
-        const followed = messages.some((row) => row.ms > call.ms && row.ms - call.ms <= 3600000 && row.direction === "outbound");
-        if (followed) continue;
-        const elapsed = now - call.ms;
-        keep({ category: "Missed", grade: elapsed >= 86400000 ? "Critical" : "High", contactId: contact.id, name, phone, assigned, when: zoned(call.ms, timeZone).label, age: `${Math.round(elapsed / 60000)} min`, detail: call.callStatus || "missed", elapsed, action: "Call them back." });
-      }
-      if (last && now - last.ms >= 259200000 && now - last.ms <= 1209600000) {
-        const elapsed = now - last.ms;
-        keep({ category: "Cold", grade: "Medium", contactId: contact.id, name, phone, assigned, when: zoned(last.ms, timeZone).label, age: `${Math.round(elapsed / 86400000)} days`, detail: "No activity", elapsed, action: "Send a check-in." });
-      }
-      for (const row of inbound) {
-        if (now - row.ms > 1209600000) continue;
-        const match = row.body.match(OPT_OUT);
-        if (!match) continue;
-        keep({ category: "Opt-out", grade: "Critical", contactId: contact.id, name, phone, assigned, when: zoned(row.ms, timeZone).label, age: match[1].toLowerCase(), detail: "Remove from every sequence", elapsed: now - row.ms, action: "Remove them from every sequence." });
-      }
-      if (outbound.length === 1 && inbound.filter((row) => row.ms > outbound[0].ms).length === 0 && added && outbound[0].ms - added <= 86400000 && now - outbound[0].ms >= 172800000) {
-        const elapsed = now - outbound[0].ms;
-        keep({ category: "Single-touch", grade: "Medium", contactId: contact.id, name, phone, assigned, when: zoned(outbound[0].ms, timeZone).label, age: `${Math.round(elapsed / 3600000)}h`, detail: "One outbound, no reply", elapsed, action: "Make a second human contact." });
-      }
-      for (const row of inbound) {
-        const when = zoned(row.ms, timeZone);
-        const weekend = (when.weekday === "Fri" && when.hour >= 17) || when.weekday === "Sat" || when.weekday === "Sun" || (when.weekday === "Mon" && when.hour < 9);
-        if (!weekend) continue;
-        const replied = messages.some((item) => item.direction === "outbound" && item.ms > row.ms && item.ms - row.ms <= 3600000);
-        keep({ category: "Weekend", grade: replied ? "Low" : "High", contactId: contact.id, name, phone, assigned, when: when.label, age: replied ? "Replied" : "Still unanswered", detail: replied ? "Replied" : "Still unanswered", elapsed: now - row.ms, action: replied ? "No action. It was answered." : "Reply to the weekend message." });
-      }
-      try {
-        await db.from("conversation_cache").upsert({
-          location_id: locationId,
-          contact_id: contact.id,
-          run_date: runDate,
-          payload: { inbound: inbound.length, outbound: outbound.length },
-        }, { onConflict: "location_id,contact_id,run_date" });
-      } catch { /* the report still sends if the cache table is missing */ }
-    }
-    for (const flag of seen.values()) flags.push(flag);
-    const of = (category: string) => flags.filter((flag) => flag.category === category).sort((a, b) => score[b.grade] - score[a.grade] || b.elapsed - a.elapsed);
-    const ghost = of("Ghost");
-    const waiting = of("Waiting");
-    const missed = of("Missed");
-    const cold = of("Cold");
-    const opted = of("Opt-out");
-    const single = of("Single-touch");
-    const weekend = of("Weekend");
-    const cell = (rows: Flag[], failed: boolean) => failed ? "Data unavailable" : String(rows.length);
-    const highest = (rows: Flag[]) => rows[0]?.grade || "None";
-
-    const byUser = new Map<string, { name: string; total: number; Critical: number; High: number; Medium: number; Low: number; oldest: number }>();
-    for (const flag of flags) {
-      const row = byUser.get(flag.assigned) || { name: flag.assigned, total: 0, Critical: 0, High: 0, Medium: 0, Low: 0, oldest: 0 };
-      row.total++;
-      (row as any)[flag.grade]++;
-      row.oldest = Math.max(row.oldest, flag.elapsed);
-      byUser.set(flag.assigned, row);
-    }
-    const reps = [...byUser.values()].sort((a, b) => b.Critical - a.Critical || b.total - a.total);
-    const actions = [...flags].filter((flag) => flag.action && !flag.action.startsWith("No action")).sort((a, b) => score[b.grade] - score[a.grade] || b.elapsed - a.elapsed).slice(0, 10);
-
-    const windowEnd = today.label;
-    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Daily Sales Conversation Quality Report — ${esc(runDate)}</title></head><body style="margin:0;padding:0;background:#F4F5F7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1F2430;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F4F5F7;padding:24px 12px;"><tr><td align="center"><table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#FFFFFF;border:1px solid #E3E6EB;border-radius:8px;overflow:hidden;">
-<tr><td style="background:#1F2430;color:#FFFFFF;padding:24px;"><p style="margin:0;font-size:13px;letter-spacing:.04em;">${esc(business)}</p><h1 style="margin:8px 0 0;font-size:22px;line-height:1.3;">Daily Sales Conversation Quality Report</h1><p style="margin:8px 0 0;font-size:13px;">${esc(runDate)} · through ${esc(windowEnd)} · ${contacts.length} contacts evaluated${usersFailed ? " · user list unavailable" : ""}</p></td></tr>
-${section("Executive summary", `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-${[["Ghost", ghost], ["Waiting", waiting], ["Missed calls", missed], ["Going cold", cold], ["Opt-outs", opted], ["Single-touch", single], ["Weekend", weekend]].map(([label, rows]) => `<td style="padding:8px;border:1px solid #E3E6EB;font-size:13px;"><b>${esc(label)}</b><br>${esc(cell(rows as Flag[], false))}<br>${esc(highest(rows as Flag[]))}</td>`).join("")}
-</tr></table>`)}
-${section("Urgency", `<p style="margin:0 0 8px;font-size:13px;">${badge("Critical")} 8h or more &nbsp; ${badge("High")} 4h or more &nbsp; ${badge("Medium")} 2h or more &nbsp; ${badge("Low")} 30m or more</p>`)}
-${section("Ghost leads", table(["Contact", "Phone", "First inbound", "Age", "Assigned"], ghost.map((row) => [esc(row.name), esc(row.phone), esc(row.when), badge(row.grade), esc(row.assigned)]), "No ghost leads."))}
-${section("Waiting for a reply", table(["Contact", "Assigned", "Last inbound", "Waiting", "Snippet"], waiting.map((row) => [esc(row.name), esc(row.assigned), esc(row.when), badge(row.grade), esc(row.detail)]), "No one is waiting."))}
-${section("Missed calls", table(["Contact", "When", "Status", "Since", "Age", "Assigned"], missed.map((row) => [esc(row.name), esc(row.when), esc(row.detail), esc(row.age), badge(row.grade), esc(row.assigned)]), "No missed calls."))}
-${section("Going cold", table(["Contact", "Last activity", "Silent", "Age", "Assigned"], cold.map((row) => [esc(row.name), esc(row.when), esc(row.age), badge(row.grade), esc(row.assigned)]), "No leads are going cold."))}
-${section("Opt-outs", `${table(["Contact", "Matched", "When", "Age", "Assigned"], opted.map((row) => [esc(row.name), esc(row.age), esc(row.when), badge(row.grade), esc(row.assigned)]), "No opt-outs.")}<p style="margin:8px 0 0;font-size:13px;">These contacts must be removed from all sequences.</p>`)}
-${section("Single-touch automation", table(["Contact", "First outbound", "Since", "Age", "Assigned"], single.map((row) => [esc(row.name), esc(row.when), esc(row.age), badge(row.grade), esc(row.assigned)]), "No single-touch leads."))}
-${section("Weekend catch-up", table(["Contact", "Inbound", "Reply", "Age", "Assigned"], weekend.map((row) => [esc(row.name), esc(row.when), esc(row.detail), badge(row.grade), esc(row.assigned)]), "No weekend messages."))}
-${section("Rep rollup", usersFailed ? unavailable("user pull failed") : table(["User", "Flags", "Critical", "High", "Medium", "Low", "Oldest"], reps.map((row) => [esc(row.name), String(row.total), String(row.Critical), String(row.High), String(row.Medium), String(row.Low), row.oldest ? `${Math.round(row.oldest / 3600000)}h` : ""]), "No flags."))}
-${section("Recommended actions", actions.length ? `<ol style="margin:0;padding-left:18px;font-size:13px;">${actions.map((row) => `<li style="margin:0 0 6px;"><b>${esc(row.name)}</b> — ${esc(row.category)} — ${esc(row.age)}. ${esc(row.action)}</li>`).join("")}</ol>` : `<p style="margin:0;font-size:13px;">No urgent action.</p>`)}
-${section("Footer", `<p style="margin:0;font-size:12px;color:#5C6570;">Run ${esc(runId)} · ${esc(new Date().toISOString())} UTC · location ${esc(locationId)} · ${esc(contacts.length)} contacts${truncated ? " · truncated to the 100 most recently added" : ""}${contactsFailed ? " · contact pull was partial" : ""}. Generated automatically. Reply to this message to reach the sales operations team.</p>`)}
-</table></td></tr></table></body></html>`;
-
-    const critWaiting = waiting.filter((row) => row.grade === "Critical").length;
-    const top = reps[0];
-    const counts = {
-      Ghost: contactsFailed ? "?" : String(ghost.length),
-      Waiting: String(waiting.length),
-      crit: String(critWaiting),
-      Missed: String(missed.length),
-      Cold: String(cold.length),
-      Opt: String(opted.length),
-      Single: String(single.length),
-      Weekend: String(weekend.length),
-    };
-    let smsLines = [
-      `DAILY SALES QA — ${today.short}`,
-      business.slice(0, 24),
-      `Ghost ${counts.Ghost} · Waiting ${counts.Waiting} (${counts.crit} crit)`,
-      `Missed calls ${counts.Missed} · Going cold ${counts.Cold}`,
-      `Opt-outs ${counts.Opt} · Single-touch ${counts.Single}`,
-      `Weekend ${counts.Weekend}`,
-      top ? `Top: ${top.name} — ${top.total} flags` : "Top: none — 0 flags",
-      "Reply STOP to opt out.",
+    const priorities = strongest.slice().sort((a, b) => RANK[b.grade] - RANK[a.grade] || (b.elapsedMs || 0) - (a.elapsedMs || 0) || (hits(b.preview, buyingRe) ? 1 : 0) - (hits(a.preview, buyingRe) ? 1 : 0)).slice(0, 3);
+    const median = responseSamples.length ? responseSamples.slice().sort((a, b) => a - b)[Math.floor((responseSamples.length - 1) / 2)] : null;
+    const windowStart = zoned(now - 86400000, timeZone).label;
+    const metadata = [
+      ["Run", new Date(now).toISOString()],
+      ["Location", locationId],
+      ["Contacts in scope", String(inScope.length)],
+      ["Conversations loaded", String(conversations.length)],
+      ["Matched to in-scope contacts", String(matched.length)],
+      ["Messages analysed", String([...byContact.values()].reduce((sum, rows) => sum + rows.length, 0))],
+      ["Skipped conversations", String(skipped)],
+      ["Contact count check", reportedTotal && reportedTotal !== contacts.length ? "CONTACT_COUNT_MISMATCH" : "matched"],
+      ["Conversation pull", partialOldest ? "Partial conversation data: oldest slice unavailable" : partialRecent ? "Partial conversation data: recent slice unavailable" : "both slices"],
     ];
-    const drop = [6, 5, 4];
-    while (smsLines.join("\n").length > 320 && drop.length) smsLines.splice(drop.shift() as number, 1);
-    if (contactsFailed || usersFailed) smsLines.push("DATA PARTIAL");
-    const sms = smsLines.join("\n").slice(0, 320);
-
-    const { data: managers } = await db.from("managers").select("email, name, role, status, territory_id, territory_ids").in("role", ["owner", "super_admin"]);
-    const recipients = new Map<string, string>();
-    for (const manager of managers || []) {
-      if (manager.status && manager.status !== "active") continue;
-      const email = String(manager.email || "").trim().toLowerCase();
-      if (!email) continue;
-      const extras = Array.isArray(manager.territory_ids) ? manager.territory_ids : [];
-      const inArea = manager.role === "super_admin" || manager.territory_id === territoryId || extras.includes(territoryId);
-      if (inArea) recipients.set(email, manager.name || email);
+    const summary = inScope.length
+      ? `${strongest.length} contacts are flagged. ${critical.length} are Critical. ${worst ? `${worst.name} has the most Critical flags (${worst.Critical}).` : "No rep has a Critical flag."} ${priorities[0] ? `The first priority is ${priorities[0].contactName}.` : "There is no urgent item."}`
+      : "No contacts matched the new-lead scope today.";
+    const blocks = [
+      `<div style="background:#1a2340;color:#ffffff;padding:24px;"><h1 style="margin:0;font-size:22px;">Daily Sales Conversation Quality Report</h1><p style="margin:8px 0 0;">${esc(today.label)}</p><p style="margin:4px 0 0;">${esc(windowStart)} through ${esc(today.label)} (${esc(timeZone)})</p></div>`,
+      section("Report metadata", table(["Item", "Value"], metadata.map(([label, value]) => [esc(label), esc(value)]), "not available")),
+      section("Executive summary", `<p style="margin:0;">${esc(summary)}</p>`),
+      section("KPI", `<table style="width:100%;border-collapse:separate;border-spacing:8px;"><tr>${[["Total flagged", strongest.length], ["Critical", critical.length], ["Median first response", median == null ? "not available" : clock(median)], ["Conversations loaded", conversations.length]].map(([label, value]) => `<td style="background:#f4f6f8;border:1px solid #dde3ea;border-radius:6px;padding:16px;width:25%;"><div style="font-size:28px;font-weight:bold;">${esc(value)}</div><div style="font-size:12px;text-transform:uppercase;color:#7f8c8d;">${esc(label)}</div></td>`).join("")}</tr></table>`),
+      section("Channel ratio", table(["Channel", "Count", "Percent"], channelOrder.map((name, index) => [esc(name), String(channelCounts[name]), channelTotal ? `${percents[index].toFixed(1)}%` : "not available"]), "No contacts in this band today.")),
+      section("Critical flags", table(["Contact", "Assigned rep", "Category", "Elapsed", "Last message", "Last message at"], critical.map(flagRow), "No contacts in this band today.")),
+      section("High priority flags", table(["Contact", "Assigned rep", "Category", "Elapsed", "Last message", "Last message at"], high.map(flagRow), "No contacts in this band today.")),
+      section("Medium priority flags", table(["Contact", "Assigned rep", "Category", "Elapsed", "Last message", "Last message at"], medium.map(flagRow), "No contacts in this band today.")),
+      section("Low priority flags", table(["Contact", "Assigned rep", "Category", "Elapsed", "Last message", "Last message at"], low.map(flagRow), "No contacts in this band today.")),
+    ];
+    if (monday) {
+      const weekendRows: string[][] = [];
+      for (const contact of inScope) {
+        const messages = (byContact.get(contact.id) || []).sort((a, b) => a.ms - b.ms);
+        for (const inbound of messages.filter((row) => row.direction === "inbound")) {
+          const when = zoned(inbound.ms, timeZone);
+          const inWindow = (when.weekday === "Fri" && when.hour >= 18) || when.weekday === "Sat" || when.weekday === "Sun" || (when.weekday === "Mon" && when.hour < 9);
+          const unanswered = !messages.some((row) => row.direction === "outbound" && row.ms > inbound.ms);
+          if (!inWindow || !unanswered) continue;
+          const name = clean(contact.name || [contact.firstName, contact.lastName].filter(Boolean).join(" "));
+          weekendRows.push([esc(name), esc(repName(contact.assignedTo || "")), "Weekend catch-up", clock(now - inbound.ms), esc(inbound.body.slice(0, 120)), esc(when.label)]);
+        }
+      }
+      blocks.push(section("Weekend catch-up", table(["Contact", "Assigned rep", "Category", "Elapsed", "Last message", "Received"], weekendRows, "No contacts in this band today.")));
     }
+    blocks.push(
+      section("Wins", winLines.length ? `<ul style="margin:0;padding-left:18px;">${winLines.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>${winLines.length < 3 ? "<p>Fewer than three qualifying wins in this window.</p>" : ""}` : "<p>Fewer than three qualifying wins in this window.</p>"),
+      section("Top 3 daily priorities", priorities.length ? priorities.map((row, index) => `<div style="margin:0 0 12px;"><p style="margin:0;font-weight:bold;">${index + 1}. Reply to ${esc(row.contactName)}</p><p style="margin:4px 0;">Why it matters: ${esc(row.contactName)} is ${esc(row.grade)} in ${esc(row.category)} and has waited ${esc(clock(row.elapsedMs))}.</p><p style="margin:4px 0;">Contacts: ${esc(row.contactName)} (${esc(row.contactId)})</p><p style="margin:4px 0;">Owner action: ${esc(row.assignedTo)} replies or calls before the next report.</p></div>`).join("") : "<p>No contacts in this band today.</p>"),
+      section("Rep rollup", table(["Rep", "Flagged", "Critical", "High", "Medium", "Low", "Oldest flag"], repRows.map((row) => [esc(row.name), String(row.ids.size), String(row.Critical), String(row.High), String(row.Medium), String(row.Low), `${hours1(row.oldest)}${row.missing ? " (some ages unavailable)" : ""}`]), "No contacts in this band today.")),
+      section("Appendix", table(["Contact", "Contact ID", "Assigned rep", "Strongest grade", "Categories", "Elapsed hours", "Last message at"], [...grouped.entries()].map(([, rows]) => rows.slice().sort((a, b) => RANK[b.grade] - RANK[a.grade] || (b.elapsedMs || 0) - (a.elapsedMs || 0))[0]).sort((a, b) => RANK[b.grade] - RANK[a.grade] || (b.elapsedMs || 0) - (a.elapsedMs || 0)).map((best) => {
+        const rows = grouped.get(best.contactId) || [];
+        return [esc(best.contactName), esc(best.contactId), esc(best.assignedTo), badge(best.grade), esc(rows.map((row) => row.category).join(", ")), hours1(best.elapsedMs), esc(best.lastAt)];
+      }), "No contacts in this band today.")),
+    );
+    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Daily Sales Conversation Quality Report</title></head><body style="margin:0;padding:16px;background:#f4f6f8;"><table align="center" style="max-width:620px;width:100%;background:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#2c3e50;"><tr><td style="padding:16px;">${blocks.join('<hr style="border:none;border-top:1px solid #dde3ea;margin:28px 0;">')}</td></tr></table></body></html>`;
+    if (!html.includes("</html>")) return json({ error: "The report did not render completely.", status: "failed" }, 500);
+
+    const top = priorities[0];
+    let sms = strongest.length
+      ? [`Daily Sales Report — ${today.short}`, `Flagged: ${strongest.length} | Critical: ${critical.length} | High: ${high.length} | Medium: ${medium.length} | Low: ${low.length}`, top ? `Top priority: Reply to ${top.contactName} — ${top.contactName}, ${hours1(top.elapsedMs)}h. Owner: ${top.assignedTo}.` : "Top priority: none.", worst ? `Rep watch: ${worst.name}, ${worst.Critical} critical, oldest ${hours1(worst.oldest)}h.` : "Rep watch: none.", "Full report emailed."].join(" ")
+      : `Daily Sales Report — ${today.short}: no flagged conversations in scope. Full report emailed.`;
     const emailed: string[] = [];
     const texted: string[] = [];
-    const missing: string[] = [];
     const problems: string[] = [];
-    for (const [email, name] of recipients) {
-      const found = await crm(token, `${CRM}/contacts/search`, {
-        method: "POST",
-        body: JSON.stringify({ locationId, page: 1, pageLimit: 5, filters: [{ field: "email", operator: "eq", value: email }] }),
-      });
-      const contact = (found.body?.contacts || []).find((row: any) => String(row.email || "").toLowerCase() === email);
-      if (!found.ok || !contact?.id) {
-        missing.push(email);
-        await db.from("send_log").insert({ run_id: runId, channel: "email", email, status: "missing_contact", error: "Not a contact in this Ovanta account" });
-        continue;
+    for (const recipient of recipients) {
+      let emailFailed = false;
+      if (recipient.email) {
+        const mail = await crm(token, `${CRM}/conversations/messages`, {
+          method: "POST",
+          body: JSON.stringify({ type: "Email", locationId, contactId: recipient.contactId, emailFrom: fromEmail, subject: `Daily Sales Conversation Quality Report — ${today.day}`, html, message: sms }),
+        });
+        await db.from("send_log").insert({ run_id: runId, channel: "email", email: recipient.email, message_id: mail.body?.messageId || mail.body?.id || null, status: mail.ok ? "accepted" : "failed", error: mail.ok ? null : `HTTP ${mail.status}` });
+        if (mail.ok) emailed.push(recipient.email);
+        else { emailFailed = true; problems.push(`${recipient.email} email failed`); }
       }
-      const mail = await crm(token, `${CRM}/conversations/messages`, {
-        method: "POST",
-        body: JSON.stringify({
-          type: "Email",
-          contactId: contact.id,
-          subject: `Daily Sales Conversation Quality Report — ${runDate}`,
-          html,
-          emailTo: email,
-        }),
-      });
-      const mailId = mail.body?.messageId || mail.body?.id || mail.body?.message?.id || "";
-      await db.from("send_log").insert({ run_id: runId, channel: "email", email, message_id: mailId, conversation_id: mail.body?.conversationId || null, status: mail.ok ? "accepted" : "failed", error: mail.ok ? null : mail.text });
-      if (mail.ok) emailed.push(email);
-      else problems.push(`${email} email ${mail.status}`);
-      if (!contact.phone) {
-        await db.from("send_log").insert({ run_id: runId, channel: "sms", email, status: "no_phone", error: "Contact has no phone" });
-        problems.push(`${name} has no phone in Ovanta`);
-        continue;
+      if (recipient.phone) {
+        const textBody = emailFailed ? `${sms} Email delivery failed — see logs.` : sms;
+        const parts = textBody.length <= 320 ? [textBody] : textBody.split(/(?<=\.)\s+/).reduce((chunks: string[], sentence: string) => {
+          const last = chunks[chunks.length - 1] || "";
+          if (`${last} ${sentence}`.trim().length <= 300) chunks[chunks.length - 1] = `${last} ${sentence}`.trim();
+          else chunks.push(sentence);
+          return chunks;
+        }, [""]);
+        for (let index = 0; index < parts.length; index++) {
+          const segment = parts.length > 1 ? `${parts[index]} (${index + 1}/${parts.length})` : parts[index];
+          const text = await crm(token, `${CRM}/conversations/messages`, {
+            method: "POST",
+            body: JSON.stringify({ type: "SMS", locationId, contactId: recipient.contactId, message: segment }),
+          });
+          await db.from("send_log").insert({ run_id: runId, channel: "sms", email: recipient.email || recipient.phone, message_id: text.body?.messageId || text.body?.id || null, status: text.ok ? "accepted" : "failed", error: text.ok ? null : `HTTP ${text.status}` });
+          if (text.ok && index === 0) texted.push(recipient.phone);
+          if (!text.ok) problems.push(`${recipient.phone} text failed`);
+        }
       }
-      const text = await crm(token, `${CRM}/conversations/messages`, {
-        method: "POST",
-        body: JSON.stringify({ type: "SMS", contactId: contact.id, message: sms }),
-      });
-      const textId = text.body?.messageId || text.body?.id || text.body?.message?.id || "";
-      await db.from("send_log").insert({ run_id: runId, channel: "sms", email, message_id: textId, conversation_id: text.body?.conversationId || null, status: text.ok ? "accepted" : "failed", error: text.ok ? null : text.text });
-      if (text.ok) texted.push(email);
-      else problems.push(`${email} text ${text.status}`);
     }
-    const status = emailed.length && (texted.length || !problems.length) ? "sent" : emailed.length || texted.length ? "partial" : "failed";
-    await db.from("report_runs").update({
-      status,
-      finished_at: new Date().toISOString(),
-      summary: sms,
-      error: problems.concat(missing.map((email) => `${email} is not a contact in this Ovanta account`)).join("; ") || null,
-    }).eq("id", runId);
-    return json({ success: status !== "failed", status, company: business, emailed, texted, missing, problems, summary: sms, runId });
+    const status = emailed.length || texted.length ? (problems.length ? "partial" : "sent") : "failed";
+    await db.from("report_runs").update({ status, finished_at: new Date().toISOString(), summary: sms, error: problems.join("; ") || null }).eq("id", runId);
+    return json({ success: status !== "failed", status, emailed, texted, problems, summary: sms, company: settings?.company_name || "" });
   } catch (error: any) {
-    if (runId) await db.from("report_runs").update({ status: "failed", finished_at: new Date().toISOString(), error: error?.message || "failed" }).eq("id", runId);
-    return json({ error: error?.message || "The report failed", status: "failed" }, 500);
+    if (runId) await db.from("report_runs").update({ status: "failed", finished_at: new Date().toISOString(), error: "RUN_FAILED" }).eq("id", runId);
+    return json({ error: "The report failed before it sent.", status: "failed" }, 500);
   }
 });

@@ -1952,7 +1952,7 @@ You can text or email a contact in this company's Ovanta account. Find the conta
         });
       }
     }
-    if (/send (today'?s |the )?(daily )?sales report|text the sales report|email the sales report/i.test(question)) {
+    if (/RUN_DAILY_REPORT|send (today'?s |the )?(daily )?sales report|text the sales report|email the sales report/i.test(question)) {
       const reply = await sendSalesReport(
         territoryId,
         req.headers.get("Authorization") || "",
