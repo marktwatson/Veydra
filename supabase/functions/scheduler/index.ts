@@ -374,24 +374,24 @@ serve(async (req) => {
       const { data: claimed, error: claimErr } = await sb.from("portal_settings").update({ last_sales_report_date: todayA }).eq("id", area.id).or(`last_sales_report_date.is.null,last_sales_report_date.neq.${todayA}`).select("id").maybeSingle();
       if (claimErr || !claimed) continue;
       try {
-        const sr = await fetch(`${supabaseUrl}/functions/v1/sales-activity`, {
+        const sr = await fetch(`${supabaseUrl}/functions/v1/sales-report`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}`, apikey: supabaseKey },
-          body: JSON.stringify({ source: "scheduler", sendEmail: true, range: 1, territoryId: area.territory_id, triggeredBy: "auto", includeHistory: false }),
+          body: JSON.stringify({ source: "scheduler", territoryId: area.territory_id }),
         });
         const srd = await sr.json().catch(() => ({}));
-        if (!sr.ok || srd.error) {
+        if (!sr.ok || (srd.error && !srd.already && srd.status !== "partial" && srd.status !== "sent")) {
           await sb.from("portal_settings").update({ last_sales_report_date: area.last_sales_report_date }).eq("id", area.id);
-          console.warn("sales-activity failed", area.territory_id, srd.error || sr.status);
+          console.warn("sales-report failed", area.territory_id, srd.error || sr.status);
           continue;
         }
         salesReportTriggered = true;
       } catch (areaErr) {
         await sb.from("portal_settings").update({ last_sales_report_date: area.last_sales_report_date }).eq("id", area.id);
-        console.warn("sales-activity failed", area.territory_id, (areaErr as any)?.message);
+        console.warn("sales-report failed", area.territory_id, (areaErr as any)?.message);
       }
     }
-  } catch (e) { console.warn("sales-activity trigger failed:", (e as any)?.message); }
+  } catch (e) { console.warn("sales-report trigger failed:", (e as any)?.message); }
 
   return jsonResp({ claimed, sent, failed, backfilled, royalty_triggered: royaltyTriggered, digest_triggered: digestTriggered, sales_report_triggered: salesReportTriggered, self_heal: healOk, server_time: new Date().toISOString(), portal_tz: tz, portal_time_label: formatInTz(new Date(), tz) });
 });

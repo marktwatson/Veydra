@@ -48,4 +48,5 @@ export const ALL_FUNCTION_NAMES = [
   "ghl-invoice-webhook",
   "send-proposal",
   "sales-activity",
+  "sales-report",
 ];

@@ -1071,9 +1071,9 @@ async function sendSalesReport(territoryId: string, authHeader: string, company:
   const anon = Deno.env.get("SUPABASE_ANON_KEY") || "";
   if (!url || !authHeader) return "I could not send it because this login was not passed through.";
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 55000);
+  const timer = setTimeout(() => controller.abort(), 110000);
   try {
-    const res = await fetch(`${url}/functions/v1/sales-activity`, {
+    const res = await fetch(`${url}/functions/v1/sales-report`, {
       method: "POST",
       signal: controller.signal,
       headers: {
@@ -1081,34 +1081,23 @@ async function sendSalesReport(territoryId: string, authHeader: string, company:
         apikey: anon,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        deliverNow: true,
-        range: 1,
-        territoryId,
-        skipStore: true,
-        includeHistory: false,
-      }),
+      body: JSON.stringify({ territoryId }),
     });
     const payload = await res.json().catch(() => ({}));
+    if (payload?.already) return `Today's report for ${company} already went out. It will not send a second time.`;
     if (!res.ok || payload?.error) {
-      return `The report did not send. ${payload?.error || payload?.detail || res.status}`;
+      return `The report did not send. ${payload?.error || res.status}`;
     }
-    const emailed = (payload.emailResult?.recipients || []).filter((row: any) => row.status === "sent").map((row: any) => row.email);
-    const texted = (payload.smsResult || []).filter((row: any) => row.status === "sent").map((row: any) => row.email);
-    const noPhone = (payload.smsResult || []).filter((row: any) => row.status === "no_phone").map((row: any) => row.email);
-    const failed = (payload.emailResult?.recipients || []).filter((row: any) => row.status !== "sent");
-    const lines = [`Sent from ${company}'s Ovanta account.`];
-    if (payload.emailResult?.skipped) lines.push(payload.emailResult.skipped);
-    else if (emailed.length) lines.push(`Emailed: ${emailed.join(", ")}`);
+    const lines = [`Sent from ${payload.company || company}'s Ovanta account.`];
+    if (payload.emailed?.length) lines.push(`Emailed: ${payload.emailed.join(", ")}`);
     else lines.push("No email went out.");
-    if (texted.length) lines.push(`Texted: ${texted.join(", ")}`);
-    if (noPhone.length) lines.push(`No text, because there is no phone on the team row: ${noPhone.join(", ")}`);
-    if (failed.length) lines.push(`Email problem: ${failed.map((row: any) => `${row.email} (${row.status})`).join(", ")}`);
-    const first = payload.priorities?.[0]?.action;
-    if (first) lines.push("", `First thing in the report: ${first}`);
+    if (payload.texted?.length) lines.push(`Texted: ${payload.texted.join(", ")}`);
+    if (payload.missing?.length) lines.push(`Not a contact in this Ovanta account, so nothing was sent: ${payload.missing.join(", ")}`);
+    if (payload.problems?.length) lines.push(`Problems: ${payload.problems.join("; ")}`);
+    if (payload.summary) lines.push("", payload.summary);
     return lines.join("\n");
   } catch (error: any) {
-    return `The report timed out before it sent. ${error?.message || "Try it once more."}`;
+    return `The report timed out before it could confirm the send. ${error?.message || "Try it once more."}`;
   } finally {
     clearTimeout(timer);
   }
