@@ -377,6 +377,7 @@ Deno.serve(async (req) => {
     for (const conversation of [...recent.rows, ...oldest.rows]) {
       if (conversation?.id && !merged.has(conversation.id)) merged.set(conversation.id, conversation);
     }
+    const conversations = [...merged.values()];
     if (partialRecent && partialOldest) {
       await db.from("report_runs").update({ status: "failed", finished_at: new Date().toISOString(), error: "CONVERSATION_PULL_FAILED" }).eq("id", runId);
       return json({ error: "Conversation retrieval failed, so the report was not sent.", status: "failed" }, 502);
@@ -659,7 +660,8 @@ Deno.serve(async (req) => {
     await db.from("report_runs").update({ status, finished_at: new Date().toISOString(), summary: sms, error: problems.join("; ") || null }).eq("id", runId);
     return json({ success: status !== "failed", status, emailed, texted, problems, summary: sms, company: settings?.company_name || "" });
   } catch (error: any) {
-    if (runId) await db.from("report_runs").update({ status: "failed", finished_at: new Date().toISOString(), error: "RUN_FAILED" }).eq("id", runId);
-    return json({ error: "The report failed before it sent.", status: "failed" }, 500);
+    const reason = String(error?.message || "unknown").slice(0, 180);
+    if (runId) await db.from("report_runs").update({ status: "failed", finished_at: new Date().toISOString(), error: reason }).eq("id", runId);
+    return json({ error: `The report failed before it sent. ${reason}`, status: "failed" }, 500);
   }
 });
