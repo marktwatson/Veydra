@@ -740,14 +740,15 @@ Deno.serve(async (req) => {
   let emailResult: any = null;
   let smsResult: any = null;
   let pushResult: any = null;
-  if (body?.sendEmail && reportText) {
+  const deliverNow = (isScheduler || body?.deliverNow === true) && (isScheduler || role === "owner" || role === "super_admin");
+  if ((body?.sendEmail || deliverNow) && reportText) {
     let recips = Array.isArray(body.recipients) && body.recipients.length > 0 ? body.recipients : undefined;
-    if (isScheduler) {
+    if (deliverNow) {
       recips = await reportRecipients(db, territoryId);
       if (!recips.length) emailResult = { skipped: "no active owner or super admin with an email" };
     }
-    if (!(isScheduler && !recips?.length)) emailResult = await sendEmails(loc, H, co, reportText, htmlReport, recips);
-    if (isScheduler && recips?.length) {
+    if (!(deliverNow && !recips?.length)) emailResult = await sendEmails(loc, H, co, reportText, htmlReport, recips);
+    if (deliverNow && recips?.length) {
       smsResult = await sendShortTexts(loc, H, co, summary, recips);
       pushResult = await sendShortPush(url, sk, territoryId, co, summary, recips);
     }
