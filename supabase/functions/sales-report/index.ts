@@ -274,29 +274,56 @@ Deno.serve(async (req) => {
     }
 
     const contacts: any[] = [];
-    let contactPullFailed = false;
     let reportedTotal = 0;
-    for (let page = 1; page <= 10; page++) {
-      const found = await crm(token, `${CRM}/contacts/search`, {
-        method: "POST",
-        body: JSON.stringify({
-          locationId,
-          pageLimit: 100,
-          page,
-          filters: [
-            { field: "tags", operator: "contains", value: "new lead" },
-            { field: "tags", operator: "notContains", value: "booked" },
-            { field: "tags", operator: "notContains", value: "hired" },
-          ],
-        }),
-      });
-      if (!found.ok) { contactPullFailed = true; break; }
-      const batch = found.body?.contacts || [];
-      reportedTotal = Number(found.body?.total || found.body?.meta?.total || reportedTotal);
-      contacts.push(...batch);
-      if (batch.length < 100) break;
+    let contactStatus = 0;
+    const pullTagged = async (value: string) => {
+      const rows: any[] = [];
+      for (let page = 1; page <= 10; page++) {
+        const found = await crm(token, `${CRM}/contacts/search`, {
+          method: "POST",
+          body: JSON.stringify({
+            locationId,
+            page,
+            pageLimit: 100,
+            filters: [{
+              group: "AND",
+              filters: [
+                { field: "tags", operator: "contains", value },
+                { field: "tags", operator: "not_contains", value: "booked" },
+                { field: "tags", operator: "not_contains", value: "hired" },
+              ],
+            }],
+          }),
+        });
+        if (!found.ok) return { ok: false, status: found.status, rows };
+        const batch = found.body?.contacts || [];
+        reportedTotal = Number(found.body?.total || found.body?.meta?.total || reportedTotal);
+        rows.push(...batch);
+        if (batch.length < 100) break;
+      }
+      return { ok: true, status: 200, rows };
+    };
+    let searchOk = false;
+    for (const value of ["new lead", "New Lead"]) {
+      const attempt = await pullTagged(value);
+      if (!attempt.ok) { contactStatus = attempt.status; continue; }
+      searchOk = true;
+      if (attempt.rows.length) { contacts.push(...attempt.rows); break; }
     }
-    if (contactPullFailed && contacts.length === 0) return json({ error: "The new-lead pull failed, so the report was not sent.", status: "failed" }, 502);
+    if (!searchOk) {
+      let listedOk = false;
+      for (let page = 1; page <= 5; page++) {
+        const listed = await crm(token, `${CRM}/contacts/?locationId=${encodeURIComponent(locationId)}&limit=100&page=${page}`);
+        if (!listed.ok) { contactStatus = listed.status; break; }
+        listedOk = true;
+        const batch = listed.body?.contacts || [];
+        contacts.push(...batch);
+        if (batch.length < 100) break;
+      }
+      if (!listedOk && contacts.length === 0) {
+        return json({ error: `The new-lead pull failed (HTTP ${contactStatus}), so the report was not sent.`, status: "failed" }, 502);
+      }
+    }
     const inScope = contacts.filter((contact) => {
       const tags = (Array.isArray(contact.tags) ? contact.tags : []).map((tag: string) => String(tag).trim().toLowerCase());
       return tags.some((tag: string) => tag === "new lead") && !tags.includes("booked") && !tags.includes("hired");
