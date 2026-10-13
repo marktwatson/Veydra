@@ -1066,6 +1066,54 @@ function formatLeadAudit(report: any) {
   return lines.join("\n");
 }
 
+async function sendSalesReport(territoryId: string, authHeader: string, company: string) {
+  const url = Deno.env.get("SUPABASE_URL") || "";
+  const anon = Deno.env.get("SUPABASE_ANON_KEY") || "";
+  if (!url || !authHeader) return "I could not send it because this login was not passed through.";
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 55000);
+  try {
+    const res = await fetch(`${url}/functions/v1/sales-activity`, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: authHeader,
+        apikey: anon,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        deliverNow: true,
+        range: 1,
+        territoryId,
+        skipStore: true,
+        includeHistory: false,
+      }),
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok || payload?.error) {
+      return `The report did not send. ${payload?.error || payload?.detail || res.status}`;
+    }
+    const emailed = (payload.emailResult?.recipients || []).filter((row: any) => row.status === "sent").map((row: any) => row.email);
+    const texted = (payload.smsResult || []).filter((row: any) => row.status === "sent").map((row: any) => row.email);
+    const noPhone = (payload.smsResult || []).filter((row: any) => row.status === "no_phone").map((row: any) => row.email);
+    const failed = (payload.emailResult?.recipients || []).filter((row: any) => row.status !== "sent");
+    const lines = [`Sent from ${company}'s Ovanta account.`];
+    if (payload.emailResult?.skipped) lines.push(payload.emailResult.skipped);
+    else if (emailed.length) lines.push(`Emailed: ${emailed.join(", ")}`);
+    else lines.push("No email went out.");
+    if (texted.length) lines.push(`Texted: ${texted.join(", ")}`);
+    if (noPhone.length) lines.push(`No text, because there is no phone on the team row: ${noPhone.join(", ")}`);
+    if (failed.length) lines.push(`Email problem: ${failed.map((row: any) => `${row.email} (${row.status})`).join(", ")}`);
+    const first = payload.priorities?.[0]?.action;
+    if (first) lines.push("", `First thing in the report: ${first}`);
+    return lines.join("\n");
+  } catch (error: any) {
+    return `The report timed out before it sent. ${error?.message || "Try it once more."}`;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function salesAudit(db: any, territoryId: string, authHeader: string) {
   const { data: settings } = await db
     .from("portal_settings")
@@ -1875,6 +1923,14 @@ You can text or email a contact in this company's Ovanta account. Find the conta
           company: settings?.company_name || null,
         });
       }
+    }
+    if (/send (today'?s |the )?(daily )?sales report|text the sales report|email the sales report/i.test(question)) {
+      const reply = await sendSalesReport(
+        territoryId,
+        req.headers.get("Authorization") || "",
+        settings?.company_name || area?.name || "this company",
+      );
+      return jsonResp({ reply, area: area?.name || null, company: settings?.company_name || null });
     }
     if (/audit our salespeople|sales audit/i.test(question)) {
       const reply = await salesAudit(db, territoryId, req.headers.get("Authorization") || "");

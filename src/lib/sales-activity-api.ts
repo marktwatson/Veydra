@@ -118,9 +118,7 @@ export interface SalesActivityResult {
   companyName?: string;
   reportText?: string;
   htmlReport?: string;
-  emailResult?: { subject?: string; recipients?: SalesEmailRecipient[]; skipped?: string } | null;
-  smsResult?: Array<{ email: string; status: string; error?: string }> | null;
-  pushResult?: { sent?: number; failed?: number; reason?: string; error?: string } | null;
+  emailResult?: { subject: string; recipients: SalesEmailRecipient[] } | null;
   priorities: SalesPriority[];
   needsReply: SalesActivityRow[];
   ghostLeads?: SalesActivityRow[];
@@ -149,8 +147,6 @@ export interface SalesRecipientChoice {
 
 export async function runSalesActivityReport(opts?: {
   sendEmail?: boolean;
-  deliverNow?: boolean;
-  territoryId?: string | null;
   recipients?: SalesRecipientChoice[];
   range?: SalesRange;
   includeHistory?: boolean;
@@ -181,8 +177,6 @@ export async function runSalesActivityReport(opts?: {
     },
     body: JSON.stringify({
       sendEmail: opts?.sendEmail ?? false,
-      deliverNow: opts?.deliverNow ?? false,
-      territoryId: opts?.territoryId || undefined,
       recipients: opts?.recipients ?? undefined,
       callerEmail: userEmail,
       range: opts?.range ?? 1,

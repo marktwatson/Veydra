@@ -2,9 +2,7 @@ import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import { currentTerritoryId } from "@/lib/current-territory";
 import {
   runSalesActivityReport,
   type SalesActivityResult,
@@ -122,11 +120,8 @@ function GradeBadge({ grade }: { grade: SalesGrade }) {
 
 export default function SalesActivity() {
   const { toast } = useToast();
-  const { user } = useAuth();
-  const canDeliver = user?.role === "owner" || user?.role === "super_admin";
   const [loading, setLoading] = useState(false);
   const [emailing, setEmailing] = useState(false);
-  const [delivering, setDelivering] = useState(false);
   const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [data, setData] = useState<SalesActivityResult | null>(null);
   const [range, setRange] = useState<SalesRange>(1);
@@ -146,10 +141,10 @@ export default function SalesActivity() {
       });
       setData(result);
       if (sendEmail && result.emailResult) {
-        const sent = result.emailResult.recipients?.filter(
+        const sent = result.emailResult.recipients.filter(
           (r) => r.status === "sent",
-        ).length || 0;
-        const failed = (result.emailResult.recipients?.length || 0) - sent;
+        ).length;
+        const failed = result.emailResult.recipients.length - sent;
         toast({
           title: sent > 0 ? "Report emailed" : "Email failed",
           description:
@@ -175,37 +170,6 @@ export default function SalesActivity() {
     } finally {
       setLoading(false);
       setEmailing(false);
-    }
-  };
-
-  const deliverTest = async () => {
-    setDelivering(true);
-    try {
-      const territoryId = await currentTerritoryId();
-      const result = await runSalesActivityReport({
-        deliverNow: true,
-        range,
-        territoryId,
-        includeHistory: false,
-      });
-      setData(result);
-      const emailed = result.emailResult?.recipients?.filter((r) => r.status === "sent").length || 0;
-      const texted = result.smsResult?.filter((r) => r.status === "sent").length || 0;
-      const noPhone = result.smsResult?.filter((r) => r.status === "no_phone").length || 0;
-      const pushed = result.pushResult?.sent || 0;
-      toast({
-        title: emailed || texted || pushed ? "Test sent" : "Test did not send",
-        description: `${emailed} emailed, ${texted} texted, ${pushed} pushed${noPhone ? `. ${noPhone} had no phone on their team row` : ""}${result.emailResult?.skipped ? `. ${result.emailResult.skipped}` : ""}`,
-        variant: emailed || texted || pushed ? "default" : "destructive",
-      });
-    } catch (e: any) {
-      toast({
-        title: "Test failed",
-        description: e?.message || "Could not send the test.",
-        variant: "destructive",
-      });
-    } finally {
-      setDelivering(false);
     }
   };
 
@@ -248,21 +212,12 @@ export default function SalesActivity() {
                 Last run: {new Date(data.ranAt).toLocaleString()}
               </span>
             )}
-            <Button onClick={() => run(false)} disabled={loading || emailing || delivering}>
+            <Button onClick={() => run(false)} disabled={loading || emailing}>
               <RefreshCw
                 className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`}
               />
               {loading ? "Running…" : "Run report"}
             </Button>
-            {canDeliver && (
-              <Button
-                variant="outline"
-                onClick={deliverTest}
-                disabled={loading || emailing || delivering}
-              >
-                {delivering ? "Sending…" : "Send test"}
-              </Button>
-            )}
             <Button
               variant="outline"
               onClick={() => setEmailModalOpen(true)}
@@ -663,7 +618,7 @@ export default function SalesActivity() {
                 Email Delivery Status:
               </div>
               <div className="flex flex-col sm:flex-row flex-wrap gap-2 justify-center items-center">
-                {(data.emailResult.recipients || []).map((r, i) => (
+                {data.emailResult.recipients.map((r, i) => (
                   <div
                     key={i}
                     className="flex flex-col items-center sm:items-start text-xs max-w-sm"
