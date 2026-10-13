@@ -6,7 +6,7 @@ import { currentTerritoryId, resolveHomeTerritoryId } from "@/lib/current-territ
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { newTerritoryPricing, ownerPackageKey, ownerSetupClosedKey, packageMath, setupChecks, setupComplete, a2pReady, type SetupSnapshot } from "@/lib/owner-setup";
 import { largestCities, peopleLabel, studioNameIdeas, timezoneFor } from "@/lib/owner-places";
 
@@ -208,6 +208,8 @@ export default function OwnerWelcome() {
   const [making, setMaking] = useState(false);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [marks, setMarks] = useState<{ url: string; style: string }[]>([]);
+  const [logoChange, setLogoChange] = useState("");
+  const [revising, setRevising] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -481,6 +483,50 @@ export default function OwnerWelcome() {
     setNotice(error ? error.message : "Logo saved on this area.");
   };
 
+  const reviseLogo = async () => {
+    if (!territoryId || !draft.logoUrl.startsWith("http")) {
+      setNotice("Pick a logo first.");
+      return;
+    }
+    if (logoChange.trim().length < 3) {
+      setNotice("Say what you want different.");
+      return;
+    }
+    setRevising(true);
+    setNotice("");
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Sign in again.");
+      const res = await fetch(`${supabaseUrl}/functions/v1/assistant`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          apikey: supabaseAnonKey,
+        },
+        body: JSON.stringify({
+          action: "logo-edit",
+          territoryId,
+          name: previewName,
+          source: draft.logoUrl,
+          change: logoChange.trim(),
+        }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.error || "That change did not come back.");
+      const next = payload.logos?.[0]?.url;
+      if (!next) throw new Error("That change did not come back.");
+      setMarks((current) => [{ url: next, style: "Revised" }, ...current.filter((mark) => mark.url !== next)]);
+      setLogoChange("");
+      await saveLogo(next);
+    } catch (error: any) {
+      setNotice(error?.message || "That change did not come back.");
+    } finally {
+      setRevising(false);
+    }
+  };
+
   const confirmReady = async (field: "stripe_ready" | "facebook_ready", key: "stripeReady" | "facebookReady", message: string) => {
     set(key, true);
     setNotice("");
@@ -732,7 +778,7 @@ export default function OwnerWelcome() {
         {step === 3 && (
           <div className="space-y-4">
             <AssistantSays>
-              I'll make three marks for {previewName}{cities.length || draft.state ? ` in ${cities.join(", ") || draft.state}` : ""}. Classic, modern, and film. This is a wedding photo and video studio. Pick one, or paste a logo you already have.
+              I'll make three marks for {previewName}{cities.length || draft.state ? ` in ${cities.join(", ") || draft.state}` : ""}. Classic, modern, and film. This is a wedding photo and video studio. Pick one, then tell me what to change. Or paste a logo you already have.
             </AssistantSays>
             <Button type="button" variant="outline" onClick={makeMarks} disabled={making}>
               {making ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
@@ -755,9 +801,25 @@ export default function OwnerWelcome() {
               ))}
             </div>
             {/^https?:\/\//.test(draft.logoUrl) && (
-              <div className="overflow-hidden rounded-2xl border border-stone-200 dark:border-stone-800">
-                <img src={draft.logoUrl} alt="Chosen logo" className="w-full bg-white" />
-                <p className="px-3 py-2 text-sm text-stone-500">This is the logo saved on the area.</p>
+              <div className="space-y-3">
+                <div className="overflow-hidden rounded-2xl border border-stone-200 dark:border-stone-800">
+                  <img src={draft.logoUrl} alt="Chosen logo" className="w-full bg-white" />
+                  <p className="px-3 py-2 text-sm text-stone-500">This is the logo saved on the area. The next change starts from this one.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="logo-change">What should be different?</Label>
+                  <Textarea
+                    id="logo-change"
+                    value={logoChange}
+                    onChange={(event) => setLogoChange(event.target.value)}
+                    placeholder="Make the flowers smaller and the name darker"
+                    rows={3}
+                  />
+                  <Button type="button" variant="outline" onClick={reviseLogo} disabled={revising || making}>
+                    {revising ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Update this logo
+                  </Button>
+                </div>
               </div>
             )}
             <div className="space-y-2">

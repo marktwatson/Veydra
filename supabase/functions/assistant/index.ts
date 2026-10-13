@@ -1843,6 +1843,45 @@ serve(async (req) => {
       return jsonResp({ logos: saved });
     }
 
+    if (body.action === "logo-edit") {
+      const name = String(body.name || "").trim().slice(0, 48);
+      const source = String(body.source || "").trim();
+      const change = String(body.change || "").trim().slice(0, 400);
+      if (!source.startsWith("http")) return jsonResp({ error: "Pick a logo first." }, 400);
+      if (change.length < 3) return jsonResp({ error: "Say what you want different." }, 400);
+      const prompt = `This is the logo for a wedding photography and videography studio named "${name || "the studio"}". Keep the same name, the same wide layout, and the wedding-studio feel. Change only this: ${change}. No people, no wedding photos, no mockup, no extra words.`;
+      const res = await fetch("https://api.x.ai/v1/images/edits", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "grok-imagine-image-2.0",
+          prompt,
+          image: { url: source, type: "image_url" },
+          aspect_ratio: "16:9",
+          response_format: "b64_json",
+        }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const reason = payload?.error?.message || (typeof payload?.error === "string" ? payload.error : "");
+        return jsonResp({ error: reason || "That change did not come back." }, 502);
+      }
+      const row = payload?.data?.[0] || {};
+      const b64 = row.b64_json || row.b64;
+      let url = typeof row.url === "string" ? row.url : "";
+      if (typeof b64 === "string" && b64.length > 100) {
+        const binary = atob(b64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        const path = `owner-logos/${territoryId}/${crypto.randomUUID()}.jpg`;
+        const { error } = await db.storage.from("avatars").upload(path, bytes, { contentType: "image/jpeg", upsert: true });
+        if (error) return jsonResp({ error: "The new logo was made but could not be saved." }, 502);
+        url = db.storage.from("avatars").getPublicUrl(path).data.publicUrl;
+      }
+      if (!url) return jsonResp({ error: "The new logo came back without a file." }, 502);
+      return jsonResp({ logos: [{ url, style: "Revised" }] });
+    }
+
     const [{ data: area }, { data: settings }, { data: named }] = await Promise.all([
       db.from("territories").select("name").eq("id", territoryId).maybeSingle(),
       db.from("portal_settings").select("company_name, regions").eq("territory_id", territoryId).limit(1).maybeSingle(),
