@@ -234,6 +234,67 @@ async function sendEmails(loc: string, h: Record<string, string>, co: string, tx
   return { subject: subj, recipients: out };
 }
 
+async function reportRecipients(db: any, territoryId: string) {
+  const { data } = await db.from("managers").select("id, email, name, phone, role, status, territory_id, territory_ids").in("role", ["owner", "super_admin"]);
+  const seen = new Set<string>();
+  const out: Array<{ email: string; name: string; phone: string; userId: string }> = [];
+  for (const m of data || []) {
+    if (m.status && m.status !== "active") continue;
+    const email = String(m.email || "").trim().toLowerCase();
+    if (!email || seen.has(email)) continue;
+    const extras = Array.isArray(m.territory_ids) ? m.territory_ids : [];
+    const inArea = m.role === "super_admin" || m.territory_id === territoryId || extras.includes(territoryId);
+    if (!inArea) continue;
+    seen.add(email);
+    out.push({ email, name: m.name || email, phone: String(m.phone || "").trim(), userId: m.id });
+  }
+  return out;
+}
+
+function shortReport(co: string, summary: any) {
+  const waiting = summary.needsReply?.length || 0;
+  const ghosts = summary.ghostLeads?.length || 0;
+  const missed = (summary.missedCalls || []).filter((c: any) => !c.followedUp).length;
+  const first = summary.priorities?.[0]?.action || "Nothing urgent";
+  return `${co}: ${ghosts} untouched leads, ${waiting} waiting on a reply, ${missed} missed calls. First: ${first}`.slice(0, 300);
+}
+
+async function sendShortTexts(loc: string, h: Record<string, string>, co: string, summary: any, recips: Array<{ email: string; name?: string; phone?: string }>) {
+  const message = shortReport(co, summary);
+  const out: any[] = [];
+  for (const it of recips) {
+    if (!it.phone) { out.push({ email: it.email, status: "no_phone" }); continue; }
+    try {
+      const { id: cid, error: cErr } = await findOrCreate(it.email, loc, h, it.name);
+      if (!cid) { out.push({ email: it.email, status: "contact_not_found", error: cErr }); continue; }
+      await gfetch(`${CRM}/contacts/${cid}`, { method: "PUT", headers: h, body: JSON.stringify({ phone: it.phone }) });
+      const r = await gfetch(`${CRM}/conversations/messages`, { method: "POST", headers: { ...h, Version: "2021-04-15" }, body: JSON.stringify({ type: "SMS", locationId: loc, contactId: cid, message }) });
+      const rb = trim(await r.text(), 200);
+      out.push({ email: it.email, status: r.ok ? "sent" : "failed", error: r.ok ? undefined : rb });
+    } catch (e: any) { out.push({ email: it.email, status: "error", error: e?.message || String(e) }); }
+  }
+  return out;
+}
+
+async function sendShortPush(supabaseUrl: string, serviceKey: string, territoryId: string, co: string, summary: any, recips: Array<{ userId?: string }>) {
+  const userIds = [...new Set(recips.map((r) => r.userId).filter(Boolean))];
+  const res = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}`, apikey: serviceKey },
+    body: JSON.stringify({
+      action: "send",
+      user_ids: userIds,
+      territory_id: territoryId,
+      category: "daily_digest",
+      title: `${co} sales`,
+      body: shortReport(co, summary),
+      url: "/manager",
+      tag: `sales-${territoryId}`,
+    }),
+  });
+  return await res.json().catch(() => ({ error: "push response was not json" }));
+}
+
 async function storeRun(db: any, s: any) { try { await db.from("sales_activity_runs").insert({ ran_at: s.ranAt, range: s.range, pool_size: s.poolSize, needs_reply_count: s.needsReply?.length || 0, going_cold_count: s.goingColdTotal || 0, opted_out_count: s.optedOut?.length || 0, avg_response_hours: s.responsePerformance?.avgHours || null, sla_breaches: s.responsePerformance?.slaBreaches || 0, funnel: s.funnel || null, channel_mix: s.channelMix || null, priorities: s.priorities || null, report_text: s.reportText || null, triggered_by: s.triggeredBy || "manual" }); } catch (e: any) { console.warn("[sales-activity] storeRun:", e?.message); } }
 async function fetchHistory(db: any, limit = 30): Promise<any[]> { try { const { data, error } = await db.from("sales_activity_runs").select("ran_at, range, pool_size, needs_reply_count, going_cold_count, opted_out_count, avg_response_hours, sla_breaches, funnel, channel_mix").order("ran_at", { ascending: false }).limit(limit); if (error) return []; return data || []; } catch { return []; } }
 
@@ -249,8 +310,13 @@ Deno.serve(async (req) => {
   const range = [1, 7, 30].includes(Number(body?.range)) ? Number(body.range) : 1;
   const rangeMs = range * 864e5, rangeStart = Date.now() - rangeMs, coldMs = Math.max(rangeMs, 5 * 864e5), now = Date.now();
 
-  // Auth
+  // The 8am clock calls this with the service role. That is not a person
+  // logged into the app, so it must not be rejected for having no session.
   const tok = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
+  const isScheduler = body?.source === "scheduler" && tok.length > 0 && tok === sk;
+  let role = "super_admin";
+  let territoryId = String(body?.territoryId || "").trim();
+  if (!isScheduler) {
   const callerEmail = (body?.callerEmail || req.headers.get("x-user-email") || "").trim().toLowerCase();
   let uid = "", uemail = "";
   if (tok && tok !== ak) { const udb = createClient(url, ak); try { const { data: ud } = await udb.auth.getUser(tok); if (ud?.user) { uid = ud.user.id; uemail = (ud.user.email || "").trim().toLowerCase(); } else { try { const parts = tok.split("."); if (parts.length === 3) { const raw = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/"))); if (raw.email) uemail = String(raw.email).trim().toLowerCase(); if (raw.sub) uid = String(raw.sub); } } catch {} } } catch {} }
@@ -259,15 +325,18 @@ Deno.serve(async (req) => {
   let mgr: any = null;
   if (uemail) { const { data } = await db.from("managers").select("id, email, role, status, territory_id, territory_ids").ilike("email", uemail).maybeSingle(); mgr = data; }
   if (!mgr && uid && /^[0-9a-f-]{36}$/i.test(uid)) { try { const { data } = await db.from("managers").select("id, email, role, status, territory_id, territory_ids").eq("id", uid).maybeSingle(); mgr = data; } catch {} }
-  const role = String(mgr?.role || "").toLowerCase().trim();
+  role = String(mgr?.role || "").toLowerCase().trim();
   if (!["owner", "owner_readonly", "super_admin", "manager"].includes(role)) return json({ error: "Forbidden — owner, super_admin, or manager only", email: uemail, userId: uid, managerRowFound: !!mgr, roleFound: role || null }, 403);
 
   const HONEY = "0bbaebfc-1c51-4ebe-98b4-e2e9697ef33d";
   const requestedTerritory = String(body?.territoryId || "").trim();
   const allowedTerritories = Array.isArray(mgr?.territory_ids) ? mgr.territory_ids : [];
-  let territoryId = mgr?.territory_id || HONEY;
+  territoryId = mgr?.territory_id || HONEY;
   if (requestedTerritory && (role === "super_admin" || requestedTerritory === territoryId || allowedTerritories.includes(requestedTerritory))) {
     territoryId = requestedTerritory;
+  }
+  } else if (!territoryId) {
+    return json({ error: "Scheduler call needs a territoryId" }, 422);
   }
   let ps: any = null;
   try {
@@ -669,9 +738,22 @@ Deno.serve(async (req) => {
   const reportText = buildText(co, summary, range);
   const htmlReport = buildHtml(co, summary, range);
   let emailResult: any = null;
-  if (body?.sendEmail && reportText) { const recips = Array.isArray(body.recipients) && body.recipients.length > 0 ? body.recipients : undefined; emailResult = await sendEmails(loc, H, co, reportText, htmlReport, recips); }
+  let smsResult: any = null;
+  let pushResult: any = null;
+  if (body?.sendEmail && reportText) {
+    let recips = Array.isArray(body.recipients) && body.recipients.length > 0 ? body.recipients : undefined;
+    if (isScheduler) {
+      recips = await reportRecipients(db, territoryId);
+      if (!recips.length) emailResult = { skipped: "no active owner or super admin with an email" };
+    }
+    if (!(isScheduler && !recips?.length)) emailResult = await sendEmails(loc, H, co, reportText, htmlReport, recips);
+    if (isScheduler && recips?.length) {
+      smsResult = await sendShortTexts(loc, H, co, summary, recips);
+      pushResult = await sendShortPush(url, sk, territoryId, co, summary, recips);
+    }
+  }
   const history = body?.includeHistory ? await fetchHistory(db, 30) : [];
-  const result = { ...summary, reportText, htmlReport, emailResult, history, triggeredBy: body?.triggeredBy || "manual" };
+  const result = { ...summary, reportText, htmlReport, emailResult, smsResult, pushResult, history, triggeredBy: body?.triggeredBy || "manual" };
   if (!body?.skipStore) await storeRun(db, result);
   console.log("[sales-activity] done", poolArr.length, "range", range);
   return json(result);

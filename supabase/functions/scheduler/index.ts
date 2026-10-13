@@ -358,29 +358,37 @@ serve(async (req) => {
     }
   } catch (e) { console.warn("daily-digest trigger failed:", (e as any)?.message); }
 
-  // Trigger the daily Sales Activity report at 8 AM portal time (before the
-  // 9 AM digest). sales-activity self-gates via last_sales_report_date in
-  // portal_settings so calling it every 10-min run is safe — it only actually
-  // runs + emails once per day.
+  // One sales report per area that has Ovanta connected, at 8 AM in that
+  // area's own timezone. The report emails, texts, and pushes the owner and
+  // the super admins. Claim the day first so two clock runs cannot both send.
   let salesReportTriggered = false;
   try {
-    const hourStr2 = new Date().toLocaleString("en-US", { timeZone: tz, hour: "numeric", hour12: false });
-    const currentHour2 = parseInt(hourStr2, 10);
-    const tzNow2 = new Date().toLocaleString("en-US", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" });
-    const [tm2, td2, ty2] = tzNow2.split("/");
-    const todayTz2 = `${ty2}-${tm2}-${td2}`;
-    if (currentHour2 === 8 && (settings as any).last_sales_report_date !== todayTz2) {
-      const sr = await fetch(`${supabaseUrl}/functions/v1/sales-activity`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}`, apikey: supabaseKey },
-        body: JSON.stringify({ source: "scheduler", sendEmail: true, range: 1, triggeredBy: "auto", includeHistory: false }),
-      });
-      if (sr.ok) {
-        const srd = await sr.json();
-        salesReportTriggered = !srd.error;
-        if (salesReportTriggered) {
-          await sb.from("portal_settings").update({ last_sales_report_date: todayTz2 }).eq("id", settings.id || "");
+    const { data: areas } = await sb.from("portal_settings").select("id, territory_id, timezone, company_timezone, last_sales_report_date, hl_api_key, hl_location_id");
+    for (const area of areas || []) {
+      if (!area?.territory_id || !area.hl_api_key || !area.hl_location_id) continue;
+      const areaTz = area.timezone || area.company_timezone || tz;
+      const hourA = parseInt(new Date().toLocaleString("en-US", { timeZone: areaTz, hour: "numeric", hour12: false }), 10);
+      const partsA = new Date().toLocaleString("en-US", { timeZone: areaTz, year: "numeric", month: "2-digit", day: "2-digit" }).split("/");
+      const todayA = `${partsA[2]}-${partsA[0]}-${partsA[1]}`;
+      if (hourA !== 8 || area.last_sales_report_date === todayA) continue;
+      const { data: claimed, error: claimErr } = await sb.from("portal_settings").update({ last_sales_report_date: todayA }).eq("id", area.id).or(`last_sales_report_date.is.null,last_sales_report_date.neq.${todayA}`).select("id").maybeSingle();
+      if (claimErr || !claimed) continue;
+      try {
+        const sr = await fetch(`${supabaseUrl}/functions/v1/sales-activity`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}`, apikey: supabaseKey },
+          body: JSON.stringify({ source: "scheduler", sendEmail: true, range: 1, territoryId: area.territory_id, triggeredBy: "auto", includeHistory: false }),
+        });
+        const srd = await sr.json().catch(() => ({}));
+        if (!sr.ok || srd.error) {
+          await sb.from("portal_settings").update({ last_sales_report_date: area.last_sales_report_date }).eq("id", area.id);
+          console.warn("sales-activity failed", area.territory_id, srd.error || sr.status);
+          continue;
         }
+        salesReportTriggered = true;
+      } catch (areaErr) {
+        await sb.from("portal_settings").update({ last_sales_report_date: area.last_sales_report_date }).eq("id", area.id);
+        console.warn("sales-activity failed", area.territory_id, (areaErr as any)?.message);
       }
     }
   } catch (e) { console.warn("sales-activity trigger failed:", (e as any)?.message); }

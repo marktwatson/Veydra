@@ -75,6 +75,13 @@ Deno.serve(async (req) => {
     const todayTz = `${ty}-${tm}-${td}`;
 
     if (!force) {
+      const hourStr = new Date().toLocaleString("en-US", { timeZone: tz, hour: "numeric", hour12: false });
+      const currentHour = parseInt(hourStr, 10);
+      if (currentHour < 9) {
+        return new Response(JSON.stringify({ success: true, skipped: "before 9 AM" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       if (pSettings.last_digest_date === todayTz) {
         return new Response(JSON.stringify({ success: true, skipped: "already sent today" }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -94,13 +101,6 @@ Deno.serve(async (req) => {
           JSON.stringify({ success: true, skipped: "race lost or column missing" }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
-      }
-      const hourStr = new Date().toLocaleString("en-US", { timeZone: tz, hour: "numeric", hour12: false });
-      const currentHour = parseInt(hourStr, 10);
-      if (currentHour < 9) {
-        return new Response(JSON.stringify({ success: true, skipped: "before 9 AM" }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
       }
     }
 
