@@ -64,7 +64,7 @@ interface DirectoryRep {
   name: string;
 }
 
-export function SalespersonPayoutsTab() {
+export function SalespersonPayoutsTab({ variant = "full" }: { variant?: "full" | "details" } = {}) {
   const { toast } = useToast();
   const [reps, setReps] = useState<OwedRep[]>([]);
   const [batches, setBatches] = useState<SalespersonPayoutBatch[]>([]);
@@ -241,6 +241,8 @@ export function SalespersonPayoutsTab() {
 
   return (
     <div className="space-y-4">
+      {variant === "full" && (
+      <>
       <p className="text-xs text-muted-foreground">
         Salesperson send fee: ${DEFAULT_SALESPERSON_SEND_FEE} per first send.
         Not visible to salespeople.
@@ -338,6 +340,8 @@ export function SalespersonPayoutsTab() {
           )}
         </CardContent>
       </Card>
+      </>
+      )}
 
       <Card>
         <CardHeader>

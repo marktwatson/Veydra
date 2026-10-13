@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import { useProposalsData } from "@/lib/use-proposals-data";
 import { ProposalSalesRepsTab } from "@/components/ProposalSalesRepsTab";
+import { SalespersonPayoutsTab } from "@/components/SalespersonPayoutsTab";
 
 /**
  * Dedicated Sales Reps page — close ratios and pipeline for proposals built
@@ -41,6 +42,7 @@ export default function SalesRepsPage() {
       ) : (
         <ProposalSalesRepsTab proposals={proposals} onRefresh={refresh} />
       )}
+      <SalespersonPayoutsTab variant="details" />
     </div>
   );
 }
