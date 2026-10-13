@@ -467,11 +467,11 @@ export default function RoyaltyManagement() {
             weekly processing.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           <Button
             variant="outline"
             size="sm"
-            className="rounded-full"
+            className="rounded-full w-full sm:w-auto justify-center"
             onClick={() => triggerProcessorMutation.mutate(false)}
             disabled={triggerProcessorMutation.isPending}
           >
@@ -485,7 +485,7 @@ export default function RoyaltyManagement() {
           <Button
             variant="outline"
             size="sm"
-            className="rounded-full"
+            className="rounded-full w-full sm:w-auto justify-center"
             onClick={() => setEditOpen(true)}
           >
             <Settings className="h-4 w-4 mr-2" /> Edit Settings
@@ -497,7 +497,7 @@ export default function RoyaltyManagement() {
             <Button
               variant="outline"
               size="sm"
-              className="rounded-full"
+              className="rounded-full w-full sm:w-auto justify-center"
               onClick={() => connectBankMutation.mutate()}
             >
               {connectBankMutation.isPending ? (
@@ -513,7 +513,7 @@ export default function RoyaltyManagement() {
             <Button
               variant="outline"
               size="sm"
-              className="rounded-full"
+              className="rounded-full w-full sm:w-auto justify-center"
               onClick={() => connectBankMutation.mutate()}
             >
               {connectBankMutation.isPending ? (
@@ -635,14 +635,14 @@ export default function RoyaltyManagement() {
       />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="rounded-full">
-          <TabsTrigger value="overview" className="rounded-full">
+        <TabsList className="h-auto w-full justify-start gap-1 overflow-x-auto rounded-full p-1">
+          <TabsTrigger value="overview" className="shrink-0 rounded-full">
             Payment History
           </TabsTrigger>
-          <TabsTrigger value="settings" className="rounded-full">
+          <TabsTrigger value="settings" className="shrink-0 rounded-full">
             Global Settings
           </TabsTrigger>
-          <TabsTrigger value="audit" className="rounded-full">
+          <TabsTrigger value="audit" className="shrink-0 rounded-full">
             Audit Log
           </TabsTrigger>
         </TabsList>
