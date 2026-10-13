@@ -330,8 +330,8 @@ Deno.serve(async (req) => {
     });
     const contactIds = new Set(inScope.map((contact) => contact.id));
 
-    const recent = await crm(token, `${CRM}/conversations/search?locationId=${locationId}&limit=100&sortBy=lastMessageDate&sortOrder=desc`);
-    const oldest = await crm(token, `${CRM}/conversations/search?locationId=${locationId}&limit=100&sortBy=lastMessageDate&sortOrder=asc`);
+    const recent = await crm(token, `${CRM}/conversations/search?locationId=${encodeURIComponent(locationId)}&limit=100&sort=desc`);
+    const oldest = await crm(token, `${CRM}/conversations/search?locationId=${encodeURIComponent(locationId)}&limit=100&sort=asc`);
     const partialOldest = !oldest.ok;
     const partialRecent = !recent.ok;
     const merged = new Map<string, any>();
@@ -339,10 +339,10 @@ Deno.serve(async (req) => {
       if (conversation?.id && !merged.has(conversation.id)) merged.set(conversation.id, conversation);
     }
     const conversations = [...merged.values()];
-    const matched = conversations.filter((conversation) => contactIds.has(conversation.contactId));
+    const matched = conversations.filter((conversation) => contactIds.has(conversation.contactId || conversation.contact_id));
     let skipped = 0;
     const withMessages = await pool(matched, 6, async (conversation) => {
-      const pulled = await crm(token, `${CRM}/conversations/${conversation.id}/messages?limit=100`);
+      const pulled = await crm(token, `${CRM}/conversations/${conversation.id}/messages?limit=100&sort=desc`);
       if (!pulled.ok) { skipped++; return { conversation, messages: [] as any[], failed: true }; }
       return { conversation, failed: false, messages: messageList(pulled.body).map(normalize).filter((row) => row.ms) };
     });
@@ -360,7 +360,7 @@ Deno.serve(async (req) => {
     const byContact = new Map<string, any[]>();
     for (const row of withMessages) {
       if (row.failed) continue;
-      const id = row.conversation.contactId;
+      const id = row.conversation.contactId || row.conversation.contact_id;
       byContact.set(id, [...(byContact.get(id) || []), ...row.messages]);
     }
     let responseSamples: number[] = [];
