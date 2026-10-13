@@ -2,6 +2,7 @@ import {
   managerNavGroups,
   areasNavItem,
   royaltyNavItem,
+  ghlProvisionNavItem,
   ownerRoyaltyNavItem,
   commandNavItem,
 } from "@/components/layout-nav";
@@ -54,7 +55,7 @@ export function buildVisibleManagerNavGroups(
       if (role === "super_admin" && group.label === "System Control") {
         return {
           ...group,
-          items: [...group.items, areasNavItem, royaltyNavItem],
+          items: [...group.items, areasNavItem, royaltyNavItem, ghlProvisionNavItem],
         };
       }
       if (role === "owner" || role === "owner_readonly") {

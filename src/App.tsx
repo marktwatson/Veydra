@@ -60,6 +60,7 @@ import GrowthHub from "@/pages/manager/GrowthHub";
 import ExportProject from "@/pages/manager/ExportProject";
 import Territories from "@/pages/manager/Territories";
 import Areas from "@/pages/manager/Areas";
+import GhlProvision from "@/pages/manager/GhlProvision";
 import Command from "@/pages/manager/Command";
 import PostProductionBoard from "@/pages/manager/PostProduction";
 import EditorDashboard from "@/pages/editor/Dashboard";
@@ -394,6 +395,14 @@ const App = () => {
                   element={
                     <ProtectedRoute requireRole="manager" superAdminOnly>
                       <Areas />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/manager/ghl-provision"
+                  element={
+                    <ProtectedRoute requireRole="manager" superAdminOnly>
+                      <GhlProvision />
                     </ProtectedRoute>
                   }
                 />

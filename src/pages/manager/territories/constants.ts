@@ -49,4 +49,5 @@ export const ALL_FUNCTION_NAMES = [
   "send-proposal",
   "sales-activity",
   "sales-report",
+  "ghl-provision",
 ];

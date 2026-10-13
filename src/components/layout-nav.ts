@@ -19,6 +19,7 @@ import {
   GraduationCap,
   MapPin,
   Radar,
+  Building2,
 } from "lucide-react";
 
 export const contractorNavItems = [
@@ -105,6 +106,12 @@ export const royaltyNavItem = {
   icon: DollarSign,
   label: "Royalty",
   path: "/manager/royalty",
+};
+
+export const ghlProvisionNavItem = {
+  icon: Building2,
+  label: "Ovanta provisioning",
+  path: "/manager/ghl-provision",
 };
 
 // Stripe payout nav item. Unused in the active nav groups but kept for any
