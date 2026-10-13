@@ -15,12 +15,14 @@ const CRM = "https://services.leadconnectorhq.com";
 const VERSION = "2021-07-28";
 const CAP = 100;
 
-const esc = (value: unknown) =>
-  String(value ?? "")
-    .replace(/&/g, "&")
-    .replace(/</g, "<")
-    .replace(/>/g, ">")
-    .replace(/"/g, """);
+function esc(value: unknown) {
+  return String(value ?? "").replace(/[&<>"]/g, (ch) => {
+    if (ch === "&") return "&" + "amp;";
+    if (ch === "<") return "&" + "lt;";
+    if (ch === ">") return "&" + "gt;";
+    return "&" + "quot;";
+  });
+}
 
 const badgeCss: Record<string, string> = {
   Critical: "background:#FDECEA;color:#B00020;border:1px solid #F5C2C0;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;white-space:nowrap;",
