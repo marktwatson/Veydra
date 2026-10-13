@@ -521,23 +521,34 @@ Deno.serve(async (req) => {
     const channelOrder = ["SMS", "Call", "Email", "Automation"] as const;
     const channelColors: Record<string, string> = { SMS: "#2ecc71", Call: "#3498db", Email: "#9b59b6", Automation: "#95a5a6" };
     const channelCounts: Record<string, number> = { SMS: 0, Call: 0, Email: 0, Automation: 0 };
-    for (const rows of byContact.values()) {
-      for (const message of rows) {
-        if (message.ms < windowStartMs) continue;
-        const type = channelOrder.includes(message.type) ? message.type : "SMS";
-        channelCounts[type]++;
-      }
+    let typedConversations = 0;
+    for (const conversation of conversations) {
+      const raw = conversation.messageTypes || conversation.message_types || [];
+      const codes = (Array.isArray(raw) ? raw : []).map((item: any) => Number(typeof item === "object" ? item?.type ?? item?.code : item)).filter((code: number) => Number.isFinite(code));
+      if (!codes.length) continue;
+      typedConversations++;
+      if (codes.includes(3)) channelCounts.SMS++;
+      if (codes.includes(1) || codes.includes(2)) channelCounts.Call++;
+      if (codes.includes(45)) channelCounts.Email++;
+      if (codes.includes(100)) channelCounts.Automation++;
     }
-    const channelTotal = channelOrder.reduce((sum, name) => sum + channelCounts[name], 0);
-    let percents = channelOrder.map((name) => channelTotal ? Math.round((channelCounts[name] / channelTotal) * 100) : 0);
-    if (channelTotal) {
-      const residue = 100 - percents.reduce((sum, value) => sum + value, 0);
-      percents[percents.indexOf(Math.max(...percents))] += residue;
-    }
-    const biggest = channelOrder.slice().sort((a, b) => channelCounts[b] - channelCounts[a])[0];
-    const channelNote = channelTotal
-      ? `${biggest} is ${percents[channelOrder.indexOf(biggest)]}% of messages in this window (${channelCounts[biggest]} of ${channelTotal}). The other channels are ${channelOrder.filter((name) => name !== biggest).map((name) => `${name} ${percents[channelOrder.indexOf(name)]}%`).join(", ")}. Coverage should follow the channel that actually carried the conversations.`
-      : "No messages in window";
+    const loaded = conversations.length;
+    const oneDecimal = (count: number) => loaded ? Math.round((count / loaded) * 1000) / 10 : 0;
+    const percents: Record<string, number> = {
+      SMS: oneDecimal(channelCounts.SMS),
+      Call: oneDecimal(channelCounts.Call),
+      Email: oneDecimal(channelCounts.Email),
+      Automation: oneDecimal(channelCounts.Automation),
+    };
+    const channelSentences = [
+      `Of ${loaded} conversations loaded, ${channelCounts.SMS} used SMS (${percents.SMS}%), ${channelCounts.Call} used a call (${percents.Call}%), ${channelCounts.Email} used email (${percents.Email}%), and ${channelCounts.Automation} used automation (${percents.Automation}%).`,
+      percents.Automation >= 40
+        ? "Automation is in 40% or more of these conversations, so workflow coverage is healthy."
+        : `Automation is in ${percents.Automation}% of these conversations.`,
+      percents.Email >= 20
+        ? "Email is in 20% or more of these conversations, so the team is using multi-channel outreach."
+        : `Email is in ${percents.Email}% of these conversations.`,
+    ];
     const reps = new Map<string, { name: string; flagged: number; critical: number; wins: number; lost: number }>();
     const touch = (name: string) => reps.get(name) || reps.set(name, { name, flagged: 0, critical: 0, wins: 0, lost: 0 }).get(name)!;
     for (const row of strongest) {
@@ -572,9 +583,14 @@ Deno.serve(async (req) => {
       <td width="25%" style="padding:0 4px;"><div style="background:#2c3e50;padding:16px;border-radius:8px;text-align:center;"><div style="color:#7ec8e3;font-size:28px;font-weight:bold;line-height:1.1;">${esc(medianLabel)}</div><div style="color:rgba(255,255,255,0.8);font-size:11px;text-transform:uppercase;margin-top:4px;">Median Response</div></div></td>
       <td width="25%" style="padding:0 4px;"><div style="background:#1a2340;padding:16px;border-radius:8px;text-align:center;"><div style="color:#7ec8e3;font-size:28px;font-weight:bold;line-height:1.1;">${conversations.length}</div><div style="color:rgba(255,255,255,0.8);font-size:11px;text-transform:uppercase;margin-top:4px;">Conversations Loaded</div></div></td>
     </tr></table>`);
-    const bars = channelTotal
-      ? channelOrder.map((name, index) => `<div style="font-size:12px;color:#1a2340;font-weight:bold;">${name} ${mdash} ${channelCounts[name]} (${percents[index]}%)</div><div style="background:${channelColors[name]};height:20px;border-radius:4px;width:${Math.max(percents[index], 1)}%;margin:4px 0;"></div>`).join("") + `<p style="margin:8px 0 0;color:#1a2340;">${esc(channelNote)}</p>`
-      : `<p style="margin:0;">No messages in window</p>`;
+    const bars = !loaded
+      ? `<p style="margin:0;">No messages in window</p>`
+      : !typedConversations
+        ? `<p style="margin:0;">Channel data unavailable — messageTypes field not present in API response.</p>`
+        : `<div style="font-size:12px;color:#555;margin-bottom:2px;">Channel presence — % of ${loaded} conversations that used each channel</div>`
+          + channelOrder.map((name) => `<div style="font-size:12px;color:#1a2340;font-weight:bold;margin-top:10px;">${name} ${mdash} ${channelCounts[name]} conversations (${percents[name]}%)</div><div style="background:${channelColors[name]};height:20px;border-radius:4px;width:${Math.min(100, percents[name])}%;margin:4px 0;"></div>`).join("")
+          + `<div style="font-size:11px;color:#888;margin-top:8px;">Note: percentages sum to more than 100% because a single conversation may use multiple channels.</div>`
+          + `<p style="margin:8px 0 0;color:#1a2340;">${esc(channelSentences.join(" "))}</p>`;
     blocks.push(sectionHead("Channel ratio", "#1a2340") + `<div style="margin:16px 0;">${bars}</div>`);
     if (lost.length) {
       blocks.push(sectionHead("Lost leads", "#e74c3c") + `<div style="border:2px solid #e74c3c;background:#fdecea;border-radius:6px;padding:16px;margin:20px 0;"><div style="color:#e74c3c;font-size:16px;font-weight:bold;text-transform:uppercase;margin-bottom:10px;">${siren} COMPLIANCE / PIPELINE RISK</div><div style="color:#1a2340;font-size:13px;margin-bottom:12px;">Action required for every contact below: archive contact, remove from all sequences, do not follow up.</div>${table(["Contact", "Trigger phrase", "Last inbound"], lost.map((row) => [esc(row.contactName), `${ldquo}${esc(row.phrase)}${rdquo}`, esc(row.preview || "not available")]), "No contacts in this grade.")}</div>`);
