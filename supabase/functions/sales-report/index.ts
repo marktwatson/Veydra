@@ -1,6 +1,5 @@
-// Daily Sales Conversation Quality Report, v3.
+// Daily Sales Conversation Quality Report, v5.
 // One Ovanta location per run. Recipients are contacts tagged veydra-sales-report.
-// The agency token is never written into the report.
 import { createClient } from "jsr:@supabase/supabase-js";
 
 const cors = {
@@ -24,6 +23,14 @@ const PRIMARY = [
 ];
 const URGENT = ["as soon as possible", "time sensitive", "time-sensitive", "still waiting", "no one has", "nobody has", "right now", "emergency", "immediately", "unacceptable", "frustrated", "deadline", "third time", "urgent", "asap", "today", "cancel", "refund", "angry"];
 const BUYING = ["how much", "ready to start", "when can you", "availability", "interested", "pricing", "estimate", "schedule", "available", "contract", "invoice", "payment", "deposit", "booking", "signup", "sign up", "price", "quote", "cost", "book"];
+const LOST_PHRASES = ["went with someone else", "went a different direction", "found someone else", "already booked with", "decided to go with", "going with another", "chose someone else", "remove us from your list", "remove me from your list", "no longer interested", "not interested anymore", "going a different route", "different direction", "found another"];
+const REACTION_PREFIXES = ['Liked "', 'Le gustó "', 'Loved "', 'Laughed at "', 'Emphasized "', 'Questioned "'];
+const mid = "&" + "middot;";
+const ndash = "&" + "ndash;";
+const mdash = "&" + "mdash;";
+const siren = "&" + "#128680;";
+const ldquo = "&" + "ldquo;";
+const rdquo = "&" + "rdquo;";
 
 function esc(value: unknown) {
   return String(value ?? "").replace(/[&<>"]/g, (ch) => {
@@ -161,8 +168,21 @@ function table(headers: string[], rows: string[][], empty: string) {
     : `<tr><td colspan="${headers.length}" style="padding:8px 10px;">${esc(empty)}</td></tr>`;
   return `<table style="width:100%;border-collapse:collapse;">${head}${body}</table>`;
 }
-function section(title: string, inner: string) {
-  return `<h2 style="font-size:16px;margin:0 0 8px;color:#1a2340;">${esc(title)}</h2>${inner}`;
+function dropGrade(grade: string) {
+  if (grade === "Critical") return "High";
+  if (grade === "High") return "Medium";
+  if (grade === "Medium") return "Low";
+  return "Low";
+}
+function lostPhrase(body: string) {
+  const text = body.toLowerCase();
+  return LOST_PHRASES.find((item) => text.includes(item)) || "";
+}
+function isReaction(body: string) {
+  return REACTION_PREFIXES.some((prefix) => body.startsWith(prefix));
+}
+function sectionHead(title: string, color: string) {
+  return `<div style="border-left:4px solid ${color};background:#f8f9fb;padding:12px 16px;font-size:17px;font-weight:bold;color:#1a2340;margin:20px 0 8px 0;">${esc(title)}</div>`;
 }
 
 Deno.serve(async (req) => {
@@ -330,16 +350,43 @@ Deno.serve(async (req) => {
     });
     const contactIds = new Set(inScope.map((contact) => contact.id));
 
-    const recent = await crm(token, `${CRM}/conversations/search?locationId=${encodeURIComponent(locationId)}&limit=100&sort=desc`);
-    const oldest = await crm(token, `${CRM}/conversations/search?locationId=${encodeURIComponent(locationId)}&limit=100&sort=asc`);
-    const partialOldest = !oldest.ok;
-    const partialRecent = !recent.ok;
+    const pullSlice = async (sort: "desc" | "asc", pages: number, stopOutsideWindow: boolean) => {
+      const rows: any[] = [];
+      let cursor = "";
+      let failed = false;
+      for (let page = 0; page < pages; page++) {
+        const params = new URLSearchParams({ locationId, limit: "100", sort });
+        if (cursor) params.set("startAfterDate", cursor);
+        const found = await crm(token, `${CRM}/conversations/search?${params}`);
+        if (!found.ok) { failed = page === 0; break; }
+        const batch = found.body?.conversations || [];
+        rows.push(...batch);
+        if (batch.length < 100) break;
+        const last = batch[batch.length - 1];
+        cursor = String(last?.lastMessageDate || last?.last_message_date || "");
+        if (!cursor) break;
+        if (stopOutsideWindow && new Date(cursor).getTime() < now - 86400000) break;
+      }
+      return { rows, failed };
+    };
+    const recent = await pullSlice("desc", 4, true);
+    const oldest = await pullSlice("asc", 1, false);
+    const partialOldest = oldest.failed;
+    const partialRecent = recent.failed;
     const merged = new Map<string, any>();
-    for (const conversation of [...(recent.body?.conversations || []), ...(oldest.body?.conversations || [])]) {
+    for (const conversation of [...recent.rows, ...oldest.rows]) {
       if (conversation?.id && !merged.has(conversation.id)) merged.set(conversation.id, conversation);
     }
-    const conversations = [...merged.values()];
-    const matched = conversations.filter((conversation) => contactIds.has(conversation.contactId || conversation.contact_id));
+    if (partialRecent && partialOldest) {
+      await db.from("report_runs").update({ status: "failed", finished_at: new Date().toISOString(), error: "CONVERSATION_PULL_FAILED" }).eq("id", runId);
+      return json({ error: "Conversation retrieval failed, so the report was not sent.", status: "failed" }, 502);
+    }
+    const matchedAll = conversations.filter((conversation) => contactIds.has(conversation.contactId || conversation.contact_id));
+    const matched = matchedAll
+      .slice()
+      .sort((a, b) => new Date(b.lastMessageDate || b.last_message_date || 0).getTime() - new Date(a.lastMessageDate || a.last_message_date || 0).getTime())
+      .slice(0, 80);
+    const messageCap = matchedAll.length > matched.length;
     let skipped = 0;
     const withMessages = await pool(matched, 6, async (conversation) => {
       const pulled = await crm(token, `${CRM}/conversations/${conversation.id}/messages?limit=100&sort=desc`);
@@ -355,176 +402,225 @@ Deno.serve(async (req) => {
     }
     const repName = (id: string) => users.get(id) || "Unassigned";
 
-    type Flag = { contactId: string; contactName: string; assignedTo: string; category: string; grade: string; elapsedMs: number | null; preview: string; lastType: string; lastAt: string; lastAtMs: number; primary: boolean };
+    type Flag = { contactId: string; contactName: string; assignedTo: string; category: string; grade: string; elapsedMs: number | null; preview: string; lastAt: string; reaction: boolean };
     const flags: Flag[] = [];
+    const lost: { contactId: string; contactName: string; phrase: string; preview: string; assignedTo: string }[] = [];
     const byContact = new Map<string, any[]>();
+    const audit: { contactId: string; name: string; assigned: string; channel: string; inbound: number; outbound: number; firstIn: string; firstOut: string; response: string; classification: string; grade: string }[] = [];
     for (const row of withMessages) {
       if (row.failed) continue;
       const id = row.conversation.contactId || row.conversation.contact_id;
       byContact.set(id, [...(byContact.get(id) || []), ...row.messages]);
     }
-    let responseSamples: number[] = [];
+    const responseByRep = new Map<string, number[]>();
+    const qualifying: number[] = [];
+    const wins = new Map<string, { name: string; channel: string; ms: number; line: string; assignedTo: string }>();
+    const windowStartMs = now - 86400000;
     for (const contact of inScope) {
       const messages = (byContact.get(contact.id) || []).sort((a, b) => a.ms - b.ms);
       if (!messages.length) continue;
       const name = clean(contact.name || [contact.firstName, contact.lastName].filter(Boolean).join(" ") || "Unknown");
       const assigned = repName(contact.assignedTo || "");
       const inbound = messages.filter((row) => row.direction === "inbound");
-      const outbound = messages.filter((row) => row.direction === "outbound" && row.type !== "InternalComment");
-      const humanOutbound = outbound.filter((row) => row.type !== "Automation");
+      const outbound = messages.filter((row) => row.direction === "outbound" && row.type !== "Automation");
       const last = messages[messages.length - 1];
       const lastInbound = inbound[inbound.length - 1];
-      const elapsed = lastInbound ? now - lastInbound.ms : null;
       const bodyText = lastInbound?.body || "";
-      const base = escalate(gradeFor(elapsed), bodyText, elapsed);
-      const preview = bodyText.slice(0, 120);
-      const lastAt = lastInbound ? zoned(lastInbound.ms, timeZone).label : "not available";
-      const push = (category: string, grade: string, age: number | null) => flags.push({
-        contactId: contact.id, contactName: name, assignedTo: assigned, category, grade, elapsedMs: age,
-        preview, lastType: lastInbound?.type || last?.type || "", lastAt, lastAtMs: lastInbound?.ms || 0, primary: false,
+      const reaction = !!(lastInbound && isReaction(bodyText));
+      const phraseHit = lastInbound ? lostPhrase(bodyText) : "";
+      const elapsed = lastInbound ? now - lastInbound.ms : null;
+      const firstIn = inbound[0];
+      const firstOut = outbound.find((row) => firstIn && row.ms > firstIn.ms);
+      const responseMs = firstIn && firstOut ? firstOut.ms - firstIn.ms : null;
+      if (responseMs != null && responseMs > 0) {
+        qualifying.push(responseMs);
+        const bucket = responseByRep.get(assigned) || [];
+        bucket.push(responseMs);
+        responseByRep.set(assigned, bucket);
+      }
+      let classification = "Clear";
+      let grade = "";
+      if (phraseHit) {
+        classification = "Lost Lead";
+        grade = "Critical";
+        lost.push({ contactId: contact.id, contactName: name, phrase: phraseHit, preview: bodyText.slice(0, 120), assignedTo: assigned });
+      } else if (last?.direction === "outbound" && !inbound.some((row) => row.ms > last.ms)) {
+        classification = "Waiting for Reply";
+      } else {
+        const preview = reaction ? "[iMessage reaction]" : bodyText.slice(0, 120);
+        const lastAt = lastInbound ? zoned(lastInbound.ms, timeZone).label : "not available";
+        const base = escalate(gradeFor(elapsed), bodyText, elapsed);
+        const push = (category: string, nextGrade: string, age: number | null) => flags.push({
+          contactId: contact.id, contactName: name, assignedTo: assigned, category, grade: reaction ? dropGrade(nextGrade) : nextGrade,
+          elapsedMs: age, preview, lastAt, reaction,
+        });
+        if (last?.direction === "inbound" && !outbound.some((row) => row.ms > last.ms)) push("Unanswered Inbound Message", base, elapsed);
+        if (inbound.length && outbound.length === 0 && elapsed != null && elapsed >= 7200000) push("No First Response", base, elapsed);
+        if (outbound.length && last?.direction === "inbound" && elapsed != null && elapsed >= 86400000) {
+          const stalled = elapsed >= 172800000 || hits(bodyText, urgentRe) ? "Critical" : "High";
+          push("Stalled Thread", escalate(stalled, bodyText, elapsed), elapsed);
+        }
+        if (responseMs != null && responseMs >= 3600000) {
+          const slow = responseMs >= 28800000 ? "Critical" : responseMs >= 14400000 ? "High" : "Medium";
+          push("Slow First Response", escalate(slow, bodyText, elapsed), responseMs);
+        }
+        for (const call of inbound.filter((row) => row.type === "Call" && ["no-answer", "no_answer", "busy", "failed", "canceled", "cancelled", "voicemail", "unanswered"].includes(row.status))) {
+          if (outbound.some((row) => row.ms > call.ms)) continue;
+          const age = now - call.ms;
+          if (age >= 1800000) push("Missed Call Without Callback", escalate(gradeFor(age), bodyText, age), age);
+        }
+        if (lastInbound && hits(bodyText, buyingRe) && !outbound.some((row) => row.ms > lastInbound.ms)) {
+          push("Buying Intent Unworked", elapsed != null && elapsed >= 86400000 ? "Critical" : "High", elapsed);
+        }
+        if (lastInbound && hits(bodyText, urgentRe) && !outbound.some((row) => row.ms > lastInbound.ms)) push("Urgent Language Unworked", "Critical", elapsed);
+      }
+      if (firstIn && firstOut && firstOut.ms >= windowStartMs) {
+        const delta = firstOut.ms - firstIn.ms;
+        if (delta > 0 && delta < 900000) {
+          const current = wins.get(contact.id);
+          if (!current || delta < current.ms) wins.set(contact.id, { name, channel: firstOut.type, ms: delta, assignedTo: repName(firstOut.userId), line: `${repName(firstOut.userId)} replied after ${name} wrote in. The reply landed at ${zoned(firstOut.ms, timeZone).label}.` });
+        }
+      }
+      for (const call of inbound.filter((row) => row.type === "Call" && row.ms >= windowStartMs)) {
+        const back = outbound.find((row) => row.ms > call.ms && row.ms - call.ms <= 1800000 && row.ms >= windowStartMs);
+        if (!back) continue;
+        const delta = back.ms - call.ms;
+        const current = wins.get(contact.id);
+        if (!current || delta < current.ms) wins.set(contact.id, { name, channel: "Call", ms: delta, assignedTo: repName(back.userId), line: `${repName(back.userId)} returned ${name}'s call at ${zoned(back.ms, timeZone).label}.` });
+      }
+      const rows = flags.filter((row) => row.contactId === contact.id);
+      const best = rows.slice().sort((a, b) => RANK[b.grade] - RANK[a.grade] || (b.elapsedMs || 0) - (a.elapsedMs || 0))[0];
+      audit.push({
+        contactId: contact.id, name, assigned, channel: (lastInbound || last)?.type || "SMS",
+        inbound: inbound.length, outbound: outbound.length,
+        firstIn: firstIn ? zoned(firstIn.ms, timeZone).label : "none",
+        firstOut: outbound[0] ? zoned(outbound[0].ms, timeZone).label : "none",
+        response: responseMs != null && responseMs > 0 ? clock(responseMs) : "excluded — outbound not after inbound",
+        classification: phraseHit ? "Lost Lead" : best?.category || classification,
+        grade: phraseHit ? "Critical" : best?.grade || "none",
       });
-      if (last?.direction === "inbound" && !outbound.some((row) => row.ms > last.ms)) push("Unanswered Inbound Message", base, elapsed);
-      if (inbound.length && humanOutbound.length === 0 && elapsed != null && elapsed >= 7200000) push("No First Response", base, elapsed);
-      if (outbound.length && last?.direction === "inbound" && elapsed != null && elapsed >= 86400000) {
-        const stalled = elapsed >= 172800000 || hits(bodyText, urgentRe) ? "Critical" : "High";
-        push("Stalled Thread", escalate(stalled, bodyText, elapsed), elapsed);
-      }
-      if (inbound.length && outbound.length) {
-        const firstResponse = outbound[0].ms - inbound[0].ms;
-        if (firstResponse >= 3600000) {
-          const slow = firstResponse >= 28800000 ? "Critical" : firstResponse >= 14400000 ? "High" : "Medium";
-          push("Slow First Response", escalate(slow, bodyText, elapsed), firstResponse);
-          responseSamples.push(firstResponse);
-        } else responseSamples.push(firstResponse);
-      }
-      for (const call of inbound.filter((row) => row.type === "Call" && ["no-answer", "no_answer", "busy", "failed", "canceled", "cancelled", "voicemail", "unanswered"].includes(row.status))) {
-        if (outbound.some((row) => row.ms > call.ms)) continue;
-        const age = now - call.ms;
-        if (age >= 1800000) push("Missed Call Without Callback", escalate(gradeFor(age), bodyText, age), age);
-      }
-      if (lastInbound && hits(bodyText, buyingRe) && !outbound.some((row) => row.ms > lastInbound.ms)) {
-        push("Buying Intent Unworked", elapsed != null && elapsed >= 86400000 ? "Critical" : "High", elapsed);
-      }
-      if (lastInbound && hits(bodyText, urgentRe) && !outbound.some((row) => row.ms > lastInbound.ms)) push("Urgent Language Unworked", "Critical", elapsed);
     }
     const grouped = new Map<string, Flag[]>();
     for (const flag of flags) grouped.set(flag.contactId, [...(grouped.get(flag.contactId) || []), flag]);
-    for (const rows of grouped.values()) {
-      rows.sort((a, b) => PRIMARY.indexOf(a.category) - PRIMARY.indexOf(b.category) || RANK[b.grade] - RANK[a.grade]);
-      rows[0].primary = true;
-    }
-    const strongest = [...grouped.values()].map((rows) => rows.slice().sort((a, b) => RANK[b.grade] - RANK[a.grade] || (b.elapsedMs || 0) - (a.elapsedMs || 0))[0]);
+    const strongest = [...grouped.values()].map((rows) => rows.slice().sort((a, b) => PRIMARY.indexOf(a.category) - PRIMARY.indexOf(b.category) || RANK[b.grade] - RANK[a.grade])[0]);
     const ofGrade = (grade: string) => strongest.filter((row) => row.grade === grade).sort((a, b) => (b.elapsedMs || 0) - (a.elapsedMs || 0));
     const critical = ofGrade("Critical");
     const high = ofGrade("High");
     const medium = ofGrade("Medium");
     const low = ofGrade("Low");
-    const flagRow = (row: Flag) => [esc(row.contactName), esc(row.assignedTo), esc(row.category), clock(row.elapsedMs), esc(row.preview || "not available"), esc(row.lastAt)];
-
-    const reps = new Map<string, { name: string; ids: Set<string>; Critical: number; High: number; Medium: number; Low: number; oldest: number | null; missing: boolean }>();
-    for (const row of strongest) {
-      const bucket = reps.get(row.assignedTo) || { name: row.assignedTo, ids: new Set<string>(), Critical: 0, High: 0, Medium: 0, Low: 0, oldest: null, missing: false };
-      bucket.ids.add(row.contactId);
-      (bucket as any)[row.grade]++;
-      if (row.elapsedMs == null) bucket.missing = true;
-      else bucket.oldest = Math.max(bucket.oldest || 0, row.elapsedMs);
-      reps.set(row.assignedTo, bucket);
-    }
-    const repRows = [...reps.values()].sort((a, b) => b.Critical - a.Critical || b.High - a.High || b.ids.size - a.ids.size || a.name.localeCompare(b.name));
-    const worst = repRows[0];
-
-    const channelOrder = ["SMS", "Call", "Email", "Automation"];
+    const lostIds = new Set(lost.map((row) => row.contactId));
+    const reactionNote = " Note: last inbound is an iMessage reaction, not a question — a warm check-in text is appropriate rather than urgent escalation.";
+    const priorityPool = [
+      ...lost.map((row) => ({ contactName: row.contactName, contactId: row.contactId, assignedTo: row.assignedTo, why: `${row.contactName} said "${row.phrase}" and must be archived.`, action: `${row.assignedTo} archives the contact, removes them from all sequences, and does not follow up.`, reaction: false })),
+      ...strongest.filter((row) => !row.reaction).map((row) => ({ contactName: row.contactName, contactId: row.contactId, assignedTo: row.assignedTo, why: `${row.contactName} is ${row.grade} on ${row.category} and has waited ${clock(row.elapsedMs)}.`, action: `${row.assignedTo} replies or calls before the next report.`, reaction: false })),
+      ...strongest.filter((row) => row.reaction).map((row) => ({ contactName: row.contactName, contactId: row.contactId, assignedTo: row.assignedTo, why: `${row.contactName} is ${row.grade} on ${row.category} and has waited ${clock(row.elapsedMs)}.`, action: `${row.assignedTo} sends a warm check-in rather than an urgent follow-up.`, reaction: true })),
+    ].slice(0, 3);
+    const medianLabel = qualifying.length >= 3 ? clock(qualifying.slice().sort((a, b) => a - b)[Math.floor((qualifying.length - 1) / 2)]) : "not enough data";
+    const company = settings?.company_name || "This company";
+    const channelOrder = ["SMS", "Call", "Email", "Automation"] as const;
+    const channelColors: Record<string, string> = { SMS: "#2ecc71", Call: "#3498db", Email: "#9b59b6", Automation: "#95a5a6" };
     const channelCounts: Record<string, number> = { SMS: 0, Call: 0, Email: 0, Automation: 0 };
-    for (const conversation of conversations) {
-      const type = kindOf({ type: conversation.lastMessageType || conversation.type });
-      channelCounts[channelOrder.includes(type) ? type : "SMS"]++;
+    for (const rows of byContact.values()) {
+      for (const message of rows) {
+        if (message.ms < windowStartMs) continue;
+        const type = channelOrder.includes(message.type) ? message.type : "SMS";
+        channelCounts[type]++;
+      }
     }
-    const channelTotal = conversations.length;
-    let percents = channelOrder.map((name) => channelTotal ? Math.round((channelCounts[name] / channelTotal) * 1000) / 10 : 0);
+    const channelTotal = channelOrder.reduce((sum, name) => sum + channelCounts[name], 0);
+    let percents = channelOrder.map((name) => channelTotal ? Math.round((channelCounts[name] / channelTotal) * 100) : 0);
     if (channelTotal) {
-      const residue = Math.round((100 - percents.reduce((sum, value) => sum + value, 0)) * 10) / 10;
-      const largest = percents.indexOf(Math.max(...percents));
-      percents[largest] = Math.round((percents[largest] + residue) * 10) / 10;
+      const residue = 100 - percents.reduce((sum, value) => sum + value, 0);
+      percents[percents.indexOf(Math.max(...percents))] += residue;
     }
-
-    const wins: string[] = [];
-    for (const contact of inScope) {
-      const messages = (byContact.get(contact.id) || []).sort((a, b) => a.ms - b.ms);
-      const name = clean(contact.name || [contact.firstName, contact.lastName].filter(Boolean).join(" "));
-      const inbound = messages.filter((row) => row.direction === "inbound");
-      const outbound = messages.filter((row) => row.direction === "outbound" && row.type !== "Automation");
-      if (inbound.length && outbound.length) {
-        const delta = outbound[0].ms - inbound[0].ms;
-        if (delta >= 0 && delta < 900000 && outbound[0].ms >= now - 86400000) {
-          wins.push(`${repName(outbound[0].userId)} replied to ${name} within ${Math.max(1, Math.round(delta / 60000))} minutes at ${zoned(outbound[0].ms, timeZone).label}.`);
-        }
-      }
-      for (const call of inbound.filter((row) => row.type === "Call")) {
-        const back = outbound.find((row) => row.ms > call.ms && row.ms - call.ms <= 1800000 && row.ms >= now - 86400000);
-        if (back) wins.push(`${repName(back.userId)} returned ${name}'s missed call within ${Math.max(1, Math.round((back.ms - call.ms) / 60000))} minutes at ${zoned(back.ms, timeZone).label}.`);
-      }
+    const biggest = channelOrder.slice().sort((a, b) => channelCounts[b] - channelCounts[a])[0];
+    const channelNote = channelTotal
+      ? `${biggest} is ${percents[channelOrder.indexOf(biggest)]}% of messages in this window (${channelCounts[biggest]} of ${channelTotal}). The other channels are ${channelOrder.filter((name) => name !== biggest).map((name) => `${name} ${percents[channelOrder.indexOf(name)]}%`).join(", ")}. Coverage should follow the channel that actually carried the conversations.`
+      : "No messages in window";
+    const reps = new Map<string, { name: string; flagged: number; critical: number; wins: number; lost: number }>();
+    const touch = (name: string) => reps.get(name) || reps.set(name, { name, flagged: 0, critical: 0, wins: 0, lost: 0 }).get(name)!;
+    for (const row of strongest) {
+      const bucket = touch(row.assignedTo);
+      bucket.flagged++;
+      if (row.grade === "Critical") bucket.critical++;
     }
-    const winLines = wins.slice(0, 5);
-
-    const priorities = strongest.slice().sort((a, b) => RANK[b.grade] - RANK[a.grade] || (b.elapsedMs || 0) - (a.elapsedMs || 0) || (hits(b.preview, buyingRe) ? 1 : 0) - (hits(a.preview, buyingRe) ? 1 : 0)).slice(0, 3);
-    const median = responseSamples.length ? responseSamples.slice().sort((a, b) => a - b)[Math.floor((responseSamples.length - 1) / 2)] : null;
-    const windowStart = zoned(now - 86400000, timeZone).label;
-    const metadata = [
-      ["Run", new Date(now).toISOString()],
-      ["Location", locationId],
-      ["Contacts in scope", String(inScope.length)],
+    for (const row of lost) touch(row.assignedTo).lost++;
+    for (const win of wins.values()) touch(win.assignedTo).wins++;
+    const repRows = [...reps.values()].sort((a, b) => b.critical - a.critical || b.flagged - a.flagged || a.name.localeCompare(b.name));
+    const flagTable = (rows: Flag[]) => table(["Contact", "Last message", "Age", "Urgency"], rows.map((row) => [esc(row.contactName), esc(row.preview || "not available"), clock(row.elapsedMs), badge(row.grade)]), "No contacts in this grade.");
+    const blocks: string[] = [];
+    blocks.push(sectionHead("Report metadata", "#1a2340") + table(["Item", "Value"], [
+      ["Sub-account", company],
+      ["Generated", today.label],
+      ["Timezone", timeZone],
+      ["Reporting window", `${zoned(windowStartMs, timeZone).label} to ${today.label}`],
+      ["Recipient source", "veydra-sales-report"],
       ["Conversations loaded", String(conversations.length)],
-      ["Matched to in-scope contacts", String(matched.length)],
+      ["Matched to new leads", String(matched.length)],
+      ["Excluded from message pull", String(conversations.length - matchedAll.length)],
       ["Messages analysed", String([...byContact.values()].reduce((sum, rows) => sum + rows.length, 0))],
       ["Skipped conversations", String(skipped)],
-      ["Contact count check", reportedTotal && reportedTotal !== contacts.length ? "CONTACT_COUNT_MISMATCH" : "matched"],
-      ["Conversation pull", partialOldest ? "Partial conversation data: oldest slice unavailable" : partialRecent ? "Partial conversation data: recent slice unavailable" : "both slices"],
-    ];
-    const summary = inScope.length
-      ? `${strongest.length} contacts are flagged. ${critical.length} are Critical. ${worst ? `${worst.name} has the most Critical flags (${worst.Critical}).` : "No rep has a Critical flag."} ${priorities[0] ? `The first priority is ${priorities[0].contactName}.` : "There is no urgent item."}`
-      : "No contacts matched the new-lead scope today.";
-    const blocks = [
-      `<div style="background:#1a2340;color:#ffffff;padding:24px;"><h1 style="margin:0;font-size:22px;">Daily Sales Conversation Quality Report</h1><p style="margin:8px 0 0;">${esc(today.label)}</p><p style="margin:4px 0 0;">${esc(windowStart)} through ${esc(today.label)} (${esc(timeZone)})</p></div>`,
-      section("Report metadata", table(["Item", "Value"], metadata.map(([label, value]) => [esc(label), esc(value)]), "not available")),
-      section("Executive summary", `<p style="margin:0;">${esc(summary)}</p>`),
-      section("KPI", `<table style="width:100%;border-collapse:separate;border-spacing:8px;"><tr>${[["Total flagged", strongest.length], ["Critical", critical.length], ["Median first response", median == null ? "not available" : clock(median)], ["Conversations loaded", conversations.length]].map(([label, value]) => `<td style="background:#f4f6f8;border:1px solid #dde3ea;border-radius:6px;padding:16px;width:25%;"><div style="font-size:28px;font-weight:bold;">${esc(value)}</div><div style="font-size:12px;text-transform:uppercase;color:#7f8c8d;">${esc(label)}</div></td>`).join("")}</tr></table>`),
-      section("Channel ratio", table(["Channel", "Count", "Percent"], channelOrder.map((name, index) => [esc(name), String(channelCounts[name]), channelTotal ? `${percents[index].toFixed(1)}%` : "not available"]), "No contacts in this band today.")),
-      section("Critical flags", table(["Contact", "Assigned rep", "Category", "Elapsed", "Last message", "Last message at"], critical.map(flagRow), "No contacts in this band today.")),
-      section("High priority flags", table(["Contact", "Assigned rep", "Category", "Elapsed", "Last message", "Last message at"], high.map(flagRow), "No contacts in this band today.")),
-      section("Medium priority flags", table(["Contact", "Assigned rep", "Category", "Elapsed", "Last message", "Last message at"], medium.map(flagRow), "No contacts in this band today.")),
-      section("Low priority flags", table(["Contact", "Assigned rep", "Category", "Elapsed", "Last message", "Last message at"], low.map(flagRow), "No contacts in this band today.")),
-    ];
+      ["Warnings", [partialRecent ? "recent slice unavailable" : "", partialOldest ? "oldest slice unavailable" : "", messageCap ? "message pull capped at 80" : ""].filter(Boolean).join("; ") || "none"],
+    ].map(([label, value]) => [esc(label), esc(value)]), "not available"));
+    const summary = `${strongest.length} contacts are flagged and ${critical.length} are Critical. Median first response is ${medianLabel}. ${lost.length ? `${lost.length} lost lead${lost.length === 1 ? "" : "s"} must be archived and not followed up.` : "No lost-lead language was found."} ${priorityPool[0] ? `The first thing to do is ${priorityPool[0].action}` : "There is no priority contact in this window."}`;
+    blocks.push(sectionHead("Executive summary", "#1a2340") + `<p style="margin:0;color:#1a2340;">${esc(summary)}</p>`);
+    const flaggedColor = strongest.length ? "#e74c3c" : "#27ae60";
+    blocks.push(sectionHead("KPI", "#1a2340") + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:16px 0;"><tr>
+      <td width="25%" style="padding:0 4px;"><div style="background:${flaggedColor};padding:16px;border-radius:8px;text-align:center;"><div style="color:#ffffff;font-size:28px;font-weight:bold;line-height:1.1;">${strongest.length}</div><div style="color:rgba(255,255,255,0.8);font-size:11px;text-transform:uppercase;margin-top:4px;">Total Flagged</div></div></td>
+      <td width="25%" style="padding:0 4px;"><div style="background:#c0392b;padding:16px;border-radius:8px;text-align:center;"><div style="color:#ffffff;font-size:28px;font-weight:bold;line-height:1.1;">${critical.length}</div><div style="color:rgba(255,255,255,0.8);font-size:11px;text-transform:uppercase;margin-top:4px;">Critical</div></div></td>
+      <td width="25%" style="padding:0 4px;"><div style="background:#2c3e50;padding:16px;border-radius:8px;text-align:center;"><div style="color:#7ec8e3;font-size:28px;font-weight:bold;line-height:1.1;">${esc(medianLabel)}</div><div style="color:rgba(255,255,255,0.8);font-size:11px;text-transform:uppercase;margin-top:4px;">Median Response</div></div></td>
+      <td width="25%" style="padding:0 4px;"><div style="background:#1a2340;padding:16px;border-radius:8px;text-align:center;"><div style="color:#7ec8e3;font-size:28px;font-weight:bold;line-height:1.1;">${conversations.length}</div><div style="color:rgba(255,255,255,0.8);font-size:11px;text-transform:uppercase;margin-top:4px;">Conversations Loaded</div></div></td>
+    </tr></table>`);
+    const bars = channelTotal
+      ? channelOrder.map((name, index) => `<div style="font-size:12px;color:#1a2340;font-weight:bold;">${name} ${mdash} ${channelCounts[name]} (${percents[index]}%)</div><div style="background:${channelColors[name]};height:20px;border-radius:4px;width:${Math.max(percents[index], 1)}%;margin:4px 0;"></div>`).join("") + `<p style="margin:8px 0 0;color:#1a2340;">${esc(channelNote)}</p>`
+      : `<p style="margin:0;">No messages in window</p>`;
+    blocks.push(sectionHead("Channel ratio", "#1a2340") + `<div style="margin:16px 0;">${bars}</div>`);
+    if (lost.length) {
+      blocks.push(sectionHead("Lost leads", "#e74c3c") + `<div style="border:2px solid #e74c3c;background:#fdecea;border-radius:6px;padding:16px;margin:20px 0;"><div style="color:#e74c3c;font-size:16px;font-weight:bold;text-transform:uppercase;margin-bottom:10px;">${siren} COMPLIANCE / PIPELINE RISK</div><div style="color:#1a2340;font-size:13px;margin-bottom:12px;">Action required for every contact below: archive contact, remove from all sequences, do not follow up.</div>${table(["Contact", "Trigger phrase", "Last inbound"], lost.map((row) => [esc(row.contactName), `${ldquo}${esc(row.phrase)}${rdquo}`, esc(row.preview || "not available")]), "No contacts in this grade.")}</div>`);
+    }
+    blocks.push(sectionHead("Critical flags", "#c0392b") + flagTable(critical));
+    blocks.push(sectionHead("High priority flags", "#e67e22") + flagTable(high));
+    blocks.push(sectionHead("Medium priority flags", "#f1c40f") + flagTable(medium));
+    blocks.push(sectionHead("Low priority flags", "#95a5a6") + flagTable(low));
     if (monday) {
       const weekendRows: string[][] = [];
       for (const contact of inScope) {
+        if (lostIds.has(contact.id)) continue;
         const messages = (byContact.get(contact.id) || []).sort((a, b) => a.ms - b.ms);
         for (const inbound of messages.filter((row) => row.direction === "inbound")) {
           const when = zoned(inbound.ms, timeZone);
           const inWindow = (when.weekday === "Fri" && when.hour >= 18) || when.weekday === "Sat" || when.weekday === "Sun" || (when.weekday === "Mon" && when.hour < 9);
-          const unanswered = !messages.some((row) => row.direction === "outbound" && row.ms > inbound.ms);
+          const unanswered = !messages.some((row) => row.direction === "outbound" && row.type !== "Automation" && row.ms > inbound.ms);
           if (!inWindow || !unanswered) continue;
-          const name = clean(contact.name || [contact.firstName, contact.lastName].filter(Boolean).join(" "));
-          weekendRows.push([esc(name), esc(repName(contact.assignedTo || "")), "Weekend catch-up", clock(now - inbound.ms), esc(inbound.body.slice(0, 120)), esc(when.label)]);
+          weekendRows.push([esc(clean(contact.name || [contact.firstName, contact.lastName].filter(Boolean).join(" "))), esc(isReaction(inbound.body) ? "[iMessage reaction]" : inbound.body.slice(0, 120)), clock(now - inbound.ms), badge(gradeFor(now - inbound.ms))]);
         }
       }
-      blocks.push(section("Weekend catch-up", table(["Contact", "Assigned rep", "Category", "Elapsed", "Last message", "Received"], weekendRows, "No contacts in this band today.")));
+      blocks.push(sectionHead("Weekend catch-up", "#1a2340") + table(["Contact", "Last message", "Age", "Urgency"], weekendRows, "No contacts in this grade."));
     }
-    blocks.push(
-      section("Wins", winLines.length ? `<ul style="margin:0;padding-left:18px;">${winLines.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>${winLines.length < 3 ? "<p>Fewer than three qualifying wins in this window.</p>" : ""}` : "<p>Fewer than three qualifying wins in this window.</p>"),
-      section("Top 3 daily priorities", priorities.length ? priorities.map((row, index) => `<div style="margin:0 0 12px;"><p style="margin:0;font-weight:bold;">${index + 1}. Reply to ${esc(row.contactName)}</p><p style="margin:4px 0;">Why it matters: ${esc(row.contactName)} is ${esc(row.grade)} in ${esc(row.category)} and has waited ${esc(clock(row.elapsedMs))}.</p><p style="margin:4px 0;">Contacts: ${esc(row.contactName)} (${esc(row.contactId)})</p><p style="margin:4px 0;">Owner action: ${esc(row.assignedTo)} replies or calls before the next report.</p></div>`).join("") : "<p>No contacts in this band today.</p>"),
-      section("Rep rollup", table(["Rep", "Flagged", "Critical", "High", "Medium", "Low", "Oldest flag"], repRows.map((row) => [esc(row.name), String(row.ids.size), String(row.Critical), String(row.High), String(row.Medium), String(row.Low), `${hours1(row.oldest)}${row.missing ? " (some ages unavailable)" : ""}`]), "No contacts in this band today.")),
-      section("Appendix", table(["Contact", "Contact ID", "Assigned rep", "Strongest grade", "Categories", "Elapsed hours", "Last message at"], [...grouped.entries()].map(([, rows]) => rows.slice().sort((a, b) => RANK[b.grade] - RANK[a.grade] || (b.elapsedMs || 0) - (a.elapsedMs || 0))[0]).sort((a, b) => RANK[b.grade] - RANK[a.grade] || (b.elapsedMs || 0) - (a.elapsedMs || 0)).map((best) => {
-        const rows = grouped.get(best.contactId) || [];
-        return [esc(best.contactName), esc(best.contactId), esc(best.assignedTo), badge(best.grade), esc(rows.map((row) => row.category).join(", ")), hours1(best.elapsedMs), esc(best.lastAt)];
-      }), "No contacts in this band today.")),
-    );
-    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Daily Sales Conversation Quality Report</title></head><body style="margin:0;padding:16px;background:#f4f6f8;"><table align="center" style="max-width:620px;width:100%;background:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#2c3e50;"><tr><td style="padding:16px;">${blocks.join('<hr style="border:none;border-top:1px solid #dde3ea;margin:28px 0;">')}</td></tr></table></body></html>`;
+    const winCards = [...wins.values()].map((win) => `<div style="border-left:4px solid #27ae60;background:#eafaf1;border-radius:0 6px 6px 0;padding:12px 14px;margin-bottom:8px;"><div style="font-weight:bold;color:#1a2340;font-size:14px;">${esc(win.name)} ${mid} ${esc(win.channel)} ${mid} replied in ${esc(clock(win.ms))}</div><div style="font-size:13px;color:#444;margin-top:4px;">${esc(win.line)}</div></div>`).join("");
+    blocks.push(sectionHead("Wins", "#27ae60") + (winCards || "<p style=\"margin:0;\">No wins recorded in this window.</p>"));
+    blocks.push(sectionHead("Top 3 daily priorities", "#1a2340") + (priorityPool.length ? priorityPool.map((row, index) => `<div style="margin:0 0 12px;"><p style="margin:0;font-weight:bold;color:#1a2340;">${index + 1}. ${esc(row.contactName)}</p><p style="margin:4px 0;">${esc(row.why)}</p><p style="margin:4px 0;">Next action: ${esc(row.action)}</p>${row.reaction ? `<p style="margin:4px 0;">${esc(reactionNote.trim())}</p>` : ""}</div>`).join("") : "<p style=\"margin:0;\">No contacts in this grade.</p>"));
+    blocks.push(sectionHead("Rep rollup", "#1a2340") + table(["Rep", "Flagged", "Critical", "Wins", "Lost", "Median response"], repRows.map((row) => {
+      const samples = responseByRep.get(row.name) || [];
+      const label = samples.length >= 3 ? clock(samples.slice().sort((a, b) => a - b)[Math.floor((samples.length - 1) / 2)]) : "not enough data";
+      return [esc(row.name), String(row.flagged), String(row.critical), String(row.wins), String(row.lost), esc(label)];
+    }), "No contacts in this grade."));
+    blocks.push(sectionHead("Appendix", "#1a2340") + table(["Contact", "Contact ID", "Channel", "In", "Out", "First inbound", "First outbound", "First response", "Classification", "Grade"], audit.map((row) => [esc(row.name), esc(row.contactId), esc(row.channel), String(row.inbound), String(row.outbound), esc(row.firstIn), esc(row.firstOut), esc(row.response), esc(row.classification), row.grade === "none" ? "none" : badge(row.grade)]), "No contacts in this grade."));
+    const header = `<div style="background:#1a2340;padding:32px;text-align:center;"><div style="color:#ffffff;font-size:24px;font-weight:bold;line-height:1.3;">Daily Sales Conversation Quality Report</div><div style="color:#7ec8e3;font-size:16px;font-weight:bold;margin-top:8px;">${esc(company)}</div><div style="color:#a8b8d8;font-size:13px;margin-top:4px;">${esc(today.label)} ${mid} generated ${esc(today.label)} ${esc(timeZone)}</div><div style="display:inline-block;margin-top:14px;padding:5px 14px;border-radius:14px;background:rgba(255,255,255,0.10);color:#ffffff;font-size:12px;">Reporting window: ${esc(zoned(windowStartMs, timeZone).label)} ${ndash} ${esc(today.label)}</div></div>`;
+    const footer = `<div style="background:#1a2340;padding:24px;text-align:center;"><div style="color:#7ec8e3;font-size:14px;font-weight:bold;">${esc(company)}</div><div style="color:#a8b8d8;font-size:12px;margin-top:6px;">Generated ${esc(today.label)} ${esc(timeZone)}</div><div style="color:#a8b8d8;font-size:12px;margin-top:2px;">Reporting window: ${esc(zoned(windowStartMs, timeZone).label)} ${ndash} ${esc(today.label)}</div><div style="color:rgba(255,255,255,0.45);font-size:11px;margin-top:12px;">Powered by Veydra AI</div></div>`;
+    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Daily Sales Conversation Quality Report</title></head><body style="margin:0;padding:0;background:#f4f6f8;"><div style="max-width:620px;margin:0 auto;background:#f4f6f8;font-family:Arial,Helvetica,sans-serif;">${header}<div style="padding:8px 16px 16px;">${blocks.join("")}</div>${footer}</div></body></html>`;
     if (!html.includes("</html>")) return json({ error: "The report did not render completely.", status: "failed" }, 500);
+    const top = priorityPool[0];
+    const risk = lost.length ? ` PIPELINE RISK: ${lost.length} contact(s) require archival — do not follow up.` : "";
+    let sms = [
+      `${company} — Daily Conversation Quality — ${today.short}`,
+      `Flagged: ${strongest.length} (Critical ${critical.length}).${risk}`,
+      `Median first response: ${medianLabel}`,
+      `Lost leads: ${lost.length}`,
+      top ? `Top priority: ${top.contactName} — ${top.action}` : "Top priority: none.",
+      `Full report sent to ${recipients.length} recipients.`,
+    ].join(" ");
 
-    const top = priorities[0];
-    let sms = strongest.length
-      ? [`Daily Sales Report — ${today.short}`, `Flagged: ${strongest.length} | Critical: ${critical.length} | High: ${high.length} | Medium: ${medium.length} | Low: ${low.length}`, top ? `Top priority: Reply to ${top.contactName} — ${top.contactName}, ${hours1(top.elapsedMs)}h. Owner: ${top.assignedTo}.` : "Top priority: none.", worst ? `Rep watch: ${worst.name}, ${worst.Critical} critical, oldest ${hours1(worst.oldest)}h.` : "Rep watch: none.", "Full report emailed."].join(" ")
-      : `Daily Sales Report — ${today.short}: no flagged conversations in scope. Full report emailed.`;
     const emailed: string[] = [];
     const texted: string[] = [];
     const problems: string[] = [];
