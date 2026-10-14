@@ -2510,19 +2510,42 @@ export const api = {
     return data as DbEditor;
   },
 
-  async updateEditor(id: string, updates: Partial<DbEditor>) {
+  async updateEditor(id: string, updates: Partial<DbEditor>, email?: string) {
     const { data, error } = await supabase
       .from("editors")
       .update(updates)
       .eq("id", id)
-      .select()
-      .single();
+      .select();
     if (error) throw error;
+    let rows = data || [];
+    if (email) {
+      const byEmail = await supabase
+        .from("editors")
+        .update(updates)
+        .ilike("email", email)
+        .select();
+      if (byEmail.error) throw byEmail.error;
+      rows = rows.concat(byEmail.data || []);
+    }
+    if (!rows.length && email) {
+      const created = await supabase
+        .from("editors")
+        .insert({
+          id,
+          email,
+          status: "active",
+          ...updates,
+        })
+        .select();
+      if (created.error && created.error.code !== "23505") throw created.error;
+      rows = created.data || [];
+    }
+    const row = rows[0] || { id, email, ...updates };
     await this.logAdminActivity(
       "Updated Editor",
-      `Updated editor details for: ${data.name}`,
+      `Updated editor details for: ${row.name || email || id}`,
     );
-    return data as DbEditor;
+    return row as DbEditor;
   },
 
   async removeEditor(id: string) {

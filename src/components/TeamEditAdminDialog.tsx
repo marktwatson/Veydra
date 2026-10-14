@@ -145,13 +145,21 @@ export function TeamEditAdminDialog({
       if (updates.role === "editor" || member.role === "editor") {
         await supabase
           .from("managers")
-          .update({ territory_id: territoryId, territory_ids: territoryIds })
-          .eq("email", member.email);
-        return api.updateEditor(member.id, {
-          name: updates.name,
-          territory_id: territoryId,
-          territory_ids: territoryIds,
-        } as any);
+          .update({
+            name: updates.name,
+            territory_id: territoryId,
+            territory_ids: territoryIds,
+          })
+          .ilike("email", member.email);
+        return api.updateEditor(
+          member.id,
+          {
+            name: updates.name,
+            territory_id: territoryId,
+            territory_ids: territoryIds,
+          } as any,
+          member.email,
+        );
       }
       await supabase
         .from("managers")
