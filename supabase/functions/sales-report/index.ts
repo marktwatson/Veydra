@@ -42,7 +42,18 @@ function stamp(ms: number) {
   return Number.isFinite(n) ? n : 0;
 }
 function when(value: unknown) {
-  const ms = new Date(String(value || "")).getTime();
+  if (value == null || value === "") return 0;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value <= 0) return 0;
+    return value < 100000000000 ? value * 1000 : value;
+  }
+  const raw = String(value).trim();
+  if (/^\d+$/.test(raw)) {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return n < 100000000000 ? n * 1000 : n;
+  }
+  const ms = new Date(raw).getTime();
   return Number.isFinite(ms) ? ms : 0;
 }
 function parts(ms: number, timeZone: string) {
@@ -273,80 +284,54 @@ Deno.serve(async (req) => {
 
     const contacts: any[] = [];
     const seenContacts = new Set<string>();
-    let contactMode = "list";
+    let startAfter = "";
     for (let page = 0; page < 20; page++) {
-      const found = await crm(token, `${base}/contacts/?locationId=${encodeURIComponent(locationId)}&limit=100&skip=${page * 100}`);
+      const url = `${base}/contacts/?locationId=${encodeURIComponent(locationId)}&limit=100${startAfter ? `&startAfter=${encodeURIComponent(startAfter)}` : ""}`;
+      const found = await crm(token, url);
       if (!found.ok) {
         if (found.status === 401 || found.status === 403) return json({ error: "ABORT: auth failure", status: "failed" }, 401);
-        if (page === 0) contactMode = "search";
-        else flags.push("PARTIAL");
+        flags.push("PARTIAL");
         break;
       }
       const batch = found.body?.contacts || [];
       const fresh = batch.filter((row: any) => row?.id && !seenContacts.has(row.id));
       fresh.forEach((row: any) => seenContacts.add(row.id));
       contacts.push(...fresh);
-      if (batch.length < 100) break;
-      if (!fresh.length) { contactMode = "search"; break; }
+      if (batch.length < 100 || !fresh.length) break;
+      startAfter = String(fresh[fresh.length - 1].id);
       if (page === 19) flags.push("PARTIAL");
-    }
-    if (contactMode === "search") {
-      contacts.length = 0;
-      seenContacts.clear();
-      for (let page = 1; page <= 20; page++) {
-        const found = await crm(token, `${base}/contacts/search`, {
-          method: "POST",
-          body: JSON.stringify({
-            locationId, page, pageLimit: 100,
-            filters: [{ group: "AND", filters: [
-              { field: "tags", operator: "contains", value: "new lead" },
-              { field: "tags", operator: "not_contains", value: "booked" },
-              { field: "tags", operator: "not_contains", value: "hired" },
-            ] }],
-          }),
-        });
-        if (!found.ok) { flags.push("PARTIAL"); break; }
-        const batch = found.body?.contacts || [];
-        const fresh = batch.filter((row: any) => row?.id && !seenContacts.has(row.id));
-        fresh.forEach((row: any) => seenContacts.add(row.id));
-        contacts.push(...fresh);
-        if (batch.length < 100 || !fresh.length) break;
-      }
     }
     const inScope = contacts.filter((contact) => {
       const tags = tagsOf(contact);
       const lead = tags.some((tag: string) => tag.includes("new lead"));
-      const closed = tags.some((tag: string) => tag === "booked" || tag === "hired" || tag.includes("booked") || tag.includes("hired"));
+      const closed = tags.some((tag: string) => tag.includes("booked") || tag.includes("hired"));
       const added = when(contact.dateAdded || contact.date_added);
-      const active = when(contact.lastActivity || contact.last_activity || contact.dateUpdated);
-      return lead && !closed && ((added && added >= WINDOW_START) || (active && active >= WINDOW_START));
+      const active = when(contact.lastActivity || contact.last_activity);
+      const inWindow = (added && added >= WINDOW_START) || (active && active >= WINDOW_START);
+      return lead && !closed && inWindow;
     });
 
+    const desc = await crm(token, `${base}/conversations/search?locationId=${encodeURIComponent(locationId)}&limit=100&sort=desc`);
+    const asc = await crm(token, `${base}/conversations/search?locationId=${encodeURIComponent(locationId)}&limit=100&sort=asc`);
+    if ((desc.status === 401 || desc.status === 403) || (asc.status === 401 || asc.status === 403)) {
+      return json({ error: "ABORT: auth failure", status: "failed" }, 401);
+    }
+    if (!desc.ok && !asc.ok) {
+      await db.from("report_runs").update({ status: "failed", finished_at: new Date().toISOString(), error: "ABORT: conversation retrieval failed" }).eq("id", runId);
+      return json({ error: "Conversation retrieval failed, so the report was not sent.", status: "failed" }, 502);
+    }
+    if (!desc.ok || !asc.ok) flags.push("PARTIAL");
     const conversations: any[] = [];
     const seenConvos = new Set<string>();
-    for (let page = 0; page < 20; page++) {
-      const found = await crm(token, `${base}/conversations/search?locationId=${encodeURIComponent(locationId)}&limit=100&skip=${page * 100}&sort=desc`);
-      if (!found.ok) {
-        if (page === 0) {
-          await db.from("report_runs").update({ status: "failed", finished_at: new Date().toISOString(), error: "ABORT: conversation retrieval failed" }).eq("id", runId);
-          return json({ error: "Conversation retrieval failed, so the report was not sent.", status: "failed" }, 502);
-        }
-        flags.push("PARTIAL");
-        break;
-      }
-      const batch = found.body?.conversations || [];
-      const fresh = batch.filter((row: any) => row?.id && !seenConvos.has(row.id));
-      fresh.forEach((row: any) => seenConvos.add(row.id));
-      conversations.push(...fresh);
-      if (batch.length < 100 || !fresh.length) break;
-      const oldest = when(batch[batch.length - 1]?.lastMessageDate || batch[batch.length - 1]?.last_message_date);
-      if (oldest && oldest < WINDOW_START) break;
-      if (page === 19) flags.push("PARTIAL");
+    for (const row of [...(desc.body?.conversations || []), ...(asc.body?.conversations || [])]) {
+      if (!row?.id || seenConvos.has(row.id)) continue;
+      seenConvos.add(row.id);
+      conversations.push(row);
     }
     const loaded = conversations.filter((row) => when(row.lastMessageDate || row.last_message_date) >= WINDOW_START);
     const scopeIds = new Set(inScope.map((contact) => contact.id));
     const matchedAll = loaded.filter((row) => scopeIds.has(row.contactId || row.contact_id));
-    const matched = matchedAll.slice().sort((a, b) => when(b.lastMessageDate || b.last_message_date) - when(a.lastMessageDate || a.last_message_date)).slice(0, resolvedWindow === "24h" ? 80 : 120);
+    const matched = matchedAll;
     if (matchedAll.length > matched.length) flags.push("PARTIAL");
     const withMessages = await pool(matched, 6, async (conversation) => {
       const pulled = await crm(token, `${base}/conversations/${conversation.id}/messages?limit=100`);
@@ -409,7 +394,7 @@ Deno.serve(async (req) => {
         assigned: repName(contact.assignedTo || ""),
         source: clean(contact.source || contact.attributionSource || "not available") || "not available",
         added: when(contact.dateAdded || contact.date_added),
-        active: when(contact.lastActivity || contact.last_activity || contact.dateUpdated),
+        active: when(contact.lastActivity || contact.last_activity),
         inbound, outbound, humanOut, firstIn, firstOut, responseMs, lastIn, windowOut,
         waiting, waitMs, grade, reaction, phrase,
         preview: lastIn ? (reaction ? "[iMessage reaction]" : lastIn.body.slice(0, 140)) : "",
