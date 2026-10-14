@@ -59,7 +59,9 @@ const HOUSE_MARK =
   "https://assets.cdn.filesafe.space/76EKIVBXrGYIny0RbqcE/media/6abaa38a7ef452865a26c67d.gif";
 
 const SUGGESTIONS = [
-  { label: "Send sales report", question: "RUN_DAILY_REPORT" },
+  { label: "24-hour pulse", question: "RUN_DAILY_REPORT" },
+  { label: "7-day digest", question: "RUN_WEEKLY_REPORT" },
+  { label: "30-day overview", question: "RUN_MONTHLY_REPORT" },
   { label: "Sales audit", question: "Audit our salespeople" },
   { label: "Yesterday's calls", question: "Analyze yesterday's calls" },
   { label: "Pipelines", question: "Audit our Ovanta pipelines" },
@@ -74,7 +76,9 @@ function runningLabel(question: string) {
   const asked = question.toLowerCase();
   if (/studio|competitor|charge|pricing/.test(asked)) return "Looking up other wedding studios around you";
   if (/call/.test(asked)) return "Reading yesterday's calls and transcripts";
-  if (/run_daily_report|send today|sales report/.test(asked)) return "Sending the sales report from this Ovanta account";
+  if (/run_monthly_report|30-day|monthly sales/.test(asked)) return "Building the 30-day sales overview";
+  if (/run_weekly_report|7-day|weekly sales/.test(asked)) return "Building the 7-day sales digest";
+  if (/run_daily_report|send today|sales report|24-hour/.test(asked)) return "Building the 24-hour sales pulse";
   if (/sales/.test(asked)) return "Checking salespeople, bookings, and the inbox";
   if (/pipeline/.test(asked)) return "Reading each pipeline and its open deals";
   if (/workflow|automation/.test(asked)) return "Reading the automations";

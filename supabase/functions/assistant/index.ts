@@ -1066,7 +1066,7 @@ function formatLeadAudit(report: any) {
   return lines.join("\n");
 }
 
-async function sendSalesReport(territoryId: string, authHeader: string, company: string) {
+async function sendSalesReport(territoryId: string, authHeader: string, company: string, window = "24h") {
   const url = Deno.env.get("SUPABASE_URL") || "";
   const anon = Deno.env.get("SUPABASE_ANON_KEY") || "";
   if (!url || !authHeader) return "I could not send it because this login was not passed through.";
@@ -1081,7 +1081,7 @@ async function sendSalesReport(territoryId: string, authHeader: string, company:
         apikey: anon,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ territoryId }),
+      body: JSON.stringify({ trigger: "RUN_REPORT", window, territoryId }),
     });
     const payload = await res.json().catch(() => ({}));
     if (payload?.already) return `Today's report for ${company} already went out. It will not send a second time.`;
@@ -1952,11 +1952,20 @@ You can text or email a contact in this company's Ovanta account. Find the conta
         });
       }
     }
+    if (/RUN_MONTHLY_REPORT|30-day sales|monthly sales/i.test(question)) {
+      const reply = await sendSalesReport(territoryId, req.headers.get("Authorization") || "", settings?.company_name || area?.name || "this company", "30d");
+      return jsonResp({ reply, area: area?.name || null, company: settings?.company_name || null });
+    }
+    if (/RUN_WEEKLY_REPORT|7-day sales|weekly sales/i.test(question)) {
+      const reply = await sendSalesReport(territoryId, req.headers.get("Authorization") || "", settings?.company_name || area?.name || "this company", "7d");
+      return jsonResp({ reply, area: area?.name || null, company: settings?.company_name || null });
+    }
     if (/RUN_DAILY_REPORT|send (today'?s |the )?(daily )?sales report|text the sales report|email the sales report/i.test(question)) {
       const reply = await sendSalesReport(
         territoryId,
         req.headers.get("Authorization") || "",
         settings?.company_name || area?.name || "this company",
+        "24h",
       );
       return jsonResp({ reply, area: area?.name || null, company: settings?.company_name || null });
     }

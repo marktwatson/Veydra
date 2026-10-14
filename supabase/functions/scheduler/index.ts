@@ -358,9 +358,9 @@ serve(async (req) => {
     }
   } catch (e) { console.warn("daily-digest trigger failed:", (e as any)?.message); }
 
-  // One sales report per area that has Ovanta connected, at 8 AM in that
-  // area's own timezone. The report emails, texts, and pushes the owner and
-  // the super admins. Claim the day first so two clock runs cannot both send.
+  // Sales reports at noon in each area's timezone.
+  // Every day: 24-hour pulse. Mondays also get the 7-day digest. The 1st also gets the 30-day overview.
+  // The report function refuses a second send for the same window on the same day.
   let salesReportTriggered = false;
   try {
     const { data: areas } = await sb.from("portal_settings").select("id, territory_id, timezone, company_timezone, last_sales_report_date, hl_api_key, hl_location_id");
@@ -368,28 +368,31 @@ serve(async (req) => {
       if (!area?.territory_id || !area.hl_api_key || !area.hl_location_id) continue;
       const areaTz = area.timezone || area.company_timezone || tz;
       const hourA = parseInt(new Date().toLocaleString("en-US", { timeZone: areaTz, hour: "numeric", hour12: false }), 10);
-      const partsA = new Date().toLocaleString("en-US", { timeZone: areaTz, year: "numeric", month: "2-digit", day: "2-digit" }).split("/");
-      const todayA = `${partsA[2]}-${partsA[0]}-${partsA[1]}`;
-      if (hourA !== 8 || area.last_sales_report_date === todayA) continue;
-      const { data: claimed, error: claimErr } = await sb.from("portal_settings").update({ last_sales_report_date: todayA }).eq("id", area.id).or(`last_sales_report_date.is.null,last_sales_report_date.neq.${todayA}`).select("id").maybeSingle();
-      if (claimErr || !claimed) continue;
-      try {
-        const sr = await fetch(`${supabaseUrl}/functions/v1/sales-report`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}`, apikey: supabaseKey },
-          body: JSON.stringify({ source: "scheduler", territoryId: area.territory_id }),
-        });
-        const srd = await sr.json().catch(() => ({}));
-        if (!sr.ok || (srd.error && !srd.already && srd.status !== "partial" && srd.status !== "sent")) {
-          await sb.from("portal_settings").update({ last_sales_report_date: area.last_sales_report_date }).eq("id", area.id);
-          console.warn("sales-report failed", area.territory_id, srd.error || sr.status);
-          continue;
+      const dateA = new Date().toLocaleString("en-US", { timeZone: areaTz, year: "numeric", month: "2-digit", day: "2-digit" });
+      const [monthA, dayNum, yearA] = dateA.split("/");
+      const todayA = `${yearA}-${monthA}-${dayNum}`;
+      const weekdayA = new Date().toLocaleString("en-US", { timeZone: areaTz, weekday: "short" });
+      const dayA = Number(dayNum);
+      if (hourA !== 12 || area.last_sales_report_date === todayA) continue;
+      const windows = ["24h"];
+      if (weekdayA === "Mon") windows.push("7d");
+      if (dayA === 1) windows.push("30d");
+      let allOk = true;
+      for (const window of windows) {
+        try {
+          const sr = await fetch(`${supabaseUrl}/functions/v1/sales-report`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}`, apikey: supabaseKey },
+            body: JSON.stringify({ source: "scheduler", trigger: "RUN_REPORT", window, territoryId: area.territory_id, locationId: area.hl_location_id }),
+          });
+          const srd = await sr.json().catch(() => ({}));
+          if (!sr.ok && !srd.already) allOk = false;
+          else salesReportTriggered = true;
+        } catch {
+          allOk = false;
         }
-        salesReportTriggered = true;
-      } catch (areaErr) {
-        await sb.from("portal_settings").update({ last_sales_report_date: area.last_sales_report_date }).eq("id", area.id);
-        console.warn("sales-report failed", area.territory_id, (areaErr as any)?.message);
       }
+      if (allOk) await sb.from("portal_settings").update({ last_sales_report_date: todayA }).eq("id", area.id).or(`last_sales_report_date.is.null,last_sales_report_date.neq.${todayA}`);
     }
   } catch (e) { console.warn("sales-report trigger failed:", (e as any)?.message); }
 
