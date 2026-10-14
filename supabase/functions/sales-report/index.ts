@@ -449,109 +449,93 @@ Deno.serve(async (req) => {
     ].slice(0, 3);
     const urgent = priorities[0];
     const summaryBits = [
-      inScope.length ? `${flagged.length} leads are flagged and ${critical.length} of those are Critical.` : "No new leads fell inside the window.",
+      inScope.length ? `${flagged.length} leads are flagged and ${critical.length} of those are Critical.` : "No new leads fell inside this window.",
       `${lost.length} lost ${lost.length === 1 ? "lead was" : "leads were"} detected.`,
       topReps.length ? `${topReps.join(" and ")} ${topReps.length > 1 ? "are" : "is"} carrying the most Critical flags (${worst[0]?.[1] || 0}).` : "No rep is carrying a Critical flag.",
       urgent ? `${urgent.action}.` : "There is no urgent action in this window.",
     ];
     if (flags.includes("PARTIAL")) summaryBits.push("Coverage is incomplete because a page of data did not load.");
 
-    const blocks: string[] = [];
-    blocks.push(`<div style="background:#1a2340;padding:26px 28px 22px;border-radius:6px 6px 0 0;"><div style="font:700 11px Arial,sans-serif;color:#8fa3c8;letter-spacing:2px;text-transform:uppercase;">Veydra AI</div><h1 style="font:700 26px Arial,sans-serif;color:#ffffff;margin:8px 0 6px;line-height:1.25;">Veydra Sales Report — ${esc(spec.label)} — ${esc(company)}</h1><div style="font:400 14px Arial,sans-serif;color:#c7d3e8;">Sub-account: ${esc(company)}</div><div style="display:inline-block;margin-top:14px;padding:6px 14px;border-radius:20px;background:#2c3e50;font:600 12px Arial,sans-serif;color:#ffffff;">${esc(parts(WINDOW_START, timeZone).label)} → ${esc(today.label)}</div></div>`);
-    const metaRows: string[][] = [
-      ["Sub-account", company], ["Window", spec.label], ["Generated at", today.label],
-      ["Contacts in scope", String(inScope.length)], ["Conversations loaded", String(loaded.length)],
-      ["Matched conversations", String(matchedAll.length)], ["Messages analyzed", String(messagesAnalyzed)],
-      ["Recipients", String(recipients.length)],
-    ].map(([label, value]) => [esc(label), esc(value)]);
-    if (flags.includes("PARTIAL")) metaRows.push([esc("Data completeness"), esc("PARTIAL (pagination cap reached; counts may understate)")]);
-    blocks.push(heading("2. Report Metadata") + table(["Item", "Value"], metaRows));
-    blocks.push(heading("3. Executive Summary") + `<p style="font:400 14px Arial,sans-serif;color:#1a2340;line-height:1.5;margin:0;">${esc(summaryBits.slice(0, resolvedWindow === "24h" ? 4 : resolvedWindow === "7d" ? 4 : 5).join(" "))}</p>`);
-
-    const tiles = resolvedWindow === "24h"
+    const scopeLabel = parts(WINDOW_START, timeZone).label + " → " + today.label;
+    const notTouchedBg = untouched.length ? "#e74c3c" : "#27ae60";
+    const waitingBg = waiting.length ? "#e67e22" : "#27ae60";
+    const flaggedBg = flagged.length ? "#e74c3c" : "#27ae60";
+    const band = (color: string, title: string) => `<div style="border-left:4px solid ${color};background:#f8f9fb;padding:12px 16px;border-radius:0 6px 6px 0;margin-bottom:14px;"><span style="font:700 16px Arial,sans-serif;color:#1a2340;">${title}</span></div>`;
+    const wrap = (inner: string, pad = "24px 20px 0") => `<tr><td style="padding:${pad};">${inner}</td></tr>`;
+    const tileCell = (value: string, label: string, bg: string, valueColor: string, labelColor: string, size = "26px") => `<td style="background:${bg};border-radius:8px;padding:16px 8px;text-align:center;width:20%;"><div style="font:700 ${size} Arial,sans-serif;color:${valueColor};line-height:1.1;">${esc(value)}</div><div style="font:600 10px Arial,sans-serif;color:${labelColor};letter-spacing:1px;text-transform:uppercase;margin-top:5px;">${esc(label)}</div></td>`;
+    const sections: string[] = [];
+    sections.push(`<tr><td style="background:#1a2340;padding:30px 28px 24px;"><div style="font:700 10px Arial,sans-serif;color:#8fa3c8;letter-spacing:3px;text-transform:uppercase;margin-bottom:10px;">VEYDRA AI</div><div style="font:700 22px/1.3 Arial,sans-serif;color:#ffffff;">${esc(spec.noun)}</div><div style="font:400 13px Arial,sans-serif;color:#a8b8d8;margin-top:6px;">${esc(company)}</div><div style="display:inline-block;margin-top:14px;padding:6px 16px;border-radius:20px;background:rgba(255,255,255,0.10);font:600 12px Arial,sans-serif;color:#c8d8f0;">${esc(scopeLabel)}</div></td></tr>`);
+    const tileRow = resolvedWindow === "24h"
       ? [
-          tile(String(inScope.length), "New Leads", "#1a2340"),
-          tile(String(contacted.length), "Contacted Today", "#2c3e50"),
-          tile(String(untouched.length), "Not Yet Touched", untouched.length ? "#e74c3c" : "#27ae60"),
-          tile(String(waiting.length), "Waiting for Reply", "#e67e22"),
-          tile(String(lost.length), "Lost Leads", "#c0392b"),
+          tileCell(String(inScope.length), "New Leads", "#1a2340", "#7ec8e3", "#8fa3c8"),
+          tileCell(String(contacted.length), "Contacted", "#2c3e50", "#ffffff", "#a8b8d8"),
+          tileCell(String(untouched.length), "Not Touched", notTouchedBg, "#ffffff", "rgba(255,255,255,0.85)"),
+          tileCell(String(waiting.length), "Waiting", waitingBg, "#ffffff", "rgba(255,255,255,0.85)"),
+          tileCell(String(lost.length), "Lost", "#c0392b", "#ffffff", "rgba(255,255,255,0.85)"),
         ]
       : [
-          tile(String(inScope.length), "Total Leads in Window", "#1a2340"),
-          tile(String(flagged.length), "Flagged", flagged.length ? "#e74c3c" : "#27ae60"),
-          tile(String(critical.length), "Critical", "#c0392b"),
-          tile(String(lost.length), "Lost Leads", "#c0392b"),
-          tile(medianLabel, "Median First Response", "#2c3e50", medianLabel === "not enough data" ? "15px" : "20px"),
+          tileCell(String(inScope.length), "Leads in Window", "#1a2340", "#7ec8e3", "#8fa3c8"),
+          tileCell(String(flagged.length), "Flagged", flaggedBg, "#ffffff", "rgba(255,255,255,0.85)"),
+          tileCell(String(critical.length), "Critical", "#c0392b", "#ffffff", "rgba(255,255,255,0.85)"),
+          tileCell(String(lost.length), "Lost Leads", "#c0392b", "#ffffff", "rgba(255,255,255,0.85)"),
+          tileCell(medianLabel, "Median Response", "#2c3e50", "#ffffff", "#a8b8d8", medianLabel === "not enough data" ? "15px" : "20px"),
         ];
-    blocks.push(heading("4. KPI Stat Tiles") + `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:separate;border-spacing:8px 0;margin:14px 0 6px;"><tr>${tiles.join("")}</tr></table>`);
+    sections.push(`<tr><td style="padding:20px 20px 0;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-spacing:6px 0;"><tr>${tileRow.join("")}</tr></table></td></tr>`);
+    sections.push(wrap(band("#1a2340", "Summary") + `<p style="font:400 14px Arial,sans-serif;color:#1a2340;line-height:1.6;margin:0 0 8px;">${esc(summaryBits.join(" "))}</p><p style="font:400 12px Arial,sans-serif;color:#888;margin:0;">Contacts in scope ${inScope.length}. Conversations loaded ${loaded.length}. Matched ${matchedAll.length}. Messages ${messagesAnalyzed}.${flags.includes("PARTIAL") ? " Data completeness: PARTIAL." : ""}</p>`));
 
     if (resolvedWindow === "24h") {
-      const contactedRows = contacted.map((lead) => [esc(lead.name), esc(lead.assigned), esc(lead.windowOut[0]?.type || "—"), lead.responseMs && lead.responseMs > 0 ? esc(human(lead.responseMs)) : "—"]);
-      const quietRows = untouched.map((lead) => [esc(lead.name), lead.added ? (Math.round(((NOW - lead.added) / 3600000) * 10) / 10).toFixed(1) : "not available", esc(lead.source)]);
-      blocks.push(heading("5. New Leads — Contact Status")
-        + `<div style="font:700 14px Arial,sans-serif;color:#1e8449;margin:8px 0;">Contacted</div>`
-        + (contactedRows.length ? table(["Contact", "Assigned Rep", "Channel Used", "Response Time"], contactedRows, "#27ae60") : `<p style="margin:0 0 12px;">No contacts in this grade.</p>`)
-        + `<div style="font:700 14px Arial,sans-serif;color:#c0392b;margin:16px 0 8px;">Not Yet Touched</div>`
-        + (quietRows.length ? table(["Contact", "Hours Since Added", "Source"], quietRows, "#e74c3c") : `<p style="margin:0;">No contacts in this grade.</p>`));
+      const contactedRows = contacted.map((lead, index) => `<tr style="background:${index % 2 ? "#f9fafb" : "#ffffff"};"><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;color:#1a2340;font-weight:600;">${esc(lead.name)}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;color:#555;">${esc(lead.assigned)}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;color:#555;">${esc(lead.windowOut[0]?.type || "—")}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;color:#555;">${lead.responseMs && lead.responseMs > 0 ? esc(human(lead.responseMs)) : "—"}</td></tr>`).join("");
+      const quietRows = untouched.length
+        ? untouched.map((lead) => `<tr style="background:#fff5f5;"><td style="padding:10px 12px;border-bottom:1px solid #fde8e8;color:#c0392b;font-weight:600;">${esc(lead.name)}</td><td style="padding:10px 12px;border-bottom:1px solid #fde8e8;color:#555;">${lead.added ? (Math.round(((NOW - lead.added) / 3600000) * 10) / 10).toFixed(1) : "not available"}h</td><td style="padding:10px 12px;border-bottom:1px solid #fde8e8;color:#555;">${esc(lead.source)}</td></tr>`).join("")
+        : `<tr style="background:#eafaf1;"><td colspan="3" style="padding:12px;font:400 13px Arial,sans-serif;color:#27ae60;">All leads contacted.</td></tr>`;
+      sections.push(wrap(band("#27ae60", "New Leads — Contacted") + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font:400 13px Arial,sans-serif;margin-bottom:20px;"><tr style="background:#27ae60;"><th align="left" style="padding:10px 12px;font:700 12px Arial,sans-serif;color:#ffffff;">Contact</th><th align="left" style="padding:10px 12px;font:700 12px Arial,sans-serif;color:#ffffff;">Assigned Rep</th><th align="left" style="padding:10px 12px;font:700 12px Arial,sans-serif;color:#ffffff;">Channel</th><th align="left" style="padding:10px 12px;font:700 12px Arial,sans-serif;color:#ffffff;">Response Time</th></tr>${contactedRows || `<tr style="background:#ffffff;"><td colspan="4" style="padding:12px;color:#888;">No contacts in this grade.</td></tr>`}</table>` + band("#e74c3c", "Not Yet Touched") + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font:400 13px Arial,sans-serif;"><tr style="background:#e74c3c;"><th align="left" style="padding:10px 12px;font:700 12px Arial,sans-serif;color:#ffffff;">Contact</th><th align="left" style="padding:10px 12px;font:700 12px Arial,sans-serif;color:#ffffff;">Hours Since Added</th><th align="left" style="padding:10px 12px;font:700 12px Arial,sans-serif;color:#ffffff;">Source</th></tr>${quietRows}</table>`));
     } else {
-      const rows = leads.slice().sort((a, b) => b.added - a.added).map((lead) => [
-        esc(lead.name), lead.added ? esc(parts(lead.added, timeZone).short) : "not available", esc(lead.assigned),
-        esc(lead.firstOut ? `${lead.firstOut.type} ${parts(lead.firstOut.ms, timeZone).label}` : "Not yet contacted"),
-        lead.responseMs && lead.responseMs > 0 ? esc(human(lead.responseMs)) : "Not yet contacted",
-      ]);
-      blocks.push(heading("5. New Leads — Contact Status") + (rows.length ? table(["Contact", "Added", "Assigned Rep", "First Touch", "Response Time"], rows) : `<p style="margin:0;">No contacts in this grade.</p>`));
+      const rows = leads.slice().sort((a, b) => b.added - a.added).map((lead, index) => `<tr style="background:${index % 2 ? "#f9fafb" : "#ffffff"};"><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;color:#1a2340;font-weight:600;">${esc(lead.name)}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;color:#555;">${lead.added ? esc(parts(lead.added, timeZone).short) : "not available"}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;color:#555;">${esc(lead.assigned)}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;color:#555;">${esc(lead.firstOut ? lead.firstOut.type + " " + parts(lead.firstOut.ms, timeZone).label : "Not yet contacted")}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;color:#555;">${lead.responseMs && lead.responseMs > 0 ? esc(human(lead.responseMs)) : "Not yet contacted"}</td></tr>`).join("");
+      sections.push(wrap(band("#1a2340", "New Leads — Contact Status") + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font:400 13px Arial,sans-serif;"><tr style="background:#1a2340;"><th align="left" style="padding:10px 12px;font:700 12px Arial,sans-serif;color:#ffffff;">Contact</th><th align="left" style="padding:10px 12px;font:700 12px Arial,sans-serif;color:#ffffff;">Added</th><th align="left" style="padding:10px 12px;font:700 12px Arial,sans-serif;color:#ffffff;">Assigned Rep</th><th align="left" style="padding:10px 12px;font:700 12px Arial,sans-serif;color:#ffffff;">First Touch</th><th align="left" style="padding:10px 12px;font:700 12px Arial,sans-serif;color:#ffffff;">Response Time</th></tr>${rows || `<tr><td colspan="5" style="padding:12px;color:#888;">No contacts in this grade.</td></tr>`}</table>`));
     }
 
     if (lost.length) {
-      const rows = lost.map((lead) => `<tr><td style="padding:10px;border-bottom:1px solid #f5c6c0;">${esc(lead.name)}</td><td style="padding:10px;border-bottom:1px solid #f5c6c0;">"${esc(lead.phrase)}"</td><td style="padding:10px;border-bottom:1px solid #f5c6c0;">${esc(lead.assigned)}</td><td style="padding:10px;border-bottom:1px solid #f5c6c0;">${esc(lead.preview)}${lead.lastIn && lead.lastIn.body.length > 140 ? "…" : ""}</td></tr>`).join("");
-      blocks.push(`<div style="border:1px solid #e74c3c;border-left:6px solid #e74c3c;background:#fdecea;border-radius:6px;padding:18px 20px;margin:18px 0;"><div style="font:700 15px Arial,sans-serif;color:#c0392b;margin-bottom:12px;">Lost Leads — ${lost.length} ${lost.length === 1 ? "contact" : "contacts"}</div><table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;font:400 13px Arial,sans-serif;color:#1a2340;"><tr style="background:#f5c6c0;"><th align="left" style="padding:8px 10px;font:700 12px Arial,sans-serif;color:#7b241c;border-bottom:1px solid #e74c3c;">Contact</th><th align="left" style="padding:8px 10px;font:700 12px Arial,sans-serif;color:#7b241c;border-bottom:1px solid #e74c3c;">Matched Phrase</th><th align="left" style="padding:8px 10px;font:700 12px Arial,sans-serif;color:#7b241c;border-bottom:1px solid #e74c3c;">Assigned Rep</th><th align="left" style="padding:8px 10px;font:700 12px Arial,sans-serif;color:#7b241c;border-bottom:1px solid #e74c3c;">Last Inbound</th></tr>${rows}</table></div>`);
+      const rows = lost.map((lead) => `<tr style="background:#ffffff;"><td style="padding:10px;border-bottom:1px solid #f5c6c0;color:#c0392b;font-weight:600;">${esc(lead.name)}</td><td style="padding:10px;border-bottom:1px solid #f5c6c0;color:#555;">${esc(lead.phrase)}</td><td style="padding:10px;border-bottom:1px solid #f5c6c0;color:#555;">${esc(lead.assigned)}</td><td style="padding:10px;border-bottom:1px solid #f5c6c0;color:#555;font-style:italic;">${esc(lead.preview)}</td></tr>`).join("");
+      sections.push(wrap(`<div style="border:2px solid #e74c3c;border-left:6px solid #c0392b;background:#fdecea;border-radius:6px;padding:18px 20px;"><div style="font:700 15px Arial,sans-serif;color:#c0392b;margin-bottom:12px;">Lost Leads — ${lost.length} contact(s) — Archive immediately, do not follow up</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font:400 13px Arial,sans-serif;"><tr style="background:#f5c6c0;"><th align="left" style="padding:8px 10px;font:700 12px Arial,sans-serif;color:#7b241c;">Contact</th><th align="left" style="padding:8px 10px;font:700 12px Arial,sans-serif;color:#7b241c;">Matched Phrase</th><th align="left" style="padding:8px 10px;font:700 12px Arial,sans-serif;color:#7b241c;">Rep</th><th align="left" style="padding:8px 10px;font:700 12px Arial,sans-serif;color:#7b241c;">Last Message</th></tr>${rows}</table></div>`, "20px 20px 0"));
     }
 
-    const waitRows = waiting.map((lead) => [esc(lead.name) + (lead.reaction ? " [iMessage reaction]" : ""), esc(lead.assigned), esc(lead.preview || "not available"), esc(human(lead.waitMs)), badge(lead.grade)]);
-    blocks.push(heading("7. Waiting for Reply") + (waitRows.length ? table(["Contact", "Assigned Rep", "Last Message", "Wait Time", "Urgency"], waitRows) : `<p style="margin:0;">No contacts in this grade.</p>`));
+    const waitRows = waiting.map((lead, index) => `<tr style="background:${index % 2 ? "#f9fafb" : "#ffffff"};"><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;color:#1a2340;font-weight:600;">${esc(lead.name)}${lead.reaction ? " [iMessage reaction]" : ""}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;color:#555;">${esc(lead.assigned)}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;color:#555;font-style:italic;">${esc(lead.preview || "not available")}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;color:#555;">${esc(human(lead.waitMs))}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;">${badge(lead.grade)}</td></tr>`).join("");
+    sections.push(wrap(band("#e67e22", "Waiting for Reply") + (waitRows ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font:400 13px Arial,sans-serif;"><tr style="background:#1a2340;"><th align="left" style="padding:10px 12px;font:700 12px Arial,sans-serif;color:#ffffff;">Contact</th><th align="left" style="padding:10px 12px;font:700 12px Arial,sans-serif;color:#ffffff;">Rep</th><th align="left" style="padding:10px 12px;font:700 12px Arial,sans-serif;color:#ffffff;">Last Message</th><th align="left" style="padding:10px 12px;font:700 12px Arial,sans-serif;color:#ffffff;">Wait</th><th align="left" style="padding:10px 12px;font:700 12px Arial,sans-serif;color:#ffffff;">Urgency</th></tr>${waitRows}</table>` : `<p style="font:400 13px Arial,sans-serif;color:#888;padding:0 4px;">No leads waiting for a reply in this window.</p>`)));
 
     if (resolvedWindow !== "24h") {
       const coldStart = NOW - spec.days * 86400000;
       const coldEnd = NOW - (spec.days - 5) * 86400000;
-      const cold = leads.filter((lead) => lead.humanOut.length && lead.active >= coldStart && lead.active <= coldEnd)
-        .map((lead) => ({ lead, silent: Math.floor((NOW - lead.active) / 86400000) }))
-        .sort((a, b) => b.silent - a.silent);
-      const rows = cold.map((row) => [esc(row.lead.name), esc(parts(row.lead.active, timeZone).label), String(row.silent), esc(row.lead.assigned)]);
-      blocks.push(heading("8. Going Cold") + (rows.length ? table(["Contact", "Last Activity", "Days Silent", "Assigned Rep"], rows) : `<p style="margin:0;">No contacts in this grade.</p>`));
+      const cold = leads.filter((lead) => lead.humanOut.length && lead.active >= coldStart && lead.active <= coldEnd).map((lead) => ({ lead, silent: Math.floor((NOW - lead.active) / 86400000) })).sort((a, b) => b.silent - a.silent);
+      const rows = cold.map((row, index) => `<tr style="background:${index % 2 ? "#f9fafb" : "#ffffff"};"><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;">${esc(row.lead.name)}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;">${esc(parts(row.lead.active, timeZone).label)}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;">${row.silent}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;">${esc(row.lead.assigned)}</td></tr>`).join("");
+      sections.push(wrap(band("#3498db", "Going Cold") + (rows ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font:400 13px Arial,sans-serif;"><tr style="background:#1a2340;"><th align="left" style="padding:10px 12px;color:#ffffff;">Contact</th><th align="left" style="padding:10px 12px;color:#ffffff;">Last Activity</th><th align="left" style="padding:10px 12px;color:#ffffff;">Days Silent</th><th align="left" style="padding:10px 12px;color:#ffffff;">Assigned Rep</th></tr>${rows}</table>` : `<p style="font:400 13px Arial,sans-serif;color:#888;">No contacts in this grade.</p>`)));
     }
 
-    const winCards = [...wins.values()].map((win) => `<div style="border-left:6px solid #27ae60;background:#eafaf1;border-radius:6px;padding:16px 18px;margin:12px 0;"><div style="font:700 14px Arial,sans-serif;color:#1e8449;margin-bottom:6px;">${esc(win.rep)} → ${esc(win.lead.name)}</div><div style="font:400 13px Arial,sans-serif;color:#1a2340;line-height:1.5;">${esc(win.line)}</div><div style="font:400 11px Arial,sans-serif;color:#7f8c8d;margin-top:8px;">${esc(parts(win.at, timeZone).label)}</div></div>`).join("");
-    blocks.push(heading("9. Wins") + (winCards || `<p style="margin:0;">No wins recorded in this window.</p>`));
+    const winCards = [...wins.values()].map((win) => `<div style="border-left:4px solid #27ae60;background:#eafaf1;border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:10px;"><div style="font:700 14px Arial,sans-serif;color:#1a2340;">${esc(win.rep)} → ${esc(win.lead.name)}</div><div style="font:400 13px Arial,sans-serif;color:#27ae60;margin-top:2px;">${esc(win.line)}</div><div style="font:400 12px Arial,sans-serif;color:#888;margin-top:4px;">${esc(parts(win.at, timeZone).label)}</div></div>`).join("");
+    sections.push(wrap(band("#27ae60", "Wins") + (winCards || `<p style="font:400 13px Arial,sans-serif;color:#888;padding:0 4px;">No wins recorded in this window.</p>`)));
 
     if (resolvedWindow !== "24h") {
       const dominant = (Object.entries(channelCounts) as [string, number][]).sort((a, b) => b[1] - a[1])[0];
       const colors: Record<string, string> = { SMS: "#2ecc71", Call: "#3498db", Email: "#9b59b6", Automation: "#95a5a6" };
       const bars = loaded.length && typed
-        ? (Object.keys(channelCounts) as (keyof typeof channelCounts)[]).map((name) => `<div style="margin:10px 0 14px;"><div style="font:600 13px Arial,sans-serif;color:#1a2340;margin-bottom:5px;">${name} — ${pct(channelCounts[name])}% (${channelCounts[name]} of ${loaded.length} conversations)</div><div style="background:#e8ecf3;border-radius:4px;height:18px;width:100%;"><div style="background:${colors[name]};height:18px;width:${Math.min(100, pct(channelCounts[name]))}%;border-radius:4px;"></div></div></div>`).join("")
-          + `<p style="font:400 12px Arial,sans-serif;color:#555;margin:0 0 8px;">Percentages can total more than 100% because one conversation can contain several message types. Each percentage uses the same denominator, the conversations loaded in this window.</p>`
-          + `<p style="font:400 14px Arial,sans-serif;color:#1a2340;line-height:1.5;">${esc(`${dominant[0]} is the largest share at ${pct(dominant[1])}% (${dominant[1]} of ${loaded.length}). Automation appears in ${pct(channelCounts.Automation)}% of loaded conversations.`)}</p>`
-        : `<p style="margin:0;">${loaded.length ? "Channel data unavailable — messageTypes field not present in API response." : "No messages in window"}</p>`;
-      blocks.push(heading("10. Channel Ratio") + bars);
-
+        ? (Object.keys(channelCounts) as (keyof typeof channelCounts)[]).map((name) => `<div style="margin:10px 0 14px;"><div style="font:600 13px Arial,sans-serif;color:#1a2340;margin-bottom:5px;">${name} — ${pct(channelCounts[name])}% (${channelCounts[name]} of ${loaded.length} conversations)</div><div style="background:#e8ecf3;border-radius:4px;height:18px;width:100%;"><div style="background:${colors[name]};height:18px;width:${Math.min(100, pct(channelCounts[name]))}%;border-radius:4px;"></div></div></div>`).join("") + `<p style="font:400 12px Arial,sans-serif;color:#555;">Percentages can total more than 100% because one conversation can contain several message types. Each percentage uses the same denominator, the conversations loaded in this window.</p><p style="font:400 14px Arial,sans-serif;color:#1a2340;line-height:1.5;">${esc(dominant[0] + " is the largest share at " + pct(dominant[1]) + "% (" + dominant[1] + " of " + loaded.length + "). Automation appears in " + pct(channelCounts.Automation) + "% of loaded conversations.")}</p>`
+        : `<p style="font:400 13px Arial,sans-serif;color:#888;">${loaded.length ? "Channel data unavailable. messageTypes was not in the response." : "No messages in window"}</p>`;
+      sections.push(wrap(band("#9b59b6", "Channel Ratio") + bars));
       const reps = new Map<string, { name: string; flagged: number; critical: number; wins: number; lost: number; oldest: number; samples: number[] }>();
       const touch = (name: string) => reps.get(name) || reps.set(name, { name, flagged: 0, critical: 0, wins: 0, lost: 0, oldest: 0, samples: [] }).get(name)!;
       for (const lead of leads) {
         const bucket = touch(lead.assigned);
         if (lead.responseMs && lead.responseMs > 0) bucket.samples.push(lead.responseMs);
         if (flagged.some((row) => row.id === lead.id)) bucket.flagged++;
-        if (lead.grade === "Critical") {
-          bucket.critical++;
-          bucket.oldest = Math.max(bucket.oldest, lead.waitMs);
-        }
+        if (lead.grade === "Critical") { bucket.critical++; bucket.oldest = Math.max(bucket.oldest, lead.waitMs); }
         if (lead.phrase) bucket.lost++;
       }
       for (const win of wins.values()) touch(win.lead.assigned).wins++;
-      const rows = [...reps.values()].sort((a, b) => b.critical - a.critical || b.flagged - a.flagged).map((row) => {
+      const rows = [...reps.values()].sort((a, b) => b.critical - a.critical || b.flagged - a.flagged).map((row, index) => {
         const samples = row.samples.slice().sort((a, b) => a - b);
         const mid = samples.length >= 3 ? human(samples[Math.floor((samples.length - 1) / 2)]) : "not enough data";
-        return [esc(row.name), String(row.flagged), String(row.critical), String(row.wins), String(row.lost), row.oldest ? (row.oldest / 3600000).toFixed(1) : "0.0", esc(mid)];
-      });
-      blocks.push(heading("11. Rep Rollup") + (rows.length ? table(["Rep", "Flagged", "Critical", "Wins", "Lost Leads", "Oldest Flag (hrs)", "Median First Response"], rows) : `<p style="margin:0;">No contacts in this grade.</p>`));
+        return `<tr style="background:${index % 2 ? "#f9fafb" : "#ffffff"};"><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;">${esc(row.name)}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;">${row.flagged}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;">${row.critical}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;">${row.wins}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;">${row.lost}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;">${row.oldest ? (row.oldest / 3600000).toFixed(1) : "0.0"}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;">${esc(mid)}</td></tr>`;
+      }).join("");
+      sections.push(wrap(band("#1a2340", "Rep Rollup") + (rows ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font:400 13px Arial,sans-serif;"><tr style="background:#1a2340;"><th align="left" style="padding:10px 12px;color:#ffffff;">Rep</th><th align="left" style="padding:10px 12px;color:#ffffff;">Flagged</th><th align="left" style="padding:10px 12px;color:#ffffff;">Critical</th><th align="left" style="padding:10px 12px;color:#ffffff;">Wins</th><th align="left" style="padding:10px 12px;color:#ffffff;">Lost</th><th align="left" style="padding:10px 12px;color:#ffffff;">Oldest Flag (hrs)</th><th align="left" style="padding:10px 12px;color:#ffffff;">Median Response</th></tr>${rows}</table>` : `<p style="font:400 13px Arial,sans-serif;color:#888;">No contacts in this grade.</p>`)));
     }
 
     if (monday) {
@@ -562,33 +546,29 @@ Deno.serve(async (req) => {
         if (NOW - lead.added > 4 * 86400000) return false;
         return !lead.outbound.some((row) => row.ms >= lead.added && row.ms - lead.added <= 21600000);
       });
-      const rows = weekend.map((lead) => {
+      const rows = weekend.map((lead, index) => {
         const reply = lead.outbound.find((row) => row.ms > lead.added);
-        return [esc(lead.name), esc(parts(lead.added, timeZone).label), reply ? esc(human(reply.ms - lead.added)) : "none", esc(lead.assigned)];
-      });
-      blocks.push(heading("12. Weekend Catch-Up") + (rows.length ? table(["Contact", "Arrived", "Hours to First Reply", "Assigned Rep"], rows) : `<p style="margin:0;">No contacts in this grade.</p>`));
+        return `<tr style="background:${index % 2 ? "#f9fafb" : "#ffffff"};"><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;">${esc(lead.name)}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;">${esc(parts(lead.added, timeZone).label)}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;">${reply ? esc(human(reply.ms - lead.added)) : "none"}</td><td style="padding:10px 12px;border-bottom:1px solid #e8ecf3;">${esc(lead.assigned)}</td></tr>`;
+      }).join("");
+      sections.push(wrap(band("#1a2340", "Weekend Catch-Up") + (rows ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font:400 13px Arial,sans-serif;"><tr style="background:#1a2340;"><th align="left" style="padding:10px 12px;color:#ffffff;">Contact</th><th align="left" style="padding:10px 12px;color:#ffffff;">Arrived</th><th align="left" style="padding:10px 12px;color:#ffffff;">Hours to First Reply</th><th align="left" style="padding:10px 12px;color:#ffffff;">Assigned Rep</th></tr>${rows}</table>` : `<p style="font:400 13px Arial,sans-serif;color:#888;">No contacts in this grade.</p>`)));
     }
 
-    blocks.push(heading("13. Top 3 Daily Priorities") + (priorities.length ? priorities.map((row, index) => `<div style="margin:0 0 12px;"><p style="margin:0;font:700 14px Arial,sans-serif;color:#1a2340;">${index + 1}. ${esc(row.name)}</p><p style="margin:4px 0;font:400 13px Arial,sans-serif;color:#1a2340;">${esc(row.why)}</p><p style="margin:4px 0;font:400 13px Arial,sans-serif;color:#1a2340;">${esc(row.action)}.${row.reaction ? " [iMessage reaction]" : ""}</p></div>`).join("") : `<p style="margin:0;">No contacts in this grade.</p>`));
+    const priorityColors = ["#e74c3c", "#e67e22", "#f1c40f"];
+    const priorityCards = priorities.map((row, index) => `<div style="border:1px solid #e8ecf3;border-left:5px solid ${priorityColors[index] || "#1a2340"};border-radius:6px;padding:16px 18px;margin-bottom:12px;"><div style="font:700 15px Arial,sans-serif;color:#1a2340;margin-bottom:6px;">#${index + 1} — ${esc(row.name)}</div><div style="font:400 13px Arial,sans-serif;color:#555;line-height:1.6;">${esc(row.why)}${row.reaction ? " [iMessage reaction]" : ""}</div><div style="margin-top:10px;padding:10px 14px;background:#f0f3f7;border-radius:6px;font:600 13px Arial,sans-serif;color:#1a2340;">→ ${esc(row.action)}</div></div>`).join("");
+    sections.push(wrap(band("#1a2340", "Today's Top 3 Priorities") + (priorityCards || `<p style="font:400 13px Arial,sans-serif;color:#888;">No priorities in this window.</p>`)));
 
     if (resolvedWindow === "30d") {
       const winLeader = [...wins.values()].reduce((map, win) => map.set(win.lead.assigned, (map.get(win.lead.assigned) || 0) + 1), new Map<string, number>());
       const best = [...winLeader.entries()].sort((a, b) => b[1] - a[1])[0];
       const dominant = (Object.entries(channelCounts) as [string, number][]).sort((a, b) => b[1] - a[1])[0];
-      const trend = `${inScope.length} leads fell in this 30-day window. Median first response is ${medianLabel}. ${lost.length} lost leads is ${inScope.length ? Math.round((lost.length / inScope.length) * 1000) / 10 : 0}% of the leads in scope. ${best ? `${best[0]} has the most wins (${best[1]}).` : "No wins were recorded."} ${dominant && loaded.length ? `${dominant[0]} is the largest channel share at ${pct(dominant[1])}%.` : "Channel mix was not available."} Prior-period data is not in this run, so there is no comparison to the previous 30 days.`;
-      blocks.push(heading("14. Trend Summary") + `<p style="font:400 14px Arial,sans-serif;color:#1a2340;line-height:1.5;margin:0;">${esc(trend)}</p>`);
-      const rows = leads.map((lead) => [
-        esc(lead.id), esc(lead.lastIn?.type || lead.firstOut?.type || "—"), String(lead.inbound.length), String(lead.outbound.length),
-        lead.firstIn ? esc(parts(lead.firstIn.ms, timeZone).label) : "none",
-        lead.outbound[0] ? esc(parts(lead.outbound[0].ms, timeZone).label) : "none",
-        lead.responseMs && lead.responseMs > 0 ? esc(human(lead.responseMs)) : "excluded — outbound not after inbound",
-        esc(lead.phrase ? "lost" : lead.waiting ? "waiting" : lead.untouched ? "not yet contacted" : "contacted"),
-        lead.grade ? badge(lead.grade) : "—",
-      ]);
-      blocks.push(heading("15. Appendix") + (rows.length ? table(["contactId", "channel", "messages in", "messages out", "first inbound", "first outbound", "first response time", "classification", "grade"], rows) : `<p style="margin:0;">No contacts in this grade.</p>`));
+      const trend = `${inScope.length} leads fell in this 30-day window. Median first response is ${medianLabel}. ${lost.length} lost leads is ${inScope.length ? Math.round((lost.length / inScope.length) * 1000) / 10 : 0}% of the leads in scope. ${best ? best[0] + " has the most wins (" + best[1] + ")." : "No wins were recorded."} ${dominant && loaded.length ? dominant[0] + " is the largest channel share at " + pct(dominant[1]) + "%." : "Channel mix was not available."} Prior-period data is not in this run, so there is no comparison to the previous 30 days.`;
+      sections.push(wrap(band("#1a2340", "Trend Summary") + `<p style="font:400 14px Arial,sans-serif;color:#1a2340;line-height:1.6;margin:0;">${esc(trend)}</p>`));
+      const rows = leads.map((lead, index) => `<tr style="background:${index % 2 ? "#f9fafb" : "#ffffff"};"><td style="padding:8px;border-bottom:1px solid #e8ecf3;font-size:11px;">${esc(lead.id)}</td><td style="padding:8px;border-bottom:1px solid #e8ecf3;">${esc(lead.lastIn?.type || lead.firstOut?.type || "—")}</td><td style="padding:8px;border-bottom:1px solid #e8ecf3;">${lead.inbound.length}</td><td style="padding:8px;border-bottom:1px solid #e8ecf3;">${lead.outbound.length}</td><td style="padding:8px;border-bottom:1px solid #e8ecf3;">${lead.firstIn ? esc(parts(lead.firstIn.ms, timeZone).label) : "none"}</td><td style="padding:8px;border-bottom:1px solid #e8ecf3;">${lead.outbound[0] ? esc(parts(lead.outbound[0].ms, timeZone).label) : "none"}</td><td style="padding:8px;border-bottom:1px solid #e8ecf3;">${lead.responseMs && lead.responseMs > 0 ? esc(human(lead.responseMs)) : "excluded — outbound not after inbound"}</td><td style="padding:8px;border-bottom:1px solid #e8ecf3;">${esc(lead.phrase ? "lost" : lead.waiting ? "waiting" : lead.untouched ? "not yet contacted" : "contacted")}</td><td style="padding:8px;border-bottom:1px solid #e8ecf3;">${lead.grade ? badge(lead.grade) : "—"}</td></tr>`).join("");
+      sections.push(wrap(band("#1a2340", "Appendix") + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font:400 11px Arial,sans-serif;"><tr style="background:#1a2340;"><th align="left" style="padding:8px;color:#ffffff;">contactId</th><th align="left" style="padding:8px;color:#ffffff;">channel</th><th align="left" style="padding:8px;color:#ffffff;">in</th><th align="left" style="padding:8px;color:#ffffff;">out</th><th align="left" style="padding:8px;color:#ffffff;">first inbound</th><th align="left" style="padding:8px;color:#ffffff;">first outbound</th><th align="left" style="padding:8px;color:#ffffff;">first response</th><th align="left" style="padding:8px;color:#ffffff;">classification</th><th align="left" style="padding:8px;color:#ffffff;">grade</th></tr>${rows || ""}</table>`));
     }
 
-    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>${esc(spec.noun)}</title></head><body style="margin:0;padding:0;background:#f4f6f8;"><div style="max-width:620px;margin:0 auto;font-family:Arial,Helvetica,sans-serif;background:#ffffff;">${blocks.join("")}<div style="background:#1a2340;padding:18px 28px;border-radius:0 0 6px 6px;text-align:center;font:400 12px Arial,sans-serif;color:#c7d3e8;">Powered by Veydra AI</div></div></body></html>`;
+    sections.push(`<tr><td style="background:#1a2340;padding:24px 28px;text-align:center;"><div style="font:700 14px Arial,sans-serif;color:#7ec8e3;margin-bottom:6px;">${esc(company)}</div><div style="font:400 12px Arial,sans-serif;color:#a8b8d8;">Generated ${esc(today.label)} ${esc(timeZone)}</div><div style="font:400 12px Arial,sans-serif;color:#a8b8d8;margin-top:2px;">Window: ${esc(scopeLabel)}</div><div style="font:400 11px Arial,sans-serif;color:rgba(255,255,255,0.35);margin-top:14px;letter-spacing:1px;text-transform:uppercase;">Powered by Veydra AI</div></td></tr>`);
+    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(spec.noun)}</title></head><body style="margin:0;padding:0;background:#f0f3f7;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f0f3f7;"><tr><td align="center" style="padding:24px 12px;"><table role="presentation" width="620" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;background:#ffffff;border-radius:10px;overflow:hidden;">${sections.join("")}</table></td></tr></table></body></html>`;
     if (!html.includes("Powered by Veydra AI") || !html.includes("</html>")) {
       await db.from("report_runs").update({ status: "failed", finished_at: new Date().toISOString(), error: "ABORT: malformed HTML" }).eq("id", runId);
       return json({ error: "ABORT: malformed HTML", status: "failed" }, 500);
