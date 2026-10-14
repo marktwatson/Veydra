@@ -84,20 +84,32 @@ export function EditorPayoutStripeKeyCard({
   if (!allowed) return null;
 
   const handleSave = async () => {
-    if (!territoryId) return;
     const trimmed = keyValue.trim();
-    if (!trimmed) {
+    if (!trimmed.startsWith("sk_")) {
       toast({
         variant: "destructive",
-        title: "Enter a Stripe secret key",
+        title: "That is not a Stripe secret",
+        description: trimmed.startsWith("mk_")
+          ? "mk_ is only the key ID. In Stripe, create a secret key and paste the value that starts with sk_live_."
+          : "Paste the secret key that starts with sk_live_.",
       });
       return;
     }
     setSaving(true);
-    const { error } = await supabase
+    const tid = await currentTerritoryId();
+    if (!tid) {
+      setSaving(false);
+      toast({
+        variant: "destructive",
+        title: "Pick an area first",
+      });
+      return;
+    }
+    const { data, error } = await supabase
       .from("territories")
       .update({ [column]: trimmed })
-      .eq("id", territoryId);
+      .eq("id", tid)
+      .select("id, name");
     setSaving(false);
     if (error) {
       toast({
@@ -107,11 +119,21 @@ export function EditorPayoutStripeKeyCard({
       });
       return;
     }
+    if (!data?.length) {
+      toast({
+        variant: "destructive",
+        title: "Key was not saved",
+        description: "This area blocked the change. The old key is still in place.",
+      });
+      return;
+    }
+    setTerritoryId(tid);
+    setTerritoryName(data[0].name || territoryName);
     setHasKey(true);
     setKeyValue("");
     toast({
       title: "Editor payout Stripe key saved",
-      description: `${who} in ${territoryName || "this area"} will use this area's key.`,
+      description: `${who} in ${data[0].name || "this area"} will use this key.`,
     });
   };
 

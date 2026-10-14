@@ -4717,8 +4717,20 @@ export default function ManagerSettings() {
                             Not Connected
                           </h4>
                           <p className="text-sm text-muted-foreground">
-                            {stripeStatus?.error ||
-                              "This area has no working editor payout secret yet."}
+                            {(() => {
+                              const raw = stripeStatus?.error || "";
+                              const idMatch = raw.match(/mk_[A-Za-z0-9]+\*+[A-Za-z0-9]+/);
+                              if (idMatch) {
+                                return `The saved value is still a key ID (${idMatch[0]}), not an sk_live_ secret. Replace it on Editor Payout Stripe Secret, then refresh.`;
+                              }
+                              if (raw.includes("Invalid API key")) {
+                                return "Stripe rejected the secret saved on this area. Paste a new sk_live_ key and save it again.";
+                              }
+                              return (
+                                raw ||
+                                "This area has no working editor payout secret yet."
+                              );
+                            })()}
                           </p>
                         </div>
                       </div>
