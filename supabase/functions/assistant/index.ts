@@ -1960,7 +1960,7 @@ You can text or email a contact in this company's Ovanta account. Find the conta
       const reply = await sendSalesReport(territoryId, req.headers.get("Authorization") || "", settings?.company_name || area?.name || "this company", "7d");
       return jsonResp({ reply, area: area?.name || null, company: settings?.company_name || null });
     }
-    if (/RUN_DAILY_REPORT|send (today'?s |the )?(daily )?sales report|text the sales report|email the sales report/i.test(question)) {
+    if (/RUN_DAILY_REPORT|daily audit|send (today'?s |the )?(daily )?sales report|text the sales report|email the sales report/i.test(question)) {
       const reply = await sendSalesReport(
         territoryId,
         req.headers.get("Authorization") || "",

@@ -359,7 +359,7 @@ serve(async (req) => {
   } catch (e) { console.warn("daily-digest trigger failed:", (e as any)?.message); }
 
   // Sales reports at noon in each area's timezone.
-  // Every day: 24-hour pulse. Mondays also get the 7-day digest. The 1st also gets the 30-day overview.
+  // Every day: daily audit. Mondays also get the 7-day digest. The 1st also gets the 30-day overview.
   // The report function refuses a second send for the same window on the same day.
   let salesReportTriggered = false;
   try {

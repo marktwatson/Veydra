@@ -12,7 +12,7 @@ const json = (body: unknown, status = 200) =>
 const CRM_FALLBACK = "https://services.leadconnectorhq.com";
 const VERSION = "2021-07-28";
 const WINDOWS: Record<string, { ms: number; days: number; label: string; noun: string }> = {
-  "24h": { ms: 86400000, days: 1, label: "24-Hour Pulse", noun: "24-Hour Sales Pulse" },
+  "24h": { ms: 86400000, days: 1, label: "Daily Audit", noun: "Daily Audit" },
   "7d": { ms: 604800000, days: 7, label: "7-Day Digest", noun: "7-Day Sales Digest" },
   "30d": { ms: 2592000000, days: 30, label: "30-Day Overview", noun: "30-Day Sales Overview" },
 };
@@ -611,7 +611,7 @@ Deno.serve(async (req) => {
 
     const action = (urgent?.action || "none").slice(0, 40);
     const sms = resolvedWindow === "24h"
-      ? `${company} Pulse ${today.short} | ${inScope.length} leads, ${untouched.length} untouched, ${waiting.length} waiting | Top: ${urgent?.name || "none"} — ${action}`
+      ? `${company} Daily audit ${today.short} | ${inScope.length} leads, ${untouched.length} untouched, ${waiting.length} waiting | Top: ${urgent?.name || "none"} — ${action}`
       : resolvedWindow === "7d"
         ? `${company} Weekly ${today.short} | ${inScope.length} leads, ${flagged.length} flagged, ${critical.length} critical, ${lost.length} lost | Top: ${urgent?.name || "none"} — ${action}`
         : `${company} Monthly ${today.short} | ${inScope.length} leads, ${flagged.length} flagged, ${lost.length} lost | Median response: ${medianLabel} | Full report sent`;
