@@ -21,7 +21,15 @@ const TAP = ["Liked ", "Loved ", "Laughed at ", "Emphasized ", "Questioned ", "D
 const QUOTES = ['"', "\u201c", "\u201d"];
 
 function esc(value: unknown) {
-  return String(value ?? "").replace(/[&<>"]/g, (ch) => ch === "&" ? "&" : ch === "<" ? "<" : ch === ">" ? ">" : """);
+  const amp = "&" + "amp;";
+  const lt = "&" + "lt;";
+  const gt = "&" + "gt;";
+  const quot = "&" + "quot;";
+  return String(value ?? "")
+    .split("&").join(amp)
+    .split("<").join(lt)
+    .split(">").join(gt)
+    .split(String.fromCharCode(34)).join(quot);
 }
 function clean(value: unknown) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
