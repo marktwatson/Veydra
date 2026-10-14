@@ -14,30 +14,64 @@ Deno.serve(async (req: Request) => {
   try {
     const body = await req.json().catch(() => ({}));
     const territoryId = body?.territory_id || null;
-    let stripeKey = Deno.env.get("STRIPE_SECRET_KEY") || "";
-    let source = "shared";
-
-    if (territoryId) {
-      const supabaseUrl = Deno.env.get("SUPABASE_URL");
-      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-      if (supabaseUrl && serviceKey) {
-        const supabase = createClient(supabaseUrl, serviceKey);
-        const { data } = await supabase
-          .from("territories")
-          .select("name, editor_payout_stripe_key")
-          .eq("id", territoryId)
-          .maybeSingle();
-        if (data?.editor_payout_stripe_key) {
-          stripeKey = data.editor_payout_stripe_key;
-          source = "area";
-        }
-      }
+    if (!territoryId) {
+      return new Response(
+        JSON.stringify({
+          connected: false,
+          reason: "no_area",
+          source: "none",
+          error: "Pick an area first. This check does not use another company's Stripe key.",
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !serviceKey) {
+      return new Response(
+        JSON.stringify({ connected: false, reason: "error", source: "area", error: "Supabase is not configured on this function." }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 },
+      );
+    }
+
+    const supabase = createClient(supabaseUrl, serviceKey);
+    const { data, error: areaError } = await supabase
+      .from("territories")
+      .select("name, editor_payout_stripe_key")
+      .eq("id", territoryId)
+      .maybeSingle();
+    if (areaError) {
+      return new Response(
+        JSON.stringify({ connected: false, reason: "error", source: "area", error: areaError.message }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 },
+      );
+    }
+
+    const areaName = data?.name || "This area";
+    const stripeKey = String(data?.editor_payout_stripe_key || "").trim();
     if (!stripeKey) {
       return new Response(
-        JSON.stringify({ connected: false, reason: "no_key", source }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({
+          connected: false,
+          reason: "no_key",
+          source: "area",
+          areaName,
+          error: `${areaName} has no editor payout secret saved.`,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    if (stripeKey.startsWith("mk_")) {
+      return new Response(
+        JSON.stringify({
+          connected: false,
+          reason: "key_id",
+          source: "area",
+          areaName,
+          error: `${areaName} has a Stripe key ID (mk_), not the secret. Paste the key that starts with sk_live_.`,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
@@ -49,7 +83,7 @@ Deno.serve(async (req: Request) => {
     if (!res.ok) {
       const errText = await res.text();
       return new Response(
-        JSON.stringify({ connected: false, reason: "invalid_key", error: errText, source }),
+        JSON.stringify({ connected: false, reason: "invalid_key", error: errText, source: "area", areaName }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -58,7 +92,8 @@ Deno.serve(async (req: Request) => {
     return new Response(
       JSON.stringify({
         connected: true,
-        source,
+        source: "area",
+        areaName,
         isTest,
         accountId: account.id,
         businessName: account.business_profile?.name || null,

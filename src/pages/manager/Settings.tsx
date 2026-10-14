@@ -510,6 +510,10 @@ export default function ManagerSettings() {
     payoutsEnabled?: boolean;
     detailsSubmitted?: boolean;
     defaultCurrency?: string;
+    source?: string;
+    areaName?: string;
+    error?: string;
+    reason?: string;
   } | null>(null);
   const [isCheckingStripe, setIsCheckingStripe] = useState(false);
   const [isTestingSms, setIsTestingSms] = useState(false);
@@ -2334,11 +2338,12 @@ export default function ManagerSettings() {
         toast({
           title: "Stripe Not Configured",
           description:
-            data.reason === "no_key"
-              ? "STRIPE_SECRET_KEY environment variable not set on this instance."
-              : data.reason === "invalid_key"
-                ? "The STRIPE_SECRET_KEY is invalid or expired."
-                : "Stripe connection failed. Check server logs for details.",
+            data.error ||
+            (data.reason === "no_key"
+              ? "This area has no editor payout secret saved."
+              : data.reason === "key_id"
+                ? "The saved value is a Stripe key ID, not the secret."
+                : "The editor payout secret on this area was rejected."),
           variant: "default",
         });
       }
@@ -4589,9 +4594,8 @@ export default function ManagerSettings() {
                   This area's Stripe account
                 </CardTitle>
                 <CardDescription>
-                  This checks the editor payout key saved on the area you are
-                  viewing. If it still shows gosocial after the status function
-                  is deployed, the secret saved on this area is Nik's key.
+                  This uses only the editor payout secret saved on the area you
+                  are viewing. It will not show another company's Stripe account.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -4616,6 +4620,9 @@ export default function ManagerSettings() {
                               "Stripe Account Connected"}
                           </h4>
                           <p className="text-sm text-muted-foreground">
+                            {stripeStatus.areaName
+                              ? `${stripeStatus.areaName} • `
+                              : ""}
                             {stripeStatus.isTest ? "Test Mode" : "Live Mode"}
                             {stripeStatus.country
                               ? ` • ${stripeStatus.country}`
@@ -4710,7 +4717,8 @@ export default function ManagerSettings() {
                             Not Connected
                           </h4>
                           <p className="text-sm text-muted-foreground">
-                            Stripe keys are not configured on this instance.
+                            {stripeStatus?.error ||
+                              "This area has no working editor payout secret yet."}
                           </p>
                         </div>
                       </div>
@@ -4728,49 +4736,31 @@ export default function ManagerSettings() {
                         Stripe:
                       </p>
                       <p>
-                        Stripe keys are stored as server-side environment
-                        variables for security. To set or change the Stripe
-                        account:
+                        Use the secret from this company's own Stripe account.
+                        Do not reuse another area's key.
                       </p>
                       <ol className="list-decimal pl-4 space-y-1 mt-1">
                         <li>
-                          Go to your{" "}
+                          Open that company's{" "}
                           <a
                             href="https://dashboard.stripe.com/apikeys"
                             target="_blank"
                             rel="noreferrer"
                             className="underline font-bold"
                           >
-                            Stripe Dashboard API Keys
+                            Stripe API keys
                           </a>{" "}
-                          and copy your Secret Key (
+                          and copy the secret that starts with{" "}
                           <code className="bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded font-mono">
-                            sk_live_...
-                          </code>{" "}
-                          or{" "}
-                          <code className="bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded font-mono">
-                            sk_test_...
+                            sk_live_
                           </code>
-                          ).
+                          . A value that starts with mk_ is only the key ID.
                         </li>
                         <li>
-                          In your Supabase Dashboard, go to{" "}
-                          <strong>Edge Functions - Secrets</strong> and set{" "}
-                          <code className="bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded font-mono">
-                            STRIPE_SECRET_KEY
-                          </code>{" "}
-                          to your key.
+                          Stay on this area, paste it into Editor Payout Stripe
+                          Secret, and save.
                         </li>
-                        <li>
-                          Also set{" "}
-                          <code className="bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded font-mono">
-                            STRIPE_WEBHOOK_SECRET
-                          </code>{" "}
-                          (from Stripe Dashboard - Developers - Webhooks).
-                        </li>
-                        <li>
-                          Click "Refresh Status" below to verify the connection.
-                        </li>
+                        <li>Click Refresh Status. The email shown should be this company, not another area.</li>
                       </ol>
                     </div>
 
