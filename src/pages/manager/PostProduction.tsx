@@ -74,7 +74,6 @@ function TrackFields({
   wedding,
   editors,
   disabled,
-  part,
   onEditor,
   onStatus,
   onUnsplit,
@@ -82,57 +81,51 @@ function TrackFields({
   wedding: any;
   editors: { id: string; name: string }[];
   disabled?: boolean;
-  part: "editors" | "statuses";
   onEditor: (track: "photo" | "video", id: string | null) => void;
   onStatus: (track: "photo" | "video", status: string) => void;
   onUnsplit: () => void;
 }) {
-  const row = (label: string, key: "photo" | "video") => (
-    <div className="space-y-1">
-      <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
-      {part === "editors" ? (
-        <Select
-          value={wedding[`${key}_editor_id`] || "unassigned"}
-          onValueChange={(val) => onEditor(key, val === "unassigned" ? null : val)}
-          disabled={disabled}
-        >
-          <SelectTrigger className="h-8 w-[150px] text-xs">
-            <SelectValue placeholder="Unassigned" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="unassigned">Unassigned</SelectItem>
-            {editors.map((editor) => (
-              <SelectItem key={editor.id} value={editor.id}>{editor.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      ) : (
-        <Select
-          value={wedding[`${key}_editing_status`] || "ready_to_edit"}
-          onValueChange={(val) => onStatus(key, val)}
-          disabled={disabled}
-        >
-          <SelectTrigger className="h-8 w-[170px] text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {STATUS_OPTIONS.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
+  const line = (label: string, key: "photo" | "video") => (
+    <div className="grid grid-cols-[3.25rem_minmax(9rem,1fr)_minmax(11rem,1fr)] items-center gap-2">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
+      <Select
+        value={wedding[`${key}_editor_id`] || "unassigned"}
+        onValueChange={(val) => onEditor(key, val === "unassigned" ? null : val)}
+        disabled={disabled}
+      >
+        <SelectTrigger className="h-8 w-full text-xs">
+          <SelectValue placeholder="Unassigned" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="unassigned">Unassigned</SelectItem>
+          {editors.map((editor) => (
+            <SelectItem key={editor.id} value={editor.id}>{editor.name}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select
+        value={wedding[`${key}_editing_status`] || "ready_to_edit"}
+        onValueChange={(val) => onStatus(key, val)}
+        disabled={disabled}
+      >
+        <SelectTrigger className="h-8 w-full text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {STATUS_OPTIONS.map((opt) => (
+            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
   return (
-    <div className="space-y-2">
-      {row("Photo", "photo")}
-      {row("Video", "video")}
-      {part === "editors" && (
-        <button type="button" className="text-[11px] text-muted-foreground underline" onClick={onUnsplit}>
-          Use one editor
-        </button>
-      )}
+    <div className="min-w-[22rem] space-y-1.5">
+      {line("Photo", "photo")}
+      {line("Video", "video")}
+      <button type="button" className="text-[11px] text-muted-foreground underline" onClick={onUnsplit}>
+        Use one editor
+      </button>
     </div>
   );
 }
@@ -956,26 +949,14 @@ export default function PostProductionTable() {
                   </div>
                 </div>
                 {wedding.edit_split ? (
-                  <>
-                    <TrackFields
-                      wedding={wedding}
-                      editors={editors}
-                      part="editors"
-                      disabled={updateWeddingMutation.isPending}
-                      onEditor={(track, id) => handleTrackEditor(wedding, track, id)}
-                      onStatus={(track, status) => handleTrackStatus(wedding, track, status)}
-                      onUnsplit={() => handleSplit(wedding, false)}
-                    />
-                    <TrackFields
-                      wedding={wedding}
-                      editors={editors}
-                      part="statuses"
-                      disabled={updateWeddingMutation.isPending}
-                      onEditor={(track, id) => handleTrackEditor(wedding, track, id)}
-                      onStatus={(track, status) => handleTrackStatus(wedding, track, status)}
-                      onUnsplit={() => handleSplit(wedding, false)}
-                    />
-                  </>
+                  <TrackFields
+                    wedding={wedding}
+                    editors={editors}
+                    disabled={updateWeddingMutation.isPending}
+                    onEditor={(track, id) => handleTrackEditor(wedding, track, id)}
+                    onStatus={(track, status) => handleTrackStatus(wedding, track, status)}
+                    onUnsplit={() => handleSplit(wedding, false)}
+                  />
                 ) : (
                   <>
                     <Select
@@ -1356,12 +1337,11 @@ export default function PostProductionTable() {
                         {formatDisplayDate(deadline.toISOString())}
                       </div>
                     </TableCell>
-                    <TableCell>
+                    <TableCell colSpan={wedding.edit_split ? 2 : 1}>
                       {wedding.edit_split ? (
                         <TrackFields
                           wedding={wedding}
                           editors={editors}
-                          part="editors"
                           disabled={updateWeddingMutation.isPending}
                           onEditor={(track, id) => handleTrackEditor(wedding, track, id)}
                           onStatus={(track, status) => handleTrackStatus(wedding, track, status)}
@@ -1406,18 +1386,8 @@ export default function PostProductionTable() {
                         </div>
                       )}
                     </TableCell>
+                    {!wedding.edit_split && (
                     <TableCell>
-                      {wedding.edit_split ? (
-                        <TrackFields
-                          wedding={wedding}
-                          editors={editors}
-                          part="statuses"
-                          disabled={updateWeddingMutation.isPending}
-                          onEditor={(track, id) => handleTrackEditor(wedding, track, id)}
-                          onStatus={(track, status) => handleTrackStatus(wedding, track, status)}
-                          onUnsplit={() => handleSplit(wedding, false)}
-                        />
-                      ) : (
                       <Select
                         value={currentStatus}
                         onValueChange={(val) =>
@@ -1425,7 +1395,7 @@ export default function PostProductionTable() {
                         }
                         disabled={updateWeddingMutation.isPending}
                       >
-                        <SelectTrigger className="h-8 text-xs font-medium w-[160px] whitespace-nowrap">
+                        <SelectTrigger className="h-8 text-xs font-medium w-[190px]">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -1448,8 +1418,8 @@ export default function PostProductionTable() {
                           ))}
                         </SelectContent>
                       </Select>
-                      )}
                     </TableCell>
+                    )}
                     <TableCell>
                       <div className="flex gap-2 items-center flex-wrap">
                         {wedding.drive_link ? (
