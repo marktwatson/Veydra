@@ -3370,6 +3370,7 @@ export const api = {
               .single();
             if (editor?.email) {
               const weddingName = data.client_name || "the couple";
+              const companyName = (settings.company_name || "").trim();
               const portal = (
                 settings.app_url || window.location.origin
               ).replace(/\/$/, "");
@@ -3385,17 +3386,34 @@ export const api = {
                   .replace(/{{client_name}}/g, weddingName)
                   .replace(/{{date}}/g, data.date || "TBD")
                   .replace(/{{portal_link}}/g, portal);
+              const escapeName = (value: string) =>
+                value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
               const withWeddingName = (text: string) => {
+                let next = text;
                 if (
                   weddingName &&
-                  !text.toLowerCase().includes(weddingName.toLowerCase())
+                  !next.toLowerCase().includes(weddingName.toLowerCase())
                 ) {
-                  return text.replace(
+                  next = next.replace(
                     /for the wedding/i,
-                    `for the ${weddingName} wedding`,
+                    companyName
+                      ? `for the ${weddingName} wedding at ${companyName}`
+                      : `for the ${weddingName} wedding`,
+                  );
+                } else if (companyName && weddingName) {
+                  next = next.replace(
+                    new RegExp(
+                      `for the (?:<strong>)?${escapeName(weddingName)}(?:</strong>)? wedding(?! at )`,
+                      "i",
+                    ),
+                    `for the ${weddingName} wedding at ${companyName}`,
+                  );
+                  next = next.replace(
+                    new RegExp(`for ${escapeName(weddingName)}(?! at )`, "i"),
+                    `for ${weddingName} at ${companyName}`,
                   );
                 }
-                return text;
+                return next;
               };
               if (
                 settings?.sms_editor_raw_media_enabled &&
@@ -3412,12 +3430,17 @@ export const api = {
                 settings?.email_editor_raw_media_enabled &&
                 settings?.email_editor_raw_media_template
               ) {
-                const subject = withWeddingName(
+                const subjectText = withWeddingName(
                   fill(
                     settings.email_editor_raw_media_subject ||
                       "Raw Media Ready: {{wedding_name}}",
                   ),
                 );
+                const subject =
+                  companyName &&
+                  !subjectText.toLowerCase().includes(companyName.toLowerCase())
+                    ? `${subjectText} · ${companyName}`
+                    : subjectText;
                 const msg = withWeddingName(
                   fill(settings.email_editor_raw_media_template),
                 );
