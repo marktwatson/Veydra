@@ -4270,12 +4270,10 @@ export const api = {
   },
 
   async updateJobTodos(id: string, contractor_todos: any) {
-    const { data, error } = await supabase
-      .from("jobs")
-      .update({ contractor_todos })
-      .eq("id", id)
-      .select()
-      .single();
+    const { error } = await supabase.rpc("save_contractor_checklist", {
+      p_job_id: id,
+      p_todos: contractor_todos,
+    });
     if (error) throw error;
 
     // Trigger CRM Sync
@@ -4292,7 +4290,7 @@ export const api = {
         }
       });
 
-    return data;
+    return { id, contractor_todos };
   },
 
   async resendJobAlerts(
