@@ -78,6 +78,18 @@ export interface DbWedding {
   upload_link?: string | null;
   editing_status?: string | null;
   editor_id?: string | null;
+  edit_split?: boolean | null;
+  photo_editor_id?: string | null;
+  photo_editing_status?: string | null;
+  video_editor_id?: string | null;
+  video_editing_status?: string | null;
+  photo_invoice_status?: string | null;
+  photo_invoice_details?: any | null;
+  photo_payout_amount?: number | null;
+  video_invoice_status?: string | null;
+  video_invoice_details?: any | null;
+  video_payout_amount?: number | null;
+  _track?: "single" | "photo" | "video" | "both";
   vimeo_link?: string | null;
   youtube_link?: string | null;
   gallery_link?: string | null;

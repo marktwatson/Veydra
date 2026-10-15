@@ -52,6 +52,7 @@ import {
   Send,
 } from "lucide-react";
 import { formatDisplayDate } from "@/lib/utils";
+import { combinedEditingStatus } from "@/lib/edit-tracks";
 import {
   Pagination,
   PaginationContent,
@@ -68,6 +69,66 @@ const STATUS_OPTIONS = [
   { value: "client_review", label: "Manager Review" },
   { value: "delivered", label: "Delivered" },
 ];
+
+function TrackFields({
+  wedding,
+  editors,
+  disabled,
+  onEditor,
+  onStatus,
+  onUnsplit,
+}: {
+  wedding: any;
+  editors: { id: string; name: string }[];
+  disabled?: boolean;
+  onEditor: (track: "photo" | "video", id: string | null) => void;
+  onStatus: (track: "photo" | "video", status: string) => void;
+  onUnsplit: () => void;
+}) {
+  const track = (label: string, key: "photo" | "video") => (
+    <div className="space-y-1">
+      <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
+      <Select
+        value={wedding[`${key}_editor_id`] || "unassigned"}
+        onValueChange={(val) => onEditor(key, val === "unassigned" ? null : val)}
+        disabled={disabled}
+      >
+        <SelectTrigger className="h-8 w-full text-xs">
+          <SelectValue placeholder="Unassigned" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="unassigned">Unassigned</SelectItem>
+          {editors.map((editor) => (
+            <SelectItem key={editor.id} value={editor.id}>{editor.name}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select
+        value={wedding[`${key}_editing_status`] || "ready_to_edit"}
+        onValueChange={(val) => onStatus(key, val)}
+        disabled={disabled}
+      >
+        <SelectTrigger className="h-8 w-full text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {STATUS_OPTIONS.map((opt) => (
+            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+  return (
+    <div className="min-w-[150px] space-y-2">
+      {track("Photo", "photo")}
+      {track("Video", "video")}
+      <button type="button" className="text-[11px] text-muted-foreground underline" onClick={onUnsplit}>
+        Use one editor
+      </button>
+    </div>
+  );
+}
 
 function calculateDeadline(wedding: DbWedding) {
   if (wedding.editor_due_date) return new Date(wedding.editor_due_date);
@@ -242,8 +303,10 @@ export default function PostProductionTable() {
       const matchesEditor =
         editorFilter === "all" ||
         (editorFilter === "unassigned"
-          ? !w.editor_id
-          : w.editor_id === editorFilter);
+          ? !w.editor_id && !w.photo_editor_id && !w.video_editor_id
+          : w.editor_id === editorFilter ||
+            w.photo_editor_id === editorFilter ||
+            w.video_editor_id === editorFilter);
       // Exclude cancelled/pending weddings and unpaid drafts from pipeline
       const isValidStatus = w.status === "upcoming" || w.status === "completed";
       const isNotDraft = !w.notes?.includes("[UNPAID_DRAFT]");
@@ -369,6 +432,38 @@ export default function PostProductionTable() {
 
   const handleEditorChange = (id: string, editorId: string | null) => {
     updateWeddingMutation.mutate({ id, updates: { editor_id: editorId } });
+  };
+
+  const handleSplit = (wedding: any, on: boolean) => {
+    if (!on) {
+      updateWeddingMutation.mutate({ id: wedding.id, updates: { edit_split: false } });
+      return;
+    }
+    updateWeddingMutation.mutate({
+      id: wedding.id,
+      updates: {
+        edit_split: true,
+        photo_editor_id: wedding.photo_editor_id || wedding.editor_id || null,
+        video_editor_id: wedding.video_editor_id || null,
+        photo_editing_status: wedding.photo_editing_status || wedding.editing_status || "ready_to_edit",
+        video_editing_status: wedding.video_editing_status || "ready_to_edit",
+      },
+    });
+  };
+
+  const handleTrackEditor = (wedding: any, track: "photo" | "video", editorId: string | null) => {
+    const updates: any = { [`${track}_editor_id`]: editorId };
+    if (editorId && !wedding[`${track}_editing_status`]) {
+      updates[`${track}_editing_status`] = wedding.editing_status || "ready_to_edit";
+    }
+    updates.editing_status = combinedEditingStatus({ ...wedding, ...updates });
+    updateWeddingMutation.mutate({ id: wedding.id, updates });
+  };
+
+  const handleTrackStatus = (wedding: any, track: "photo" | "video", status: string) => {
+    const updates: any = { [`${track}_editing_status`]: status };
+    updates.editing_status = combinedEditingStatus({ ...wedding, ...updates });
+    updateWeddingMutation.mutate({ id: wedding.id, updates });
   };
 
   const handleSaveLinks = (e: React.FormEvent<HTMLFormElement>) => {
@@ -816,41 +911,61 @@ export default function PostProductionTable() {
                     </span>
                   </div>
                 </div>
-                <Select
-                  value={wedding.editor_id || "unassigned"}
-                  onValueChange={(val) =>
-                    handleEditorChange(wedding.id, val === "unassigned" ? null : val)
-                  }
-                  disabled={updateWeddingMutation.isPending}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Unassigned" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="unassigned">Unassigned</SelectItem>
-                    {editors.map((editor) => (
-                      <SelectItem key={editor.id} value={editor.id}>
-                        {editor.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={currentStatus}
-                  onValueChange={(val) => handleStatusChange(wedding.id, val)}
-                  disabled={updateWeddingMutation.isPending}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {STATUS_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {wedding.edit_split ? (
+                  <TrackFields
+                    wedding={wedding}
+                    editors={editors}
+                    disabled={updateWeddingMutation.isPending}
+                    onEditor={(track, id) => handleTrackEditor(wedding, track, id)}
+                    onStatus={(track, status) => handleTrackStatus(wedding, track, status)}
+                    onUnsplit={() => handleSplit(wedding, false)}
+                  />
+                ) : (
+                  <>
+                    <Select
+                      value={wedding.editor_id || "unassigned"}
+                      onValueChange={(val) =>
+                        handleEditorChange(wedding.id, val === "unassigned" ? null : val)
+                      }
+                      disabled={updateWeddingMutation.isPending}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Unassigned" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="unassigned">Unassigned</SelectItem>
+                        {editors.map((editor) => (
+                          <SelectItem key={editor.id} value={editor.id}>
+                            {editor.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={currentStatus}
+                      onValueChange={(val) => handleStatusChange(wedding.id, val)}
+                      disabled={updateWeddingMutation.isPending}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {STATUS_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <button
+                      type="button"
+                      className="text-left text-xs text-muted-foreground underline"
+                      onClick={() => handleSplit(wedding, true)}
+                    >
+                      Split photo and video
+                    </button>
+                  </>
+                )}
                 <div className="flex flex-wrap gap-2">
                   {wedding.drive_link ? (
                     <Badge
@@ -1186,35 +1301,60 @@ export default function PostProductionTable() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Select
-                        value={wedding.editor_id || "unassigned"}
-                        onValueChange={(val) =>
-                          handleEditorChange(
-                            wedding.id,
-                            val === "unassigned" ? null : val,
-                          )
-                        }
-                        disabled={updateWeddingMutation.isPending}
-                      >
-                        <SelectTrigger className="h-8 text-xs font-medium w-[140px] whitespace-nowrap">
-                          <SelectValue placeholder="Unassigned" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem
-                            value="unassigned"
-                            className="text-muted-foreground italic"
+                      {wedding.edit_split ? (
+                        <TrackFields
+                          wedding={wedding}
+                          editors={editors}
+                          disabled={updateWeddingMutation.isPending}
+                          onEditor={(track, id) => handleTrackEditor(wedding, track, id)}
+                          onStatus={(track, status) => handleTrackStatus(wedding, track, status)}
+                          onUnsplit={() => handleSplit(wedding, false)}
+                        />
+                      ) : (
+                        <div className="space-y-1">
+                          <Select
+                            value={wedding.editor_id || "unassigned"}
+                            onValueChange={(val) =>
+                              handleEditorChange(
+                                wedding.id,
+                                val === "unassigned" ? null : val,
+                              )
+                            }
+                            disabled={updateWeddingMutation.isPending}
                           >
-                            Unassigned
-                          </SelectItem>
-                          {editors.map((editor) => (
-                            <SelectItem key={editor.id} value={editor.id}>
-                              {editor.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                            <SelectTrigger className="h-8 text-xs font-medium w-[140px] whitespace-nowrap">
+                              <SelectValue placeholder="Unassigned" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem
+                                value="unassigned"
+                                className="text-muted-foreground italic"
+                              >
+                                Unassigned
+                              </SelectItem>
+                              {editors.map((editor) => (
+                                <SelectItem key={editor.id} value={editor.id}>
+                                  {editor.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <button
+                            type="button"
+                            className="text-[11px] text-muted-foreground underline"
+                            onClick={() => handleSplit(wedding, true)}
+                          >
+                            Split photo and video
+                          </button>
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>
+                      {wedding.edit_split ? (
+                        <div className="max-w-[160px] text-xs text-muted-foreground">
+                          Delivered only when both photo and video are delivered.
+                        </div>
+                      ) : (
                       <Select
                         value={currentStatus}
                         onValueChange={(val) =>
@@ -1245,6 +1385,7 @@ export default function PostProductionTable() {
                           ))}
                         </SelectContent>
                       </Select>
+                      )}
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-2 items-center flex-wrap">

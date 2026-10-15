@@ -7,6 +7,7 @@ import {
   editorIdsForLogin,
   getWeddingsForEditor,
 } from "@/lib/editor-weddings";
+import { presentEditorWedding, trackStatusUpdates } from "@/lib/edit-tracks";
 import {
   Card,
   CardContent,
@@ -232,7 +233,13 @@ export default function EditorDashboard() {
 
   const { data: weddings = [], isLoading } = useQuery({
     queryKey: ["editor-weddings", user?.id],
-    queryFn: () => getWeddingsForEditor(user!.id, user?.email),
+    queryFn: async () => {
+      const ids = new Set(await editorIdsForLogin(user!.id, user?.email));
+      const rows = await getWeddingsForEditor(user!.id, user?.email);
+      return rows
+        .map((wedding) => presentEditorWedding(wedding, ids))
+        .filter(Boolean);
+    },
     enabled: !!user?.id,
   });
 
@@ -527,9 +534,10 @@ export default function EditorDashboard() {
   }, [visibleWeddings, companyByTerritory]);
 
   const handleStatusChange = (id: string, newStatus: string) => {
+    const wedding = weddings.find((item) => item.id === id);
     updateWeddingMutation.mutate({
       id,
-      updates: { editing_status: newStatus },
+      updates: wedding ? trackStatusUpdates(wedding, newStatus) : { editing_status: newStatus },
     });
   };
 
@@ -543,8 +551,16 @@ export default function EditorDashboard() {
   const openInvoiceModal = (wedding: DbWedding) => {
     setInvoiceEvent(null);
     setInvoiceWedding(wedding);
-    setPhotoCount(wedding.editor_photo_target || 0);
-    setSelectedVideos(wedding.editor_video_targets || []);
+    if (wedding._track === "video") {
+      setPhotoCount(0);
+      setSelectedVideos(wedding.editor_video_targets || []);
+    } else if (wedding._track === "photo") {
+      setPhotoCount(wedding.editor_photo_target || 0);
+      setSelectedVideos([]);
+    } else {
+      setPhotoCount(wedding.editor_photo_target || 0);
+      setSelectedVideos(wedding.editor_video_targets || []);
+    }
     setIsInvoiceModalOpen(true);
   };
 
@@ -599,7 +615,9 @@ export default function EditorDashboard() {
       );
       await Promise.all(promises);
 
-      const updates: any = { editing_status: "client_review" };
+      const updates: any = {
+        ...trackStatusUpdates(selectedWedding, "client_review"),
+      };
       if (selectedWedding.editor_photo_target && actualPhotoCount) {
         updates.editor_photo_target = parseInt(actualPhotoCount, 10);
       }
@@ -668,15 +686,30 @@ export default function EditorDashboard() {
 
     if (!invoiceWedding) return;
 
-    const updates = {
-      editor_payout_amount: totalPayout,
-      editor_invoice_status: "pending",
-      editor_invoice_details: {
-        ...invoice,
-        company_name: companyNameFor(invoiceWedding),
-        territory_id: invoiceWedding.territory_id || null,
-      },
+    const invoiceDetails = {
+      ...invoice,
+      company_name: companyNameFor(invoiceWedding),
+      territory_id: invoiceWedding.territory_id || null,
+      track: invoiceWedding._track || "single",
     };
+    const updates =
+      invoiceWedding._track === "photo"
+        ? {
+            photo_payout_amount: totalPayout,
+            photo_invoice_status: "pending",
+            photo_invoice_details: invoiceDetails,
+          }
+        : invoiceWedding._track === "video"
+          ? {
+              video_payout_amount: totalPayout,
+              video_invoice_status: "pending",
+              video_invoice_details: invoiceDetails,
+            }
+          : {
+              editor_payout_amount: totalPayout,
+              editor_invoice_status: "pending",
+              editor_invoice_details: invoiceDetails,
+            };
 
     updateWeddingMutation.mutate(
       { id: invoiceWedding.id, updates },
@@ -932,7 +965,10 @@ export default function EditorDashboard() {
                       onClick={() => openDetails(wedding)}
                     >
                       <TableCell>
-                        <div className="font-medium">{wedding.client_name}</div>
+                        <div className="font-medium">
+                          {wedding.client_name}
+                          {wedding._track === "photo" ? " · Photo" : wedding._track === "video" ? " · Video" : ""}
+                        </div>
                         <div className="text-xs text-muted-foreground mb-1">
                           {formatDisplayDate(wedding.date)}
                         </div>
@@ -1200,6 +1236,7 @@ export default function EditorDashboard() {
                       <div>
                         <div className="font-semibold">
                           {wedding.client_name}
+                          {wedding._track === "photo" ? " · Photo" : wedding._track === "video" ? " · Video" : ""}
                         </div>
                         <div className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
                           <Calendar className="h-3 w-3" />

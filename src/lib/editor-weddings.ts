@@ -51,17 +51,33 @@ export async function editorIdsForLogin(editorId: string, email?: string): Promi
  */
 export async function getWeddingsForEditor(editorId: string, email?: string) {
   const editorIds = await editorIdsForLogin(editorId, email);
-  const { data, error } = await supabase
-    .from("weddings")
-    .select("*")
-    .in("editor_id", editorIds)
-    .neq("status", "draft")
-    .neq("status", "cancelled")
-    .neq("status", "Cancelled")
-    .order("date", { ascending: true });
-  if (error) throw error;
+  const scoped = () =>
+    supabase
+      .from("weddings")
+      .select("*")
+      .neq("status", "draft")
+      .neq("status", "cancelled")
+      .neq("status", "Cancelled")
+      .order("date", { ascending: true });
 
-  return (data || []).map((w) => ({
+  const main = await scoped().in("editor_id", editorIds);
+  if (main.error) throw main.error;
+
+  const extra: any[] = [];
+  for (const column of ["photo_editor_id", "video_editor_id"] as const) {
+    const result = await scoped().in(column, editorIds);
+    if (result.error) {
+      const missing = /column|schema cache|edit_split|photo_editor_id|video_editor_id/i.test(result.error.message || "");
+      if (missing) continue;
+      throw result.error;
+    }
+    extra.push(...(result.data || []));
+  }
+
+  const byId = new Map<string, any>();
+  for (const row of [...(main.data || []), ...extra]) byId.set(row.id, row);
+
+  return Array.from(byId.values()).map((w) => ({
     ...w,
     region:
       typeof w.region === "string" ? parseRegionsArray(w.region) : w.region,

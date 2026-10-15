@@ -3,7 +3,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
-import { getWeddingsForEditor, companyNamesByTerritory } from "@/lib/editor-weddings";
+import { getWeddingsForEditor, companyNamesByTerritory, editorIdsForLogin } from "@/lib/editor-weddings";
+import { presentEditorWedding } from "@/lib/edit-tracks";
 import {
   Card,
   CardContent,
@@ -107,7 +108,11 @@ export default function EditorInvoices() {
   // Editor invoices are scoped by assignment (editor_id), across ALL areas.
   const { data: weddings = [], isLoading: isWeddingsLoading } = useQuery({
     queryKey: ["editor-weddings"],
-    queryFn: () => getWeddingsForEditor(user?.id || "", user?.email),
+    queryFn: async () => {
+      const ids = new Set(await editorIdsForLogin(user!.id, user?.email));
+      const rows = await getWeddingsForEditor(user!.id, user?.email);
+      return rows.map((wedding) => presentEditorWedding(wedding, ids)).filter(Boolean);
+    },
     enabled: !!user?.id,
   });
 

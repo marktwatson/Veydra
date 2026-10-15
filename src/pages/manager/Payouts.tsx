@@ -314,6 +314,7 @@ export default function ManagerPayouts() {
 
   const approveEditorPayoutMutation = useMutation({
     mutationFn: async (id: string) => {
+      if (!String(id).includes(":")) {
       const { data: event } = await supabase
         .from("wedding_events")
         .select("id, title, editor_id, edit_details, weddings(client_name)")
@@ -338,6 +339,37 @@ export default function ManagerPayouts() {
           .update({ edit_details: { ...event.edit_details, invoice_status: "paid" } })
           .eq("id", id);
         if (error) throw error;
+        return;
+      }
+      }
+
+      const track = String(id).endsWith(":photo")
+        ? "photo"
+        : String(id).endsWith(":video")
+          ? "video"
+          : null;
+      if (track) {
+        const weddingId = String(id).slice(0, -(track.length + 1));
+        const wedding = weddings.find((w: any) => w.id === weddingId);
+        if (!wedding) throw new Error("Wedding not found");
+        const editor = editors.find((e) => e.id === wedding[`${track}_editor_id`]);
+        if (!editor) throw new Error("Editor not found");
+        const amount = Number(wedding[`${track}_payout_amount`] || 0);
+        if (paymentMethod === "Stripe") {
+          const stripeAccountId = editor.stripe_account_id;
+          if (!stripeAccountId) {
+            throw new Error("Editor does not have a connected Stripe account. Please select another payment method.");
+          }
+          if (amount > 0) {
+            await api.processStripePayout(
+              amount,
+              stripeAccountId,
+              `Payout for ${wedding.client_name} - ${track} editing`,
+              idempotencyKey,
+            );
+          }
+        }
+        await api.updateWedding(weddingId, { [`${track}_invoice_status`]: "paid" } as any);
         return;
       }
 
@@ -409,7 +441,34 @@ export default function ManagerPayouts() {
   );
 
   const editorInvoices = [
-    ...weddings.filter((w) => w.editor_invoice_status),
+    ...weddings.filter((w) => w.editor_invoice_status && !w.edit_split),
+    ...weddings.flatMap((w) => {
+      if (!w.edit_split) return [];
+      const rows = [];
+      if (w.photo_invoice_status) {
+        rows.push({
+          ...w,
+          id: `${w.id}:photo`,
+          editor_id: w.photo_editor_id,
+          editor_invoice_status: w.photo_invoice_status,
+          editor_payout_amount: w.photo_payout_amount,
+          editor_invoice_details: w.photo_invoice_details,
+          client_name: `${w.client_name} · Photo`,
+        });
+      }
+      if (w.video_invoice_status) {
+        rows.push({
+          ...w,
+          id: `${w.id}:video`,
+          editor_id: w.video_editor_id,
+          editor_invoice_status: w.video_invoice_status,
+          editor_payout_amount: w.video_payout_amount,
+          editor_invoice_details: w.video_invoice_details,
+          client_name: `${w.client_name} · Video`,
+        });
+      }
+      return rows;
+    }),
     ...eventEditorInvoices,
   ];
   const pendingEditorInvoices = editorInvoices.filter(
