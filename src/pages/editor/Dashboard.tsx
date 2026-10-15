@@ -979,11 +979,12 @@ export default function EditorDashboard() {
                               : "Songs missing"}
                           </Badge>
                         )}
-                        {(wedding.editor_photo_target ||
-                          (wedding.editor_video_targets &&
-                            wedding.editor_video_targets.length > 0)) && (
+                        {(wedding._track !== "video" && wedding.editor_photo_target) ||
+                        (wedding._track !== "photo" &&
+                          wedding.editor_video_targets &&
+                          wedding.editor_video_targets.length > 0) ? (
                           <div className="flex flex-wrap gap-1">
-                            {wedding.editor_photo_target ? (
+                            {wedding._track !== "video" && wedding.editor_photo_target ? (
                               <Badge
                                 variant="outline"
                                 className="text-[10px] px-1.5 py-0 h-4 bg-muted/50"
@@ -991,7 +992,8 @@ export default function EditorDashboard() {
                                 {wedding.editor_photo_target} Photos
                               </Badge>
                             ) : null}
-                            {wedding.editor_video_targets?.map((vid, idx) => {
+                            {wedding._track !== "photo" &&
+                              wedding.editor_video_targets?.map((vid, idx) => {
                               const v = videoPricing.find((p) => p.id === vid);
                               return v ? (
                                 <Badge
@@ -1268,11 +1270,12 @@ export default function EditorDashboard() {
                       </div>
                     </div>
 
-                    {(wedding.editor_photo_target ||
-                      (wedding.editor_video_targets &&
-                        wedding.editor_video_targets.length > 0)) && (
+                    {(wedding._track !== "video" && wedding.editor_photo_target) ||
+                    (wedding._track !== "photo" &&
+                      wedding.editor_video_targets &&
+                      wedding.editor_video_targets.length > 0) ? (
                       <div className="flex flex-wrap gap-1.5 pt-2 border-t">
-                        {wedding.editor_photo_target ? (
+                        {wedding._track !== "video" && wedding.editor_photo_target ? (
                           <Badge
                             variant="secondary"
                             className="text-[10px] px-2 py-0.5 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300"
@@ -1280,7 +1283,8 @@ export default function EditorDashboard() {
                             {wedding.editor_photo_target} Photos
                           </Badge>
                         ) : null}
-                        {wedding.editor_video_targets?.map((vid, idx) => {
+                        {wedding._track !== "photo" &&
+                          wedding.editor_video_targets?.map((vid, idx) => {
                           const v = videoPricing.find((p) => p.id === vid);
                           return v ? (
                             <Badge
@@ -1445,15 +1449,18 @@ export default function EditorDashboard() {
 
               <div className="space-y-8">
                 {/* Targets Section */}
-                {(selectedWedding.editor_photo_target ||
-                  (selectedWedding.editor_video_targets &&
-                    selectedWedding.editor_video_targets.length > 0)) && (
+                {(selectedWedding._track !== "video" &&
+                  selectedWedding.editor_photo_target) ||
+                (selectedWedding._track !== "photo" &&
+                  selectedWedding.editor_video_targets &&
+                  selectedWedding.editor_video_targets.length > 0) ? (
                   <div className="bg-primary/5 border border-primary/20 rounded-xl p-5 space-y-4 shadow-sm">
                     <h3 className="font-semibold flex items-center gap-2 text-sm text-primary uppercase tracking-wider">
                       <Target className="h-5 w-5" /> Project Targets
                     </h3>
                     <div className="flex flex-col sm:flex-row flex-wrap gap-3">
-                      {selectedWedding.editor_photo_target ? (
+                      {selectedWedding._track !== "video" &&
+                      selectedWedding.editor_photo_target ? (
                         <div className="flex items-center gap-3 bg-background border border-border rounded-lg px-4 py-3 shadow-sm min-w-[140px]">
                           <div className="bg-blue-100 dark:bg-blue-900/50 p-2.5 rounded-md">
                             <Image className="h-5 w-5 text-blue-600 dark:text-blue-400" />
@@ -1468,7 +1475,8 @@ export default function EditorDashboard() {
                           </div>
                         </div>
                       ) : null}
-                      {selectedWedding.editor_video_targets?.map((vid, idx) => {
+                      {selectedWedding._track !== "photo" &&
+                        selectedWedding.editor_video_targets?.map((vid, idx) => {
                         const v = videoPricing.find((p) => p.id === vid);
                         return v ? (
                           <div
@@ -1685,7 +1693,8 @@ export default function EditorDashboard() {
 
                   {selectedWedding.editing_status === "in_progress" && (
                     <div className="space-y-4 bg-muted/30 p-4 rounded-lg border">
-                      {selectedWedding.editor_photo_target ? (
+                      {selectedWedding._track !== "video" &&
+                      selectedWedding.editor_photo_target ? (
                         <div className="space-y-2 pb-2">
                           <Label htmlFor="actual-photos">
                             Actual Photos Uploaded
@@ -1757,6 +1766,7 @@ export default function EditorDashboard() {
                           !uploadAcknowledged ||
                           updateWeddingMutation.isPending ||
                           (!!selectedWedding.editor_photo_target &&
+                            selectedWedding._track !== "video" &&
                             !actualPhotoCount)
                         }
                         onClick={() => {
@@ -1771,6 +1781,7 @@ export default function EditorDashboard() {
                       </Button>
                       {(!uploadAcknowledged ||
                         (!!selectedWedding.editor_photo_target &&
+                          selectedWedding._track !== "video" &&
                           !actualPhotoCount)) && (
                         <span className="text-xs text-destructive text-center sm:text-right w-full">
                           Please fill out all required fields before submitting.

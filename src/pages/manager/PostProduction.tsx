@@ -1593,9 +1593,50 @@ export default function PostProductionTable() {
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-sm font-medium flex items-center gap-2">
-                        <Video className="h-4 w-4 text-cyan-500" /> Vimeo Link
-                      </label>
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium flex items-center gap-2">
+                          <Video className="h-4 w-4 text-cyan-500" /> Vimeo Link
+                        </label>
+                        {editingWedding.edit_split && (editingWedding.vimeo_link || editingWedding.youtube_link) && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={async () => {
+                              const brideEmail =
+                                editingWedding.client_email ||
+                                editingWedding.questionnaire_data?.contact_info?.email ||
+                                editingWedding.questionnaire_data?.email;
+                              if (!brideEmail) {
+                                toast({ variant: "destructive", title: "No Email Found", description: "Add the bride's email in Manage > Details first." });
+                                return;
+                              }
+                              const videoLink = editingWedding.vimeo_link || editingWedding.youtube_link || "";
+                              const company = settings?.company_name || "us";
+                              const line = videoLink
+                                ? `Your video is ready. Watch it here: ${videoLink}`
+                                : "Your video is ready.";
+                              try {
+                                await api.sendOvantaSms(brideEmail, line, editingWedding.client_name, true);
+                                await api.sendOvantaEmail(
+                                  brideEmail,
+                                  "Your video is ready",
+                                  `<p>Hi ${editingWedding.client_name || "there"},</p><p>Your video from ${company} is ready.</p>${videoLink ? `<p><a href="${videoLink}">Watch your video</a></p>` : ""}`,
+                                  editingWedding.client_name,
+                                  true,
+                                );
+                                toast({ title: "Video notice sent", description: `Sent to ${brideEmail}` });
+                              } catch (err: any) {
+                                toast({ variant: "destructive", title: "Failed to send", description: err.message });
+                              }
+                            }}
+                          >
+                            <Send className="h-3 w-3 mr-1" />
+                            Notify Bride
+                          </Button>
+                        )}
+                      </div>
                       <Input
                         name="vimeo_link"
                         defaultValue={editingWedding.vimeo_link || ""}
@@ -1647,6 +1688,28 @@ export default function PostProductionTable() {
                                   description:
                                     "Please add the bride's email in the Manage > Details tab first.",
                                 });
+                                return;
+                              }
+
+                              if (editingWedding.edit_split) {
+                                const gallery = editingWedding.gallery_link || "";
+                                const company = settings?.company_name || "us";
+                                const line = gallery
+                                  ? `Your photos are ready. View them here: ${gallery}`
+                                  : "Your photos are ready.";
+                                try {
+                                  await api.sendOvantaSms(brideEmail, line, editingWedding.client_name, true);
+                                  await api.sendOvantaEmail(
+                                    brideEmail,
+                                    "Your photos are ready",
+                                    `<p>Hi ${editingWedding.client_name || "there"},</p><p>Your photos from ${company} are ready.</p>${gallery ? `<p><a href="${gallery}">View your photos</a></p>` : ""}`,
+                                    editingWedding.client_name,
+                                    true,
+                                  );
+                                  toast({ title: "Photos notice sent", description: `Sent to ${brideEmail}` });
+                                } catch (err: any) {
+                                  toast({ variant: "destructive", title: "Failed to send", description: err.message });
+                                }
                                 return;
                               }
 
