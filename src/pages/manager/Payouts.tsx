@@ -165,8 +165,42 @@ export default function ManagerPayouts() {
   });
 
   const { data: editors = [] } = useQuery({
-    queryKey: ["editors"],
-    queryFn: api.getEditors,
+    queryKey: ["editors-for-payouts", territoryId],
+    enabled: territoryId !== undefined,
+    queryFn: async () => {
+      const rows = await api.getEditors();
+      const ids = rows.map((editor) => editor.id).filter(Boolean);
+      if (ids.length === 0) return rows;
+      const { data: accounts } = await supabase
+        .from("editor_payout_accounts")
+        .select("editor_id, territory_id, stripe_account_id")
+        .in("editor_id", ids);
+      const idsByEmail = new Map<string, string[]>();
+      rows.forEach((editor) => {
+        const email = editor.email?.trim().toLowerCase();
+        if (!email || !editor.id) return;
+        const list = idsByEmail.get(email) || [];
+        list.push(editor.id);
+        idsByEmail.set(email, list);
+      });
+      return rows.map((editor) => {
+        const email = editor.email?.trim().toLowerCase();
+        const siblingIds = new Set<string>([
+          editor.id,
+          ...(email ? idsByEmail.get(email) || [] : []),
+        ]);
+        const mine = (accounts || []).filter(
+          (row) => siblingIds.has(row.editor_id) && row.stripe_account_id,
+        );
+        const match =
+          mine.find((row) => territoryId && row.territory_id === territoryId) ||
+          mine[0];
+        return {
+          ...editor,
+          stripe_account_id: editor.stripe_account_id || match?.stripe_account_id || null,
+        };
+      });
+    },
   });
 
   const markEditorPaidMutation = useMutation({
