@@ -1006,7 +1006,7 @@ export default function EditorDashboard() {
                               ) : null;
                             })}
                           </div>
-                        )}
+                        ) : null}
                       </TableCell>
                       <TableCell>
                         <div
@@ -1297,7 +1297,7 @@ export default function EditorDashboard() {
                           ) : null;
                         })}
                       </div>
-                    )}
+                    ) : null}
 
                     <div
                       className="flex justify-between items-center pt-2 border-t"
@@ -1501,7 +1501,7 @@ export default function EditorDashboard() {
                       })}
                     </div>
                   </div>
-                )}
+                ) : null}
 
                 {/* Notes Section */}
                 <div className="space-y-4">
