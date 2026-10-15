@@ -175,6 +175,7 @@ export default function PostProductionTable() {
   const [sortColumn, setSortColumn] = useState("date");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [currentPage, setCurrentPage] = useState(1);
+  const [listTab, setListTab] = useState<"pipeline" | "archive">("pipeline");
   const itemsPerPage = 15;
 
   const [editingWedding, setEditingWedding] = useState<DbWedding | null>(null);
@@ -304,7 +305,9 @@ export default function PostProductionTable() {
       const matchesSearch = w.client_name
         .toLowerCase()
         .includes(searchQuery.toLowerCase());
+      const isDelivered = (w.editing_status || "awaiting_raw_media") === "delivered";
       const matchesStatus =
+        isDelivered ||
         statusFilter === "all" ||
         (w.editing_status || "awaiting_raw_media") === statusFilter;
       const matchesEditor =
@@ -386,7 +389,8 @@ export default function PostProductionTable() {
         const name = `${event.weddings?.client_name || ""} ${event.title || event.event_type || ""}`.toLowerCase();
         const matchesSearch = !searchQuery || name.includes(searchQuery.toLowerCase());
         const status = event.edit_status || "awaiting_raw_media";
-        const matchesStatus = statusFilter === "all" || status === statusFilter;
+        const matchesStatus =
+          status === "delivered" || statusFilter === "all" || status === statusFilter;
         const matchesEditor =
           editorFilter === "all" ||
           (editorFilter === "unassigned" ? !event.editor_id : event.editor_id === editorFilter);
@@ -424,8 +428,16 @@ export default function PostProductionTable() {
     return rows;
   }, [filteredWeddings, earlyEvents, sortColumn, sortDirection, searchQuery, statusFilter, editorFilter]);
 
-  const totalPages = Math.ceil(sortedRows.length / itemsPerPage);
-  const paginatedWeddings = sortedRows.slice(
+  const pipelineRows = sortedRows.filter(
+    (row: any) => (row.editing_status || "") !== "delivered",
+  );
+  const archiveRows = sortedRows.filter(
+    (row: any) => (row.editing_status || "") === "delivered",
+  );
+  const visibleRows = listTab === "archive" ? archiveRows : pipelineRows;
+
+  const totalPages = Math.ceil(visibleRows.length / itemsPerPage);
+  const paginatedWeddings = visibleRows.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage,
   );
@@ -801,6 +813,31 @@ export default function PostProductionTable() {
           )}
         </DialogContent>
       </Dialog>
+
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          variant={listTab === "pipeline" ? "default" : "outline"}
+          size="sm"
+          onClick={() => {
+            setListTab("pipeline");
+            setCurrentPage(1);
+          }}
+        >
+          Pipeline ({pipelineRows.length})
+        </Button>
+        <Button
+          type="button"
+          variant={listTab === "archive" ? "default" : "outline"}
+          size="sm"
+          onClick={() => {
+            setListTab("archive");
+            setCurrentPage(1);
+          }}
+        >
+          Delivered archive ({archiveRows.length})
+        </Button>
+      </div>
 
       <div className="space-y-3 md:hidden">
         {isLoading ? (
