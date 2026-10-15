@@ -88,6 +88,7 @@ import { ClientPrepSheetGenerator } from "@/components/ClientPrepSheetGenerator"
 import { ManageWeddingSheet } from "@/pages/manager/Weddings";
 import { RoyaltyHealthAlert } from "@/components/RoyaltyHealthAlert";
 import { OffPlatformActionItems } from "@/components/OffPlatformActionItems";
+import { PendingPayoutActionItems, usePendingExtraPayouts } from "@/components/PendingPayoutActionItems";
 import {
   Accordion,
   AccordionItem,
@@ -96,6 +97,7 @@ import {
 } from "@/components/ui/accordion";
 
 export default function ManagerDashboard() {
+  const { editorRows, salesRows } = usePendingExtraPayouts();
   const [reviewApp, setReviewApp] = useState<any>(null);
   const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
   const [messageRecipientType, setMessageRecipientType] = useState("all");
@@ -1333,6 +1335,8 @@ export default function ManagerDashboard() {
               pendingAppsGrouped.length > 0 ||
               hiringItemsCount > 0 ||
               pendingPayoutsList.length > 0 ||
+              editorRows.length > 0 ||
+              salesRows.length > 0 ||
               missingDriveLinksList.length > 0 ||
               missingUploadLinksList.length > 0 ||
               weddings.some(
@@ -1820,6 +1824,8 @@ export default function ManagerDashboard() {
                     </AccordionContent>
                   </AccordionItem>
                 )}
+
+                <PendingPayoutActionItems />
 
                 {/* Missing Drive Links Group */}
                 {missingDriveLinksList.length > 0 && (
