@@ -6,6 +6,7 @@ import {
   Pencil,
   CheckCircle,
   Users,
+  TimerOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TableCell } from "@/components/ui/table";
@@ -32,6 +33,7 @@ interface Props {
   onReview: (proposal: any) => void;
   onArchive: (id: string) => void;
   onRestore: (id: string) => void;
+  onExpire: (proposal: any) => void;
   plain?: boolean;
 }
 
@@ -51,6 +53,7 @@ export function ProposalRowActions({
   onReview,
   onArchive,
   onRestore,
+  onExpire,
   plain,
 }: Props) {
   const Wrap = plain ? "div" : TableCell;
@@ -113,6 +116,38 @@ export function ProposalRowActions({
             >
               <ExternalLink className="w-4 h-4" />
             </Button>
+            {proposal.status !== "accepted" &&
+              proposal.status !== "paid" &&
+              proposal.status !== "archived" &&
+              proposal.status !== "superseded" &&
+              !(
+                proposal.sent_at &&
+                proposal.expires_at &&
+                new Date(proposal.expires_at) < new Date()
+              ) && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="ghost" size="icon" title="Expire now">
+                      <TimerOff className="w-4 h-4" />
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Expire this proposal now?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        The client will not be able to sign or pay, even if time
+                        is still left. You can extend the deadline later.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => onExpire(proposal)}>
+                        Expire now
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
           </>
         )}
         {proposal.status === "archived" ? (

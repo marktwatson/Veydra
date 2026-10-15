@@ -7,6 +7,7 @@ import {
   Send,
   Clock,
   Loader2,
+  TimerOff,
 } from "lucide-react";
 import { ReviseProposalDialog } from "@/components/ReviseProposalDialog";
 export { ProposalCoverageBlock } from "@/components/ProposalCoverageBlock";
@@ -15,7 +16,19 @@ import {
   describeSendResult,
 } from "@/lib/send-proposal-api";
 import { useCountdown } from "@/lib/proposal-countdown";
+import { isBooked } from "@/lib/proposal-tabs";
 import { useToast } from "@/hooks/use-toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 /**
  * Renders the Edit + Preview buttons plus "Revise package", "Send to
@@ -27,11 +40,13 @@ export function ProposalSheetActions({
   proposal,
   onEdit,
   onPreview,
+  onExpire,
   onRefresh,
 }: {
   proposal: any;
   onEdit: () => void;
   onPreview: () => void;
+  onExpire: () => void;
   onRefresh: () => void;
 }) {
   const [reviseOpen, setReviseOpen] = useState(false);
@@ -52,6 +67,13 @@ export function ProposalSheetActions({
     ? new Date(proposal.expires_at).getTime() - Date.now()
     : 0;
   const liveUrgent = liveMs > 0 && liveMs < 2 * 60 * 60 * 1000;
+  const canExpire =
+    !isBooked(proposal) &&
+    proposal?.status !== "accepted" &&
+    proposal?.status !== "paid" &&
+    proposal?.status !== "archived" &&
+    proposal?.status !== "superseded" &&
+    !expired;
 
   const handleSend = async (opts: { resend?: boolean; extend?: boolean }) => {
     if (!proposal?.id) return;
@@ -143,6 +165,31 @@ export function ProposalSheetActions({
               <Clock className="w-3 h-3 mr-1" /> Extend
             </Button>
           </div>
+        )}
+
+        {canExpire && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="outline" size="sm" className="text-destructive">
+                <TimerOff className="w-4 h-4 mr-2" /> Expire proposal now
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Expire this proposal now?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  The client will not be able to sign or pay, even if time is
+                  still left. You can extend the deadline later.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={onExpire}>
+                  Expire now
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         )}
 
         {!sent && (

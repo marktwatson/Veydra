@@ -74,6 +74,7 @@ export default function ManagerProposals() {
     searchParams.get("tab") === "coverage" ? "coverage" : "all",
   );
   const [detailProposal, setDetailProposal] = useState<any | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -130,13 +131,61 @@ export default function ManagerProposals() {
   };
 
   // Open the proposal review page using that area's app_url (not the browser
-  // origin). Falls back to window.location.origin when app_url is empty.
-  const openProposalPreview = async (id: string, list: any[]) => {
+  // origin). On a phone, a new tab is blocked, so the preview stays in the app.
+  const openProposalPreview = (id: string, list: any[]) => {
     const proposal = list.find((p) => p.id === id);
-    const link = await buildProposalLink(id, proposal?.territory_id, (t) =>
-      toast(t),
+    const onPhone = window.matchMedia("(max-width: 767px)").matches;
+    const popup = onPhone ? null : window.open("about:blank", "_blank");
+    void (async () => {
+      try {
+        const link = await buildProposalLink(id, proposal?.territory_id, (t) =>
+          toast(t),
+        );
+        if (popup && !popup.closed) {
+          popup.location.replace(link);
+          return;
+        }
+        popup?.close();
+        setPreviewUrl(link);
+      } catch (err: any) {
+        popup?.close();
+        toast({
+          title: "Preview failed",
+          description: err?.message || "Could not open that proposal.",
+          variant: "destructive",
+        });
+      }
+    })();
+  };
+
+  const expireProposal = async (proposal: any) => {
+    const past = new Date(Date.now() - 60_000).toISOString();
+    const patch: { expires_at: string; sent_at?: string } = { expires_at: past };
+    if (!proposal?.sent_at) patch.sent_at = past;
+    const { error } = await supabase
+      .from("proposals")
+      .update(patch)
+      .eq("id", proposal.id);
+    if (error) {
+      toast({
+        title: "Could not expire the proposal",
+        description: error.message,
+        variant: "destructive",
+      });
+      return;
+    }
+    api.logAdminActivity(
+      "Proposal Expired",
+      `Expired proposal ${proposal.id} for ${proposal.client_name || "a client"}`,
     );
-    window.open(link, "_blank");
+    setDetailProposal((current) =>
+      current?.id === proposal.id ? { ...current, ...patch } : current,
+    );
+    toast({
+      title: "Proposal expired",
+      description: "The client link is closed. It is in the Expired tab.",
+    });
+    refresh();
   };
 
   const setProposalStatus = async (id: string, status: string) => {
@@ -396,6 +445,7 @@ export default function ManagerProposals() {
                       onReview={setDetailProposal}
                       onArchive={(id) => setProposalStatus(id, "archived")}
                       onRestore={(id) => setProposalStatus(id, "viewed")}
+                      onExpire={expireProposal}
                     />
                   </div>
                 );
@@ -549,6 +599,7 @@ export default function ManagerProposals() {
                           onReview={setDetailProposal}
                           onArchive={(id) => setProposalStatus(id, "archived")}
                           onRestore={(id) => setProposalStatus(id, "viewed")}
+                          onExpire={expireProposal}
                         />
                       </TableRow>
                     );
@@ -715,6 +766,7 @@ export default function ManagerProposals() {
                   onPreview={() =>
                     openProposalPreview(detailProposal.id, [detailProposal])
                   }
+                  onExpire={() => expireProposal(detailProposal)}
                   onRefresh={refresh}
                 />
               </div>
@@ -722,6 +774,30 @@ export default function ManagerProposals() {
           )}
         </SheetContent>
       </Sheet>
+      {previewUrl && (
+        <div className="fixed inset-0 z-[80] flex flex-col bg-background">
+          <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
+            <Button variant="ghost" size="sm" onClick={() => setPreviewUrl(null)}>
+              Close
+            </Button>
+            <span className="text-sm font-medium">Proposal preview</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                window.location.href = previewUrl;
+              }}
+            >
+              Open
+            </Button>
+          </div>
+          <iframe
+            title="Proposal preview"
+            src={previewUrl}
+            className="min-h-0 w-full flex-1 border-0"
+          />
+        </div>
+      )}
     </div>
   );
 }
