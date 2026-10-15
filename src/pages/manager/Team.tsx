@@ -492,7 +492,12 @@ export default function ManagerTeam() {
                     {manager.role === "editor" && (
                       <span className="rounded-md border px-2 py-1">
                         {manager.stripe_account_id
-                          ? "Stripe Connected"
+                          ? `Stripe Connected${
+                              Array.isArray(manager.payout_territory_ids) &&
+                              manager.payout_territory_ids.length > 0
+                                ? ` · ${manager.payout_territory_ids.map((tid: string) => territoryNameById(tid)).join(", ")}`
+                                : ""
+                            }`
                           : manager.venmo_handle
                             ? "Venmo Added"
                             : "No Payment Info"}
@@ -620,6 +625,10 @@ export default function ManagerTeam() {
                           manager.stripe_account_id ? (
                             <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20 whitespace-nowrap">
                               Stripe Connected
+                              {Array.isArray(manager.payout_territory_ids) &&
+                              manager.payout_territory_ids.length > 0
+                                ? ` · ${manager.payout_territory_ids.map((tid: string) => territoryNameById(tid)).join(", ")}`
+                                : ""}
                             </span>
                           ) : manager.venmo_handle ? (
                             <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20 whitespace-nowrap">

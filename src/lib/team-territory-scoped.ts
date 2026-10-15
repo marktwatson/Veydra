@@ -77,6 +77,34 @@ export async function loadTeamForTerritory(): Promise<any[]> {
 
   const list = Array.from(uniqueMap.values());
 
+  const editorIds = editors.map((ed) => ed.id).filter(Boolean);
+  let payouts: { editor_id: string; territory_id: string; stripe_account_id: string }[] = [];
+  if (editorIds.length > 0) {
+    const { data: payoutRows } = await supabase
+      .from("editor_payout_accounts")
+      .select("editor_id, territory_id, stripe_account_id")
+      .in("editor_id", editorIds);
+    payouts = payoutRows || [];
+  }
+  const editorIdsByEmail = new Map<string, string[]>();
+  editors.forEach((ed) => {
+    const email = ed.email?.trim().toLowerCase();
+    if (!email || !ed.id) return;
+    const ids = editorIdsByEmail.get(email) || [];
+    ids.push(ed.id);
+    editorIdsByEmail.set(email, ids);
+  });
+  list.forEach((item) => {
+    if (item.role !== "editor") return;
+    const email = item.email?.trim().toLowerCase();
+    const ids = new Set<string>([item.id, ...(email ? editorIdsByEmail.get(email) || [] : [])]);
+    const mine = payouts.filter((row) => ids.has(row.editor_id) && row.stripe_account_id);
+    if (mine.length > 0) {
+      item.stripe_account_id = item.stripe_account_id || mine[0].stripe_account_id;
+      item.payout_territory_ids = Array.from(new Set(mine.map((row) => row.territory_id).filter(Boolean)));
+    }
+  });
+
   // Auto-reconcile remaining invited status if the user has an active record.
   for (const item of list) {
     if (item.status === "invited" && item.email) {
