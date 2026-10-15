@@ -23,7 +23,7 @@ import {
 import { useProposalConfetti } from "@/lib/use-proposal-confetti";
 import { ProposalContractStep } from "@/components/ProposalContractStep";
 import { ProposalPayStep } from "@/components/ProposalPayStep";
-import { ProposalExpiryBanner } from "@/components/ProposalExpiryBanner";
+import { ProposalExpiryBanner, shouldHideForExpiry } from "@/components/ProposalExpiryBanner";
 import { ProposalPackageFeatures } from "@/components/ProposalPackageFeatures";
 import { ProposalSuccessScreen } from "@/components/ProposalSuccessScreen";
 
@@ -189,6 +189,18 @@ export default function ProposalReview() {
 
   if (isSuccess) {
     return <ProposalSuccessScreen clientName={proposal.client_name} />;
+  }
+
+  const booked =
+    proposal.status === "accepted" ||
+    proposal.status === "paid" ||
+    proposal.status === "upcoming";
+  if (shouldHideForExpiry(proposal, booked)) {
+    return (
+      <div className="min-h-screen bg-stone-50 dark:bg-stone-950">
+        <ProposalExpiryBanner proposal={proposal} isBooked={booked} />
+      </div>
+    );
   }
 
   return (

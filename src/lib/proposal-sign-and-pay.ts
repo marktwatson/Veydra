@@ -4,6 +4,7 @@ import { saveContractSnapshotOnSign } from "./contract-snapshot";
 import { createGhlInvoice } from "./ghl-invoice-api";
 import { ensureWeddingForProposal } from "./proposal-wedding";
 import { checkCustomPlanBalance } from "./custom-plan-balance";
+import { isProposalExpired } from "./proposal-countdown";
 import {
   buildInstallments,
   buildWeddingCustomPlan,
@@ -62,6 +63,10 @@ export async function signAndPayProposal(params: {
   signOnly?: boolean;
 }): Promise<SignAndPayResult> {
   const { proposal, signature, paymentPlan, calculatePaymentAmount } = params;
+
+  if (isProposalExpired(proposal)) {
+    throw new Error("This proposal has expired.");
+  }
 
   if (
     signature.trim().toLowerCase().replace(/\s+/g, "") !==

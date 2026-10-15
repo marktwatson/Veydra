@@ -85,15 +85,16 @@ export function useProposalResume(
       try {
         const snapshotChanged = hasContractSnapshotChanged(proposal);
 
-        // Expired proposal (sent + past expires_at) and not booked → expired
-        // overlay. Checked first so the bride sees it before sign/pay.
+        // Expired, archived, or past the deadline, and not booked.
+        // Checked first so the bride sees it before sign/pay.
         if (
-          proposal.sent_at &&
-          proposal.expires_at &&
-          new Date(proposal.expires_at) < new Date() &&
           proposal.status !== "accepted" &&
           proposal.status !== "paid" &&
-          proposal.status !== "upcoming"
+          proposal.status !== "upcoming" &&
+          (proposal.status === "archived" ||
+            proposal.status === "expired" ||
+            (proposal.expires_at &&
+              new Date(proposal.expires_at) < new Date()))
         ) {
           setResume({
             state: "expired",

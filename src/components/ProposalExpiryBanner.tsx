@@ -18,8 +18,8 @@ export function ProposalExpiryBanner({
   proposal: any;
   isBooked: boolean;
 }) {
+  const expired = isProposalExpired(proposal) && !isBooked;
   const sent = !!proposal?.sent_at;
-  const expired = sent && isProposalExpired(proposal) && !isBooked;
   const { remaining, isExpired } = useCountdown(
     sent && !expired ? proposal?.expires_at : null,
   );
@@ -65,5 +65,5 @@ export function ProposalExpiryBanner({
 /** Returns true when the proposal is expired + not booked (overlay should
  *  hide all page content including Sign & Pay). */
 export function shouldHideForExpiry(proposal: any, isBooked: boolean): boolean {
-  return !!proposal?.sent_at && isProposalExpired(proposal) && !isBooked;
+  return isProposalExpired(proposal) && !isBooked;
 }

@@ -85,11 +85,18 @@ export async function loadProposalAndBranding(id: string): Promise<{
     };
   }
 
-  // 2) Mark as viewed if first time opening.
+  // 2) Mark as viewed if first time opening. Never un-archive or reopen a
+  //    proposal whose deadline has already passed.
+  const deadlinePassed =
+    !!proposalData.expires_at &&
+    new Date(proposalData.expires_at) < new Date();
   if (
     !proposalData.viewed_at &&
+    !deadlinePassed &&
     proposalData.status !== "accepted" &&
-    proposalData.status !== "paid"
+    proposalData.status !== "paid" &&
+    proposalData.status !== "archived" &&
+    proposalData.status !== "expired"
   ) {
     const viewedAt = new Date().toISOString();
     await supabase

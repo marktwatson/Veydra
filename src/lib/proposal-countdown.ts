@@ -56,15 +56,19 @@ export function useCountdown(expiresAt: string | null | undefined): {
 }
 
 /**
- * True when the proposal is sent + past expires_at + not booked.
+ * True when the client should not be able to review, sign, or pay.
+ * A past deadline counts even if the proposal was never marked sent.
+ * Archived counts too. Booked proposals stay open.
  */
 export function isProposalExpired(proposal: any): boolean {
-  if (!proposal?.sent_at || !proposal?.expires_at) return false;
   if (
-    proposal.status === "accepted" ||
-    proposal.status === "paid" ||
-    proposal.status === "upcoming"
+    proposal?.status === "accepted" ||
+    proposal?.status === "paid" ||
+    proposal?.status === "upcoming"
   )
     return false;
+  if (proposal?.status === "archived" || proposal?.status === "expired")
+    return true;
+  if (!proposal?.expires_at) return false;
   return new Date(proposal.expires_at) < new Date();
 }
