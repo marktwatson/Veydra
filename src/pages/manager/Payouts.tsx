@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { currentTerritoryId } from "@/lib/current-territory";
+import { repriceUnpaidInvoice } from "@/lib/edit-tracks";
 import {
   Card,
   CardContent,
@@ -160,6 +161,7 @@ export default function ManagerPayouts() {
           editor_invoice_status: event.edit_details.invoice_status,
           editor_payout_amount: event.edit_details.invoice_amount,
           editor_invoice_details: event.edit_details.invoice,
+          edit_details: event.edit_details,
         }));
     },
   });
@@ -384,7 +386,15 @@ export default function ManagerPayouts() {
       if (event?.edit_details?.invoice_status) {
         const editor = editors.find((e) => e.id === event.editor_id);
         if (!editor) throw new Error("Editor not found");
-        const amount = event.edit_details.invoice_amount || 0;
+        const priced = repriceUnpaidInvoice(
+          {
+            editor_invoice_status: event.edit_details.invoice_status,
+            editor_payout_amount: event.edit_details.invoice_amount,
+            editor_invoice_details: event.edit_details.invoice,
+          },
+          editor.email,
+        );
+        const amount = Number(priced.editor_payout_amount || 0);
         const name = `${event.weddings?.client_name || "Wedding"} · ${event.title || "Event"}`;
         if (paymentMethod === "Stripe") {
           const stripeAccountId = await stripeAccountForEditor(editor, currentTerritoryId());
@@ -398,7 +408,14 @@ export default function ManagerPayouts() {
         }
         const { error } = await supabase
           .from("wedding_events")
-          .update({ edit_details: { ...event.edit_details, invoice_status: "paid" } })
+          .update({
+            edit_details: {
+              ...event.edit_details,
+              invoice_status: "paid",
+              invoice_amount: amount,
+              invoice: priced.editor_invoice_details,
+            },
+          })
           .eq("id", id);
         if (error) throw error;
         return;
@@ -416,7 +433,15 @@ export default function ManagerPayouts() {
         if (!wedding) throw new Error("Wedding not found");
         const editor = editors.find((e) => e.id === wedding[`${track}_editor_id`]);
         if (!editor) throw new Error("Editor not found");
-        const amount = Number(wedding[`${track}_payout_amount`] || 0);
+        const priced = repriceUnpaidInvoice(
+          {
+            editor_invoice_status: wedding[`${track}_invoice_status`],
+            editor_payout_amount: wedding[`${track}_payout_amount`],
+            editor_invoice_details: wedding[`${track}_invoice_details`],
+          },
+          editor.email,
+        );
+        const amount = Number(priced.editor_payout_amount || 0);
         if (paymentMethod === "Stripe") {
           const stripeAccountId = await stripeAccountForEditor(editor, wedding.territory_id);
           if (!stripeAccountId) throw new Error(STRIPE_MISSING);
@@ -430,7 +455,11 @@ export default function ManagerPayouts() {
             );
           }
         }
-        await api.updateWedding(weddingId, { [`${track}_invoice_status`]: "paid" } as any);
+        await api.updateWedding(weddingId, {
+          [`${track}_invoice_status`]: "paid",
+          [`${track}_payout_amount`]: amount,
+          [`${track}_invoice_details`]: priced.editor_invoice_details,
+        } as any);
         return;
       }
 
@@ -440,10 +469,11 @@ export default function ManagerPayouts() {
       const editor = editors.find((e) => e.id === wedding.editor_id);
       if (!editor) throw new Error("Editor not found");
 
+      const priced = repriceUnpaidInvoice(wedding, editor.email);
+      const amount = Number(priced.editor_payout_amount || 0);
       if (paymentMethod === "Stripe") {
         const stripeAccountId = await stripeAccountForEditor(editor, wedding.territory_id);
         if (!stripeAccountId) throw new Error(STRIPE_MISSING);
-        const amount = wedding.editor_payout_amount || 0;
         if (amount > 0) {
           await api.processStripePayout(
             amount,
@@ -455,10 +485,13 @@ export default function ManagerPayouts() {
         }
       }
 
-      await api.updateWedding(id, { editor_invoice_status: "paid" });
+      await api.updateWedding(id, {
+        editor_invoice_status: "paid",
+        editor_payout_amount: amount,
+        editor_invoice_details: priced.editor_invoice_details,
+      });
 
       if (editor.email) {
-        const amount = wedding.editor_payout_amount || 0;
         const html = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px"><h2>Payment Processed</h2><p>Hi ${editor.name || "Editor"},</p><p>Your invoice for <strong>${wedding.client_name}</strong> has been approved.</p><p>A payment of <strong>$${amount}</strong> has been processed via <strong>${paymentMethod}</strong>.</p><p>Thank you for your work!</p></div>`;
         try {
           await api.sendOvantaEmail(
@@ -528,7 +561,87 @@ export default function ManagerPayouts() {
       return rows;
     }),
     ...eventEditorInvoices,
-  ];
+  ].map((row) =>
+    repriceUnpaidInvoice(
+      row,
+      editors.find((editor) => editor.id === row.editor_id)?.email,
+    ),
+  );
+
+  const repricedInvoiceIds = useRef(new Set<string>());
+  useEffect(() => {
+    const jobs: Promise<any>[] = [];
+    for (const wedding of weddings) {
+      if (!wedding.edit_split) {
+        const priced = repriceUnpaidInvoice(
+          wedding,
+          editors.find((editor) => editor.id === wedding.editor_id)?.email,
+        );
+        if (priced._repriced && !repricedInvoiceIds.current.has(wedding.id)) {
+          repricedInvoiceIds.current.add(wedding.id);
+          jobs.push(
+            api.updateWedding(wedding.id, {
+              editor_payout_amount: priced.editor_payout_amount,
+              editor_invoice_details: priced.editor_invoice_details,
+            }),
+          );
+        }
+      } else if (
+        wedding.photo_invoice_status === "pending" ||
+        wedding.photo_invoice_status === "approved"
+      ) {
+        const priced = repriceUnpaidInvoice(
+          {
+            editor_invoice_status: wedding.photo_invoice_status,
+            editor_payout_amount: wedding.photo_payout_amount,
+            editor_invoice_details: wedding.photo_invoice_details,
+          },
+          editors.find((editor) => editor.id === wedding.photo_editor_id)?.email,
+        );
+        if (priced._repriced && !repricedInvoiceIds.current.has(`${wedding.id}:photo`)) {
+          repricedInvoiceIds.current.add(`${wedding.id}:photo`);
+          jobs.push(
+            api.updateWedding(wedding.id, {
+              photo_payout_amount: priced.editor_payout_amount,
+              photo_invoice_details: priced.editor_invoice_details,
+            } as any),
+          );
+        }
+      }
+    }
+    for (const event of eventEditorInvoices) {
+      const priced = repriceUnpaidInvoice(
+        event,
+        editors.find((editor) => editor.id === event.editor_id)?.email,
+      );
+      if (priced._repriced && event.edit_details && !repricedInvoiceIds.current.has(event.id)) {
+        repricedInvoiceIds.current.add(event.id);
+        jobs.push(
+          supabase
+            .from("wedding_events")
+            .update({
+              edit_details: {
+                ...event.edit_details,
+                invoice_amount: priced.editor_payout_amount,
+                invoice: priced.editor_invoice_details,
+              },
+            })
+            .eq("id", event.id)
+            .then(() => undefined),
+        );
+      }
+    }
+    if (jobs.length === 0) return;
+    let cancelled = false;
+    Promise.all(jobs).then(() => {
+      if (cancelled) return;
+      queryClient.invalidateQueries({ queryKey: ["weddings"] });
+      queryClient.invalidateQueries({ queryKey: ["event-editor-invoices"] });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [weddings, editors, eventEditorInvoices, queryClient]);
   const pendingEditorInvoices = editorInvoices.filter(
     (w) =>
       w.editor_invoice_status === "pending" ||

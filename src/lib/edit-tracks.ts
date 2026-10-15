@@ -7,6 +7,35 @@ export function photoEditRate(email?: string | null) {
   return String(email || "").trim().toLowerCase() === KAVOD_EDITOR_EMAIL ? 0.15 : 0.12;
 }
 
+/** Reprice an unpaid Kavod photo invoice. Paid invoices and other editors stay as saved. */
+export function repriceUnpaidInvoice(row: any, email?: string | null) {
+  const details = row?.editor_invoice_details;
+  const status = row?.editor_invoice_status;
+  const count = Number(details?.photoCount || 0);
+  const unpaid = status === "pending" || status === "approved";
+  if (!unpaid || photoEditRate(email) !== 0.15 || !details || count <= 0) {
+    return { ...row, _repriced: false };
+  }
+  const videos = Array.isArray(details.videos) ? details.videos : [];
+  const videoTotal = videos.reduce((sum: number, video: any) => sum + Number(video?.price || 0), 0);
+  const photoTotal = Math.round(count * 0.15 * 100) / 100;
+  const amount = Math.round((photoTotal + videoTotal) * 100) / 100;
+  const changed =
+    Math.abs(amount - Number(row.editor_payout_amount || 0)) >= 0.01 ||
+    Number(details.photoRate) !== 0.15;
+  return {
+    ...row,
+    _repriced: changed,
+    editor_payout_amount: amount,
+    editor_invoice_details: {
+      ...details,
+      photoRate: 0.15,
+      photoTotal,
+      videoTotal,
+    },
+  };
+}
+
 const RANK: Record<string, number> = {
   revisions_requested: 1,
   ready_to_edit: 2,

@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { getWeddingsForEditor, companyNamesByTerritory, editorIdsForLogin } from "@/lib/editor-weddings";
-import { presentEditorWedding } from "@/lib/edit-tracks";
+import { presentEditorWedding, repriceUnpaidInvoice } from "@/lib/edit-tracks";
 import {
   Card,
   CardContent,
@@ -307,6 +307,7 @@ export default function EditorInvoices() {
   };
 
   const renderInvoiceCard = (wedding: any) => {
+    const priced = repriceUnpaidInvoice(wedding, user?.email);
     const style = companyStyle(
       Math.max(
         0,
@@ -338,7 +339,7 @@ export default function EditorInvoices() {
             </div>
             <div className="text-right shrink-0">
               <div className="text-xl font-bold text-green-600 dark:text-green-500">
-                ${wedding.editor_payout_amount}
+                ${priced.editor_payout_amount}
               </div>
               <div className="mt-1">
                 <Badge
@@ -361,21 +362,21 @@ export default function EditorInvoices() {
           </div>
         </CardHeader>
         <CardContent className="py-4 space-y-2">
-          {wedding.editor_invoice_details?.photoCount > 0 && (
+          {priced.editor_invoice_details?.photoCount > 0 && (
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Photos Edited:</span>
               <span className="font-medium">
-                {wedding.editor_invoice_details.photoCount} ($
-                {wedding.editor_invoice_details.photoTotal?.toFixed(2)})
+                {priced.editor_invoice_details.photoCount} ($
+                {priced.editor_invoice_details.photoTotal?.toFixed(2)})
               </span>
             </div>
           )}
-          {wedding.editor_invoice_details?.videos?.length > 0 && (
+          {priced.editor_invoice_details?.videos?.length > 0 && (
             <div className="space-y-1 mt-2">
               <span className="text-muted-foreground text-sm">
                 Videos Edited:
               </span>
-              {wedding.editor_invoice_details.videos.map(
+              {priced.editor_invoice_details.videos.map(
                 (v: any, idx: number) => (
                   <div
                     key={idx}

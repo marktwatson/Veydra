@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { currentTerritoryId } from "@/lib/current-territory";
 import { feeFor, getSalespersonSendFees } from "@/lib/salesperson-payouts";
+import { repriceUnpaidInvoice } from "@/lib/edit-tracks";
 import { Button } from "@/components/ui/button";
 import {
   AccordionItem,
@@ -64,6 +65,8 @@ export function usePendingExtraPayouts() {
 
   const editorName = (id?: string | null) =>
     editors.find((e: any) => e.id === id)?.name || "Editor";
+  const editorEmail = (id?: string | null) =>
+    editors.find((e: any) => e.id === id)?.email || "";
 
   const inArea = (w: any) => !territoryId || !w.territory_id || w.territory_id === territoryId;
   const open = (status?: string | null) => status === "pending" || status === "approved";
@@ -72,19 +75,28 @@ export function usePendingExtraPayouts() {
   for (const w of weddings as any[]) {
     if (!inArea(w)) continue;
     if (!w.edit_split && open(w.editor_invoice_status)) {
+      const priced = repriceUnpaidInvoice(w, editorEmail(w.editor_id));
       editorRows.push({
         id: w.id,
         who: editorName(w.editor_id),
         detail: w.client_name || "Wedding",
-        amount: Number(w.editor_payout_amount || 0),
+        amount: Number(priced.editor_payout_amount || 0),
       });
     }
     if (w.edit_split && open(w.photo_invoice_status)) {
+      const priced = repriceUnpaidInvoice(
+        {
+          editor_invoice_status: w.photo_invoice_status,
+          editor_payout_amount: w.photo_payout_amount,
+          editor_invoice_details: w.photo_invoice_details,
+        },
+        editorEmail(w.photo_editor_id),
+      );
       editorRows.push({
         id: `${w.id}:photo`,
         who: editorName(w.photo_editor_id),
         detail: `${w.client_name || "Wedding"} · Photo`,
-        amount: Number(w.photo_payout_amount || 0),
+        amount: Number(priced.editor_payout_amount || 0),
       });
     }
     if (w.edit_split && open(w.video_invoice_status)) {

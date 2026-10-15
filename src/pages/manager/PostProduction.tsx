@@ -52,7 +52,7 @@ import {
   Send,
 } from "lucide-react";
 import { formatDisplayDate } from "@/lib/utils";
-import { combinedEditingStatus } from "@/lib/edit-tracks";
+import { combinedEditingStatus, repriceUnpaidInvoice } from "@/lib/edit-tracks";
 import {
   Pagination,
   PaginationContent,
@@ -546,8 +546,17 @@ export default function PostProductionTable() {
 
   const handleApproveInvoice = () => {
     if (!reviewWedding) return;
+    const editor = editors.find((item) => item.id === reviewWedding.editor_id);
+    const priced = repriceUnpaidInvoice(reviewWedding, editor?.email);
     updateWeddingMutation.mutate(
-      { id: reviewWedding.id, updates: { editor_invoice_status: "approved" } },
+      {
+        id: reviewWedding.id,
+        updates: {
+          editor_invoice_status: "approved",
+          editor_payout_amount: priced.editor_payout_amount,
+          editor_invoice_details: priced.editor_invoice_details,
+        },
+      },
       {
         onSuccess: () => {
           setIsReviewModalOpen(false);
@@ -2028,7 +2037,11 @@ export default function PostProductionTable() {
           <DialogHeader>
             <DialogTitle>Review Editor Invoice</DialogTitle>
           </DialogHeader>
-          {reviewWedding && reviewWedding.editor_invoice_details && (
+          {reviewWedding && reviewWedding.editor_invoice_details && (() => {
+            const editor = editors.find((item) => item.id === reviewWedding.editor_id);
+            const priced = repriceUnpaidInvoice(reviewWedding, editor?.email);
+            const details = priced.editor_invoice_details;
+            return (
             <div className="space-y-6 py-4">
               <div className="space-y-4">
                 <div className="bg-muted/50 p-4 rounded-lg border">
@@ -2037,19 +2050,18 @@ export default function PostProductionTable() {
                   </h3>
                   <div className="flex items-center justify-between">
                     <div className="text-sm">
-                      {reviewWedding.editor_invoice_details.photoCount} images @
+                      {details.photoCount} images @
                       $
                       {Number(
-                        reviewWedding.editor_invoice_details.photoRate ||
-                          (reviewWedding.editor_invoice_details.photoCount
-                            ? reviewWedding.editor_invoice_details.photoTotal /
-                              reviewWedding.editor_invoice_details.photoCount
+                        details.photoRate ||
+                          (details.photoCount
+                            ? details.photoTotal / details.photoCount
                             : 0.12),
                       ).toFixed(2)}
                     </div>
                     <div className="font-semibold">
                       $
-                      {reviewWedding.editor_invoice_details.photoTotal?.toFixed(
+                      {details.photoTotal?.toFixed(
                         2,
                       )}
                     </div>
@@ -2060,13 +2072,13 @@ export default function PostProductionTable() {
                   <h3 className="font-semibold flex items-center gap-2">
                     <Video className="h-4 w-4" /> Videos Edited
                   </h3>
-                  {reviewWedding.editor_invoice_details.videos?.length === 0 ? (
+                  {details.videos?.length === 0 ? (
                     <div className="text-sm text-muted-foreground italic">
                       No videos included.
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {reviewWedding.editor_invoice_details.videos?.map(
+                      {details.videos?.map(
                         (v: any, i: number) => (
                           <div
                             key={i}
@@ -2088,7 +2100,7 @@ export default function PostProductionTable() {
                     Total Payout
                   </div>
                   <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-500">
-                    ${reviewWedding.editor_payout_amount?.toFixed(2)}
+                    ${Number(priced.editor_payout_amount || 0).toFixed(2)}
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -2113,7 +2125,8 @@ export default function PostProductionTable() {
                 </div>
               </div>
             </div>
-          )}
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </div>
