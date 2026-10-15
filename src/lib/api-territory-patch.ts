@@ -93,11 +93,12 @@ export function patchApiForTerritory(): void {
       })();
     if (role === "editor") {
       const editorId = impersonated?.id;
-      if (editorId) return getWeddingsForEditor(editorId);
+      const editorEmail = impersonated?.email;
+      if (editorId) return getWeddingsForEditor(editorId, editorEmail);
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (user?.id) return getWeddingsForEditor(user.id);
+      if (user?.id) return getWeddingsForEditor(user.id, user.email || undefined);
       return [];
     }
     const tid = await currentTerritoryId();

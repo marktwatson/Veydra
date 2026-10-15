@@ -232,7 +232,7 @@ export default function EditorDashboard() {
 
   const { data: weddings = [], isLoading } = useQuery({
     queryKey: ["editor-weddings", user?.id],
-    queryFn: () => getWeddingsForEditor(user!.id),
+    queryFn: () => getWeddingsForEditor(user!.id, user?.email),
     enabled: !!user?.id,
   });
 
@@ -240,7 +240,7 @@ export default function EditorDashboard() {
     queryKey: ["editor-early-events", user?.id],
     enabled: !!user?.id,
     queryFn: async () => {
-      const editorIds = new Set(await editorIdsForLogin(user!.id));
+      const editorIds = new Set(await editorIdsForLogin(user!.id, user?.email));
       const { data, error } = await supabase
         .from("wedding_events")
         .select("id, title, event_type, event_date, edit_status, edit_due_date, editor_id, edit_details, wedding_id, weddings(client_name, date, editor_id, territory_id)")

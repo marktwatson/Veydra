@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { isSuperAdminEmail } from "@/lib/super-admin";
 import { HONEYSUCKLE_TERRITORY_ID } from "@/lib/territory";
 import { loadTeamForTerritory } from "@/lib/team-territory-scoped";
+import { findEditorAccount } from "@/lib/auth-helpers";
 import { TeamAddAdminDialog } from "@/components/TeamAddAdminDialog";
 import { TeamEditAdminDialog } from "@/components/TeamEditAdminDialog";
 import { TeamDeleteAdminDialog } from "@/components/TeamDeleteAdminDialog";
@@ -323,14 +324,23 @@ export default function ManagerTeam() {
     let targetRole = manager.role || "manager";
     if (targetRole === "super_admin") targetRole = "super_admin";
     if (targetRole === "owner_readonly") targetRole = "owner_readonly";
+    let targetId = manager.id;
+    let targetName = manager.name;
+    if (targetRole === "editor") {
+      const editor = await findEditorAccount(manager.id, manager.email);
+      if (editor?.id) {
+        targetId = editor.id;
+        targetName = editor.name || targetName;
+      }
+    }
     const opensAnArea =
       targetRole === "manager" ||
       targetRole === "owner" ||
       targetRole === "owner_readonly";
     if (opensAnArea) stashViewArea();
     impersonate({
-      id: manager.id,
-      name: manager.name,
+      id: targetId,
+      name: targetName,
       email: manager.email,
       role: targetRole as any,
     });

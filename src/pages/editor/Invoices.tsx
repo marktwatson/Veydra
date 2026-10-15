@@ -107,7 +107,7 @@ export default function EditorInvoices() {
   // Editor invoices are scoped by assignment (editor_id), across ALL areas.
   const { data: weddings = [], isLoading: isWeddingsLoading } = useQuery({
     queryKey: ["editor-weddings"],
-    queryFn: () => getWeddingsForEditor(user?.id || ""),
+    queryFn: () => getWeddingsForEditor(user?.id || "", user?.email),
     enabled: !!user?.id,
   });
 

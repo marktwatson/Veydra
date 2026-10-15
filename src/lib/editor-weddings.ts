@@ -19,19 +19,22 @@ function parseRegionsArray(regions: any): string[] {
   return [];
 }
 
-export async function editorIdsForLogin(editorId: string): Promise<string[]> {
+export async function editorIdsForLogin(editorId: string, email?: string): Promise<string[]> {
   const ids = new Set<string>([editorId]);
-  const { data: me } = await supabase
-    .from("editors")
-    .select("email")
-    .eq("id", editorId)
-    .maybeSingle();
-  const email = me?.email?.trim();
-  if (!email) return Array.from(ids);
+  let lookupEmail = email?.trim() || "";
+  if (!lookupEmail) {
+    const { data: me } = await supabase
+      .from("editors")
+      .select("email")
+      .eq("id", editorId)
+      .maybeSingle();
+    lookupEmail = me?.email?.trim() || "";
+  }
+  if (!lookupEmail) return Array.from(ids);
   const { data: rows } = await supabase
     .from("editors")
     .select("id")
-    .ilike("email", email);
+    .ilike("email", lookupEmail);
   (rows || []).forEach((row) => {
     if (row.id) ids.add(row.id);
   });
@@ -46,8 +49,8 @@ export async function editorIdsForLogin(editorId: string): Promise<string[]> {
  * queue regardless of which area the wedding lives in. Duplicate editor rows
  * for the same email count as the same person.
  */
-export async function getWeddingsForEditor(editorId: string) {
-  const editorIds = await editorIdsForLogin(editorId);
+export async function getWeddingsForEditor(editorId: string, email?: string) {
+  const editorIds = await editorIdsForLogin(editorId, email);
   const { data, error } = await supabase
     .from("weddings")
     .select("*")

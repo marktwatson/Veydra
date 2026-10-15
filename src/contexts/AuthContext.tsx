@@ -127,6 +127,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         let finalId = session.user.id;
 
+        if (role === "editor" && editor?.id) {
+          finalId = editor.id;
+        }
+
         if (role === "contractor" && session.user.email) {
           const { data: contractor } = await supabase
             .from("contractors")
