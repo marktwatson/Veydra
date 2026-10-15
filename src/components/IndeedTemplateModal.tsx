@@ -13,6 +13,7 @@ import { Copy, Check, Briefcase, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
+import { currentApplyPath, currentTerritoryId } from "@/lib/current-territory";
 
 const DEFAULT_TEMPLATE = `Pay: {{pay_range}} per hour
 Job description:
@@ -146,31 +147,21 @@ export function IndeedTemplateModal({
         );
         if (cancelled) return;
         setCompanyName(company);
-        setApplyLink(`${base}/apply/honeysuckle`);
+        setApplyLink(`${base}${await currentApplyPath()}`);
 
-        // Try to resolve this instance's own territory name for the area.
         let area = "";
         try {
-          const SELF_PROJECT_REF = "oosmhtzqdmntlzhheofw";
-          const { data: selfRow } = await supabase
-            .from("territories")
-            .select("id, name, project_ref")
-            .eq("project_ref", SELF_PROJECT_REF)
-            .limit(1)
-            .maybeSingle();
-          if (selfRow?.name) {
-            area = selfRow.name;
-          } else {
-            const { data: primary } = await supabase
+          const territoryId = await currentTerritoryId();
+          if (territoryId) {
+            const { data: areaRow } = await supabase
               .from("territories")
               .select("name")
-              .eq("is_primary", true)
-              .limit(1)
+              .eq("id", territoryId)
               .maybeSingle();
-            area = primary?.name || "";
+            if (areaRow?.name) area = areaRow.name;
           }
         } catch {
-          area = "";
+          /* area name is optional */
         }
         if (cancelled) return;
         setAreaName(area);

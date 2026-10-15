@@ -364,6 +364,19 @@ export async function currentTerritoryId(): Promise<string | null> {
   }
 }
 
+/** Public contractor apply path for the area currently selected. Same rule as Areas. */
+export async function currentApplyPath(): Promise<string> {
+  const id = await currentTerritoryId();
+  if (!id) return "/apply/honeysuckle";
+  const { data } = await supabase
+    .from("territories")
+    .select("slug")
+    .eq("id", id)
+    .maybeSingle();
+  const slug = String(data?.slug || "").trim();
+  return slug ? `/apply/${slug}` : "/apply/honeysuckle";
+}
+
 /**
  * The logged-in manager's territory_id from their managers row, with NO
  * fallback. Returns null if there is no managers row or it has no

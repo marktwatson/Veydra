@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { currentTerritoryId } from "@/lib/current-territory";
+import { currentTerritoryId, currentApplyPath } from "@/lib/current-territory";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
@@ -1833,12 +1833,11 @@ export default function ManagerContractors() {
                     const baseUrl = (
                       settings?.app_url || window.location.origin
                     ).replace(/\/$/, "");
-                    await navigator.clipboard.writeText(
-                      `${baseUrl}/apply/honeysuckle`,
-                    );
+                    const link = `${baseUrl}${await currentApplyPath()}`;
+                    await navigator.clipboard.writeText(link);
                     toast({
                       title: "Link copied!",
-                      description: `${baseUrl}/apply/honeysuckle copied to clipboard.`,
+                      description: `${link} copied to clipboard.`,
                     });
                   } catch {
                     toast({
