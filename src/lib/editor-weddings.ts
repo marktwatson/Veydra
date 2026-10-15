@@ -19,23 +19,39 @@ function parseRegionsArray(regions: any): string[] {
   return [];
 }
 
+export async function editorIdsForLogin(editorId: string): Promise<string[]> {
+  const ids = new Set<string>([editorId]);
+  const { data: me } = await supabase
+    .from("editors")
+    .select("email")
+    .eq("id", editorId)
+    .maybeSingle();
+  const email = me?.email?.trim();
+  if (!email) return Array.from(ids);
+  const { data: rows } = await supabase
+    .from("editors")
+    .select("id")
+    .ilike("email", email);
+  (rows || []).forEach((row) => {
+    if (row.id) ids.add(row.id);
+  });
+  return Array.from(ids);
+}
+
 /**
  * Weddings assigned to a specific editor, across ALL territories.
  *
  * Editors are scoped by assignment (editor_id), NOT by territory_id. An
  * editor assigned to a Nik TN or North Carolina wedding must see it in their
- * queue regardless of which area the wedding lives in. This deliberately does
- * NOT call the territory-scoped getWeddings / getWeddingsForTerritory paths
- * (which fall back to a single area and would hide cross-area assignments).
- *
- * Excludes draft and cancelled weddings. Mirrors the same JSON-array parsing
- * the main getWeddings methods apply.
+ * queue regardless of which area the wedding lives in. Duplicate editor rows
+ * for the same email count as the same person.
  */
 export async function getWeddingsForEditor(editorId: string) {
+  const editorIds = await editorIdsForLogin(editorId);
   const { data, error } = await supabase
     .from("weddings")
     .select("*")
-    .eq("editor_id", editorId)
+    .in("editor_id", editorIds)
     .neq("status", "draft")
     .neq("status", "cancelled")
     .neq("status", "Cancelled")

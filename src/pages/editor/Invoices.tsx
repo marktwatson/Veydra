@@ -235,9 +235,7 @@ export default function EditorInvoices() {
     companyByTerritory[wedding?.territory_id] ||
     "Company not set";
 
-  const myInvoices = weddings.filter(
-    (w) => w.editor_id === user?.id && w.editor_invoice_status,
-  );
+  const myInvoices = weddings.filter((w) => w.editor_invoice_status);
 
   const pendingInvoices = myInvoices.filter(
     (w) => w.editor_invoice_status === "pending",

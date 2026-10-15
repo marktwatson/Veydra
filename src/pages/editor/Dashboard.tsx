@@ -4,6 +4,7 @@ import { api, DbWedding } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import {
   companyNamesByTerritory,
+  editorIdsForLogin,
   getWeddingsForEditor,
 } from "@/lib/editor-weddings";
 import {
@@ -239,13 +240,14 @@ export default function EditorDashboard() {
     queryKey: ["editor-early-events", user?.id],
     enabled: !!user?.id,
     queryFn: async () => {
+      const editorIds = new Set(await editorIdsForLogin(user!.id));
       const { data, error } = await supabase
         .from("wedding_events")
         .select("id, title, event_type, event_date, edit_status, edit_due_date, editor_id, edit_details, wedding_id, weddings(client_name, date, editor_id, territory_id)")
         .eq("needs_early_edit", true);
       if (error) return [];
       return (data || []).filter(
-        (event: any) => event.editor_id === user!.id || event.weddings?.editor_id === user!.id,
+        (event: any) => editorIds.has(event.editor_id) || editorIds.has(event.weddings?.editor_id),
       );
     },
   });
@@ -459,22 +461,12 @@ export default function EditorDashboard() {
         const isNotCancelled =
           w.status !== "cancelled" && w.status !== "Cancelled";
         const matchesStatus = statusFilter === "all" || status === statusFilter;
-        const isAssignedToMe = w.editor_id === user?.id;
-        const allowed = Array.isArray(editorProfile?.territory_ids)
-          ? editorProfile.territory_ids.filter(Boolean)
-          : [];
-        const inAllowedArea =
-          allowed.length === 0 ||
-          allowed.includes(w.territory_id) ||
-          w.territory_id === editorProfile?.territory_id;
 
         if (
           !isVisible ||
           !matchesSearch ||
           !isNotCancelled ||
-          !matchesStatus ||
-          !isAssignedToMe ||
-          !inAllowedArea
+          !matchesStatus
         )
           return false;
 
@@ -503,15 +495,7 @@ export default function EditorDashboard() {
         if (valA > valB) return sortDirection === "asc" ? 1 : -1;
         return 0;
       });
-  }, [
-    weddings,
-    searchQuery,
-    statusFilter,
-    sortColumn,
-    sortDirection,
-    user?.id,
-    editorProfile,
-  ]);
+  }, [weddings, searchQuery, statusFilter, sortColumn, sortDirection]);
 
   const pipelineWeddings = activeWeddings.filter(
     (w) =>
