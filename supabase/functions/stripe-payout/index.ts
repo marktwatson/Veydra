@@ -14,7 +14,7 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { amount, destination_account, description, idempotency_key, editor_id, wedding_id } = body;
+    const { amount, destination_account, description, idempotency_key, editor_id, wedding_id, territory_id } = body;
 
     if (!amount) {
       throw new Error("Missing required parameter: amount");
@@ -22,22 +22,12 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-
-    // ── Resolve the Stripe key ────────────────────────────────────────────
-    // Editor payouts use the per-area key from territories.editor_payout_stripe_key,
-    // scoped to the wedding's territory_id (else the editor's territory_id).
-    // The connected account (destination_account) must have been created under
-    // THAT same territory — if it was created under a different area we reject
-    // instead of transferring. Contractors keep using the shared Veydra secret.
     let stripeKey: string | undefined;
     let resolvedAccount: string | null = null;
-    let resolvedTerritoryId: string | null = null;
+    let resolvedTerritoryId: string | null = body.territory_id || null;
 
     // An editor payout is identified by editor_id/wedding_id, OR by a
-    // destination_account that belongs to an editor_payout_accounts row (the
-    // legacy client call passes editor.stripe_account_id with no editor_id).
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    // destination_account that belongs to an editor_payout_accounts row.
     let supabase: any = null;
     if (supabaseUrl && supabaseServiceKey) {
       supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -89,29 +79,25 @@ serve(async (req) => {
 
       // Resolve / verify the connected account for THIS territory.
       resolvedAccount = destination_account || null;
-      if (editor_id) {
-        const { data: acct } = await supabase
-          .from("editor_payout_accounts")
-          .select("stripe_account_id")
-          .eq("editor_id", editor_id)
-          .eq("territory_id", territoryId)
-          .maybeSingle();
-        const dbAcct = acct?.stripe_account_id || null;
-        if (!dbAcct) {
-          return new Response(
-            JSON.stringify({ error: "Editor does not have a connected Stripe account for this area." }),
-            { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 },
-          );
-        }
-        // If a destination_account was passed, it must match this area's account.
-        if (resolvedAccount && resolvedAccount !== dbAcct) {
-          return new Response(
-            JSON.stringify({ error: "This Stripe account was created under a different area. Reconnect it for this area before paying." }),
-            { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 },
-          );
-        }
-        resolvedAccount = dbAcct;
+      const { data: areaAccounts } = await supabase
+        .from("editor_payout_accounts")
+        .select("editor_id, stripe_account_id")
+        .eq("territory_id", territoryId);
+      const accounts = (areaAccounts || []).filter((row: any) => row.stripe_account_id);
+      const byEditor = editor_id
+        ? accounts.find((row: any) => row.editor_id === editor_id)
+        : null;
+      const byDestination = resolvedAccount
+        ? accounts.find((row: any) => row.stripe_account_id === resolvedAccount)
+        : null;
+      const dbAcct = byEditor?.stripe_account_id || byDestination?.stripe_account_id || null;
+      if (!dbAcct) {
+        return new Response(
+          JSON.stringify({ error: "Editor does not have a connected Stripe account for this area." }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 },
+        );
       }
+      resolvedAccount = dbAcct;
       if (!resolvedAccount) {
         return new Response(
           JSON.stringify({ error: "Missing destination_account for editor payout." }),
@@ -125,7 +111,7 @@ serve(async (req) => {
         .eq("id", territoryId)
         .maybeSingle();
       if (terrErr) throw new Error(`Database error: ${terrErr.message}`);
-      stripeKey = terr?.editor_payout_stripe_key || undefined;
+      stripeKey = (terr?.editor_payout_stripe_key || "").trim() || undefined;
       if (!stripeKey) {
         return new Response(
           JSON.stringify({ error: "This area has no editor payout Stripe key yet." }),
@@ -175,9 +161,10 @@ serve(async (req) => {
         destination: dest,
         description: description || "Payout from Veydra",
       };
-      if (idempotency_key) transferParams.idempotency_key = idempotency_key;
+      const requestOptions: { idempotencyKey?: string } = {};
+      if (idempotency_key) requestOptions.idempotencyKey = idempotency_key;
 
-      const transfer = await stripe.transfers.create(transferParams);
+      const transfer = await stripe.transfers.create(transferParams, requestOptions);
 
       return new Response(JSON.stringify({ success: true, transfer }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },

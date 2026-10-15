@@ -356,7 +356,10 @@ export default function ManagerPayouts() {
           const stripeAccountId = await stripeAccountForEditor(editor, currentTerritoryId());
           if (!stripeAccountId) throw new Error(STRIPE_MISSING);
           if (amount > 0) {
-            await api.processStripePayout(amount, stripeAccountId, `Payout for ${name} - Editing`, idempotencyKey);
+            await api.processStripePayout(amount, stripeAccountId, `Payout for ${name} - Editing`, idempotencyKey, {
+              editor_id: editor.id,
+              territory_id: await currentTerritoryId(),
+            });
           }
         }
         const { error } = await supabase
@@ -389,6 +392,7 @@ export default function ManagerPayouts() {
               stripeAccountId,
               `Payout for ${wedding.client_name} - ${track} editing`,
               idempotencyKey,
+              { editor_id: editor.id, wedding_id: wedding.id, territory_id: wedding.territory_id },
             );
           }
         }
@@ -412,6 +416,7 @@ export default function ManagerPayouts() {
             stripeAccountId,
             `Payout for ${wedding.client_name} - Editing`,
             idempotencyKey,
+            { editor_id: editor.id, wedding_id: wedding.id, territory_id: wedding.territory_id },
           );
         }
       }

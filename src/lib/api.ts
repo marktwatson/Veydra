@@ -5576,6 +5576,7 @@ export const api = {
     destination_account: string,
     description?: string,
     idempotency_key?: string,
+    extra?: { editor_id?: string | null; wedding_id?: string | null; territory_id?: string | null },
   ) {
     let {
       data: { session },
@@ -5593,20 +5594,30 @@ export const api = {
       );
     }
 
-    const res = await fetch(`${supabaseUrl}/functions/v1/stripe-payout`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        apikey: supabaseAnonKey,
-      },
-      body: JSON.stringify({
-        amount,
-        destination_account,
-        description,
-        idempotency_key,
-      }),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${supabaseUrl}/functions/v1/stripe-payout`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          apikey: supabaseAnonKey,
+        },
+        body: JSON.stringify({
+          amount,
+          destination_account,
+          description,
+          idempotency_key,
+          editor_id: extra?.editor_id || undefined,
+          wedding_id: extra?.wedding_id || undefined,
+          territory_id: extra?.territory_id || undefined,
+        }),
+      });
+    } catch {
+      throw new Error(
+        "The payout service did not respond. Pull the latest code and run: supabase functions deploy stripe-payout --project-ref oosmhtzqdmntlzhheofw",
+      );
+    }
 
     if (!res.ok) {
       let errorText = `Server returned ${res.status}`;
