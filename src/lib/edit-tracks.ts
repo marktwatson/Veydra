@@ -1,5 +1,12 @@
 export type EditTrack = "single" | "photo" | "video" | "both";
 
+const KAVOD_EDITOR_EMAIL = "kavoddigitalmarketing@gmail.com";
+
+/** Photo edits are $0.15 for Kavod and $0.12 for every other editor. */
+export function photoEditRate(email?: string | null) {
+  return String(email || "").trim().toLowerCase() === KAVOD_EDITOR_EMAIL ? 0.15 : 0.12;
+}
+
 const RANK: Record<string, number> = {
   revisions_requested: 1,
   ready_to_edit: 2,

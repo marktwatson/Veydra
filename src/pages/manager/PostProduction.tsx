@@ -2038,7 +2038,14 @@ export default function PostProductionTable() {
                   <div className="flex items-center justify-between">
                     <div className="text-sm">
                       {reviewWedding.editor_invoice_details.photoCount} images @
-                      $0.12
+                      $
+                      {Number(
+                        reviewWedding.editor_invoice_details.photoRate ||
+                          (reviewWedding.editor_invoice_details.photoCount
+                            ? reviewWedding.editor_invoice_details.photoTotal /
+                              reviewWedding.editor_invoice_details.photoCount
+                            : 0.12),
+                      ).toFixed(2)}
                     </div>
                     <div className="font-semibold">
                       $

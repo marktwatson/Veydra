@@ -7,7 +7,7 @@ import {
   editorIdsForLogin,
   getWeddingsForEditor,
 } from "@/lib/editor-weddings";
-import { presentEditorWedding, trackStatusUpdates } from "@/lib/edit-tracks";
+import { photoEditRate, presentEditorWedding, trackStatusUpdates } from "@/lib/edit-tracks";
 import {
   Card,
   CardContent,
@@ -642,7 +642,8 @@ export default function EditorDashboard() {
     e.preventDefault();
     if (!invoiceWedding && !invoiceEvent) return;
 
-    const photoTotal = photoCount * 0.12;
+    const photoRate = photoEditRate(user?.email);
+    const photoTotal = photoCount * photoRate;
     const videoTotal = selectedVideos.reduce((sum, vidId) => {
       const video = videoPricing.find((v) => v.id === vidId);
       return sum + (video ? video.price : 0);
@@ -650,6 +651,7 @@ export default function EditorDashboard() {
     const totalPayout = photoTotal + videoTotal;
     const invoice = {
       photoCount,
+      photoRate,
       photoTotal,
       videos: selectedVideos.map((id) => {
         const v = videoPricing.find((video) => video.id === id);
@@ -1954,10 +1956,10 @@ export default function EditorDashboard() {
                     </div>
                     <div className="text-right">
                       <div className="text-xs text-muted-foreground mb-1">
-                        Rate ($0.12/img)
+                        Rate (${photoEditRate(user?.email).toFixed(2)}/img)
                       </div>
                       <div className="font-semibold text-lg">
-                        ${(photoCount * 0.12).toFixed(2)}
+                        ${(photoCount * photoEditRate(user?.email)).toFixed(2)}
                       </div>
                     </div>
                   </div>
@@ -2040,7 +2042,7 @@ export default function EditorDashboard() {
                   <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-500">
                     $
                     {(
-                      photoCount * 0.12 +
+                      photoCount * photoEditRate(user?.email) +
                       selectedVideos.reduce((sum, vidId) => {
                         const video = videoPricing.find((v) => v.id === vidId);
                         return sum + (video ? video.price : 0);
