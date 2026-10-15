@@ -2909,11 +2909,19 @@ export const api = {
   },
 
   async updateWedding(id: string, updates: Partial<DbWedding>) {
-    const { data: oldWedding } = await supabase
+    let { data: oldWedding, error: oldErr } = await supabase
       .from("weddings")
-      .select("editing_status, client_name, editor_id")
+      .select("editing_status, client_name, editor_id, edit_split, photo_editing_status, video_editing_status")
       .eq("id", id)
       .single();
+    if (oldErr) {
+      const fallback = await supabase
+        .from("weddings")
+        .select("editing_status, client_name, editor_id")
+        .eq("id", id)
+        .single();
+      oldWedding = fallback.data;
+    }
 
     const payload = await keepSavedQuestionnaire(id, { ...updates });
 
@@ -3125,6 +3133,64 @@ export const api = {
     }
 
     // Post-production status change notifications
+    const photoJustDelivered =
+      !!data.edit_split &&
+      updates.photo_editing_status === "delivered" &&
+      oldWedding?.photo_editing_status !== "delivered";
+    const videoJustDelivered =
+      !!data.edit_split &&
+      updates.video_editing_status === "delivered" &&
+      oldWedding?.video_editing_status !== "delivered";
+
+    if (photoJustDelivered || videoJustDelivered) {
+      try {
+        const settings = await getScopedPortalSettingsFull({ weddingId: id });
+        let brideEmail = data.client_email || "";
+        if (!brideEmail && data.questionnaire_data) {
+          let qData = data.questionnaire_data;
+          if (typeof qData === "string") {
+            try { qData = JSON.parse(qData); } catch (e) {}
+          }
+          brideEmail = qData?.contact_info?.email || qData?.email || "";
+        }
+        const company = settings?.company_name || "your photographer";
+        const gallery = data.gallery_link || "";
+        const videoLink = data.vimeo_link || data.youtube_link || "";
+        if (brideEmail && photoJustDelivered) {
+          const line = gallery
+            ? `Your photos are ready. View them here: ${gallery}`
+            : "Your photos are ready.";
+          await sendOvantaSms(brideEmail, `${line}`, data.client_name, false, data.territory_id, id).catch(() => {});
+          await sendOvantaEmail(
+            brideEmail,
+            "Your photos are ready",
+            `<p>Hi ${data.client_name || "there"},</p><p>Your photos from ${company} are ready.</p>${gallery ? `<p><a href="${gallery}">View your photos</a></p>` : ""}`,
+            data.client_name,
+            false,
+            data.territory_id,
+            id,
+          ).catch(() => {});
+        }
+        if (brideEmail && videoJustDelivered) {
+          const line = videoLink
+            ? `Your video is ready. Watch it here: ${videoLink}`
+            : "Your video is ready.";
+          await sendOvantaSms(brideEmail, `${line}`, data.client_name, false, data.territory_id, id).catch(() => {});
+          await sendOvantaEmail(
+            brideEmail,
+            "Your video is ready",
+            `<p>Hi ${data.client_name || "there"},</p><p>Your video from ${company} is ready.</p>${videoLink ? `<p><a href="${videoLink}">Watch your video</a></p>` : ""}`,
+            data.client_name,
+            false,
+            data.territory_id,
+            id,
+          ).catch(() => {});
+        }
+      } catch (e) {
+        console.error("Failed to send split delivery notice", e);
+      }
+    }
+
     if (
       oldWedding &&
       updates.editing_status &&
@@ -3192,6 +3258,7 @@ export const api = {
           }
 
           if (brideEmail && settings) {
+            if (!photoJustDelivered && !videoJustDelivered) {
             if (
               settings.sms_bride_delivery_enabled &&
               settings.sms_bride_delivery_template
@@ -3239,6 +3306,7 @@ export const api = {
                 msg,
                 data.client_name,
               ).catch(() => {});
+            }
             }
 
             if (
