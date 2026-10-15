@@ -50,6 +50,33 @@ import { useToast } from "@/hooks/use-toast";
 import { SalespersonPayoutsTab } from "@/components/SalespersonPayoutsTab";
 import { EditorPayoutsTable } from "@/components/EditorPayoutsTable";
 
+async function stripeAccountForEditor(
+  editor: { id: string; email?: string | null; stripe_account_id?: string | null },
+  territoryId?: string | null,
+) {
+  if (editor.stripe_account_id) return editor.stripe_account_id;
+  const ids = new Set<string>([editor.id]);
+  const email = editor.email?.trim().toLowerCase();
+  if (email) {
+    const { data: siblings } = await supabase
+      .from("editors")
+      .select("id")
+      .ilike("email", email);
+    (siblings || []).forEach((row) => row.id && ids.add(row.id));
+  }
+  const { data: accounts } = await supabase
+    .from("editor_payout_accounts")
+    .select("territory_id, stripe_account_id")
+    .in("editor_id", Array.from(ids));
+  const rows = (accounts || []).filter((row) => row.stripe_account_id);
+  const preferred = territoryId || currentTerritoryId();
+  const match = rows.find((row) => !preferred || row.territory_id === preferred);
+  return match?.stripe_account_id || null;
+}
+
+const STRIPE_MISSING =
+  "This editor has not connected Stripe for this area. Have them open the editor portal while this area is selected and connect Stripe.";
+
 export default function ManagerPayouts() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -326,10 +353,8 @@ export default function ManagerPayouts() {
         const amount = event.edit_details.invoice_amount || 0;
         const name = `${event.weddings?.client_name || "Wedding"} · ${event.title || "Event"}`;
         if (paymentMethod === "Stripe") {
-          const stripeAccountId = editor.stripe_account_id;
-          if (!stripeAccountId) {
-            throw new Error("Editor does not have a connected Stripe account. Please select another payment method.");
-          }
+          const stripeAccountId = await stripeAccountForEditor(editor, currentTerritoryId());
+          if (!stripeAccountId) throw new Error(STRIPE_MISSING);
           if (amount > 0) {
             await api.processStripePayout(amount, stripeAccountId, `Payout for ${name} - Editing`, idempotencyKey);
           }
@@ -356,10 +381,8 @@ export default function ManagerPayouts() {
         if (!editor) throw new Error("Editor not found");
         const amount = Number(wedding[`${track}_payout_amount`] || 0);
         if (paymentMethod === "Stripe") {
-          const stripeAccountId = editor.stripe_account_id;
-          if (!stripeAccountId) {
-            throw new Error("Editor does not have a connected Stripe account. Please select another payment method.");
-          }
+          const stripeAccountId = await stripeAccountForEditor(editor, wedding.territory_id);
+          if (!stripeAccountId) throw new Error(STRIPE_MISSING);
           if (amount > 0) {
             await api.processStripePayout(
               amount,
@@ -380,12 +403,8 @@ export default function ManagerPayouts() {
       if (!editor) throw new Error("Editor not found");
 
       if (paymentMethod === "Stripe") {
-        const stripeAccountId = editor.stripe_account_id;
-        if (!stripeAccountId) {
-          throw new Error(
-            "Editor does not have a connected Stripe account. Please select another payment method.",
-          );
-        }
+        const stripeAccountId = await stripeAccountForEditor(editor, wedding.territory_id);
+        if (!stripeAccountId) throw new Error(STRIPE_MISSING);
         const amount = wedding.editor_payout_amount || 0;
         if (amount > 0) {
           await api.processStripePayout(
