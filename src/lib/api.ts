@@ -3369,25 +3369,41 @@ export const api = {
               .eq("id", data.editor_id)
               .single();
             if (editor?.email) {
-              if (
-                settings?.sms_editor_raw_media_enabled &&
-                settings?.sms_editor_raw_media_template
-              ) {
-                let msg = settings.sms_editor_raw_media_template
+              const weddingName = data.client_name || "the couple";
+              const portal = (
+                settings.app_url || window.location.origin
+              ).replace(/\/$/, "");
+              const fill = (text: string) =>
+                text
                   .replace(
                     /{{company_name}}/g,
                     settings.company_name || "Veydra",
                   )
+                  .replace(/{{logo_url}}/g, settings.logo_url || DEFAULT_LOGO_URL)
                   .replace(/{{editor_name}}/g, editor.name || "Editor")
-                  .replace(/{{client_name}}/g, data.client_name || "Unknown")
+                  .replace(/{{wedding_name}}/g, weddingName)
+                  .replace(/{{client_name}}/g, weddingName)
                   .replace(/{{date}}/g, data.date || "TBD")
-                  .replace(
-                    /{{portal_link}}/g,
-                    (settings.app_url || window.location.origin).replace(
-                      /\/$/,
-                      "",
-                    ),
+                  .replace(/{{portal_link}}/g, portal);
+              const withWeddingName = (text: string) => {
+                if (
+                  weddingName &&
+                  !text.toLowerCase().includes(weddingName.toLowerCase())
+                ) {
+                  return text.replace(
+                    /for the wedding/i,
+                    `for the ${weddingName} wedding`,
                   );
+                }
+                return text;
+              };
+              if (
+                settings?.sms_editor_raw_media_enabled &&
+                settings?.sms_editor_raw_media_template
+              ) {
+                const msg = withWeddingName(
+                  fill(settings.sms_editor_raw_media_template),
+                );
                 await sendOvantaSms(editor.email, msg, editor.name).catch(
                   () => {},
                 );
@@ -3396,35 +3412,15 @@ export const api = {
                 settings?.email_editor_raw_media_enabled &&
                 settings?.email_editor_raw_media_template
               ) {
-                let subject = (
-                  settings.email_editor_raw_media_subject ||
-                  "Raw Media Ready to Edit"
-                )
-                  .replace(
-                    /{{company_name}}/g,
-                    settings.company_name || "Veydra",
-                  )
-                  .replace(/{{client_name}}/g, data.client_name || "Unknown")
-                  .replace(/{{date}}/g, data.date || "TBD");
-                let msg = settings.email_editor_raw_media_template
-                  .replace(
-                    /{{company_name}}/g,
-                    settings.company_name || "Veydra",
-                  )
-                  .replace(
-                    /{{logo_url}}/g,
-                    settings.logo_url || DEFAULT_LOGO_URL,
-                  )
-                  .replace(/{{editor_name}}/g, editor.name || "Editor")
-                  .replace(/{{client_name}}/g, data.client_name || "Unknown")
-                  .replace(/{{date}}/g, data.date || "TBD")
-                  .replace(
-                    /{{portal_link}}/g,
-                    (settings.app_url || window.location.origin).replace(
-                      /\/$/,
-                      "",
-                    ),
-                  );
+                const subject = withWeddingName(
+                  fill(
+                    settings.email_editor_raw_media_subject ||
+                      "Raw Media Ready: {{wedding_name}}",
+                  ),
+                );
+                const msg = withWeddingName(
+                  fill(settings.email_editor_raw_media_template),
+                );
                 await sendOvantaEmail(
                   editor.email,
                   subject,
