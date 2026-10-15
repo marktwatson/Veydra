@@ -169,8 +169,9 @@ export function ProposalRowActions({
               <AlertDialogHeader>
                 <AlertDialogTitle>Archive this proposal?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  It will be removed from your view. You can see it in the
-                  Archive tab and restore it from there. Nothing is deleted.
+                  It moves to the Archive tab and the client link closes, even
+                  if time is still left. Nothing is deleted. You can restore it
+                  from the Archive tab.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

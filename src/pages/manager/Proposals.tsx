@@ -189,10 +189,16 @@ export default function ManagerProposals() {
   };
 
   const setProposalStatus = async (id: string, status: string) => {
-    const { error } = await supabase
-      .from("proposals")
-      .update({ status })
-      .eq("id", id);
+    const existing = proposals.find((p) => p.id === id);
+    const patch: { status: string; expires_at?: string; sent_at?: string } = {
+      status,
+    };
+    if (status === "archived") {
+      const past = new Date(Date.now() - 60_000).toISOString();
+      patch.expires_at = past;
+      if (!existing?.sent_at) patch.sent_at = past;
+    }
+    const { error } = await supabase.from("proposals").update(patch).eq("id", id);
     if (error) {
       toast({
         title: "Error",
@@ -201,16 +207,25 @@ export default function ManagerProposals() {
       });
       return;
     }
+    setDetailProposal((current) =>
+      current?.id === id ? { ...current, ...patch } : current,
+    );
     api.logAdminActivity(
       status === "archived" ? "Proposal Archived" : "Proposal Restored",
       `${status} proposal ${id}`,
     );
+    const linkStillClosed =
+      status !== "archived" &&
+      !!existing?.expires_at &&
+      new Date(existing.expires_at) < new Date();
     toast({
       title: status === "archived" ? "Archived" : "Restored",
       description:
         status === "archived"
-          ? "It is in the Archive tab. Nothing was deleted."
-          : "It is back in the proposal list.",
+          ? "It is in the Archive tab and the client link is closed."
+          : linkStillClosed
+            ? "It is back in the list. Extend the deadline to reopen the client link."
+            : "It is back in the proposal list.",
     });
     refresh();
   };
