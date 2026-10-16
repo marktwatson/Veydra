@@ -3278,6 +3278,7 @@ export default function ManagerSettings() {
           aria-label="Settings section"
         >
           <option value="general">General</option>
+          <option value="blackouts">Blackout dates</option>
           <option value="rates">Rates & Regions</option>
           <option value="pricing">Packages & Pricing</option>
           <option value="notifications">Notifications</option>
@@ -3292,6 +3293,12 @@ export default function ManagerSettings() {
             className="rounded-none border-b-2 border-transparent data-[state=active]:border-stone-900 dark:data-[state=active]:border-stone-100 data-[state=active]:bg-transparent px-4 py-3 shrink-0"
           >
             General
+          </TabsTrigger>
+          <TabsTrigger
+            value="blackouts"
+            className="rounded-none border-b-2 border-transparent data-[state=active]:border-stone-900 dark:data-[state=active]:border-stone-100 data-[state=active]:bg-transparent px-4 py-3 shrink-0"
+          >
+            Blackout dates
           </TabsTrigger>
           <TabsTrigger
             value="rates"
@@ -3339,7 +3346,6 @@ export default function ManagerSettings() {
 
         <TabsContent value="general" className="space-y-6">
           <div className="grid gap-6 md:grid-cols-2">
-            <AreaBlackoutDatesCard />
             <Card>
               <CardHeader>
                 <CardTitle>Branding</CardTitle>
@@ -3766,6 +3772,10 @@ export default function ManagerSettings() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        <TabsContent value="blackouts" className="space-y-6">
+          <AreaBlackoutDatesCard />
         </TabsContent>
 
         <TabsContent value="rates" className="space-y-6">

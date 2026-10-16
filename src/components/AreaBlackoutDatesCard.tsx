@@ -118,7 +118,7 @@ export function AreaBlackoutDatesCard() {
   };
 
   return (
-    <Card className="md:col-span-2">
+    <Card>
       <CardHeader>
         <CardTitle>Blackout dates</CardTitle>
         <CardDescription>
