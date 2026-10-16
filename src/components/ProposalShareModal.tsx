@@ -49,6 +49,10 @@ interface Props {
   onSent?: () => void;
   /** Called when the user clicks "Start a new proposal" (reset form). */
   onReset?: () => void;
+  /** Blackout date was not confirmed, so Send stays off. */
+  sendLocked?: boolean;
+  /** The salesperson confirmed a manager cleared this date. */
+  blackoutVerified?: boolean;
 }
 
 /** Post-create share modal for a generated proposal link. */
@@ -62,6 +66,8 @@ export default function ProposalShareModal({
   coveragePending,
   onSent,
   onReset,
+  sendLocked,
+  blackoutVerified,
 }: Props) {
   const [copied, setCopied] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -96,7 +102,9 @@ export default function ProposalShareModal({
     }
     setSending(true);
     try {
-      const result = await sendProposalToClient(proposalId);
+      const result = await sendProposalToClient(proposalId, {
+        blackoutVerified,
+      });
       setSentResult(result);
       toast({
         title: "Sent to client",
@@ -128,6 +136,12 @@ export default function ProposalShareModal({
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
+            {sendLocked && (
+              <p className="text-sm text-amber-800 dark:text-amber-300">
+                Send stays off until a manager confirms this date can be
+                covered.
+              </p>
+            )}
             {coveragePending && (
               <div className="flex items-start gap-2 rounded-lg border border-amber-300/70 bg-amber-50/70 dark:bg-amber-950/20 p-3 text-sm text-amber-800 dark:text-amber-300">
                 <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
@@ -173,8 +187,11 @@ export default function ProposalShareModal({
               Open
             </Button>
             <Button
-              onClick={() => setConfirmOpen(true)}
-              disabled={!proposalId || sending}
+              onClick={() => {
+                if (sendLocked) return;
+                setConfirmOpen(true);
+              }}
+              disabled={!proposalId || sending || !!sendLocked}
               className="sm:flex-1"
             >
               {sending ? (

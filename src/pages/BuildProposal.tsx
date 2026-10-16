@@ -35,6 +35,8 @@ import { CustomPaymentPlanCard } from "@/components/build-proposal/CustomPayment
 import { PublicBuilderMyProposals } from "@/components/build-proposal/PublicBuilderMyProposals";
 import { PublicBuilderGateModal } from "@/components/build-proposal/PublicBuilderGateModal";
 import { PublicBuilderYourDetailsCard } from "@/components/build-proposal/PublicBuilderYourDetailsCard";
+import { useAreaBlackoutGate } from "@/lib/area-blackout";
+import { AreaBlackoutNotice } from "@/components/AreaBlackoutNotice";
 
 export default function BuildProposal() {
   const { slug } = useParams<{ slug?: string }>();
@@ -104,6 +106,7 @@ export default function BuildProposal() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [proposalLink, setProposalLink] = useState("");
   const [savedProposalId, setSavedProposalId] = useState("");
+  const blackout = useAreaBlackoutGate(territory?.id, formData.weddingDate);
   const [shareOpen, setShareOpen] = useState(false);
   const [sending, setSending] = useState(false);
 
@@ -216,6 +219,7 @@ export default function BuildProposal() {
 
   const handleSend = async () => {
     if (!savedProposalId) return;
+    if (blackout.sendLocked) return;
     if (!salespersonName.trim() || !salespersonEmail.trim()) {
       toast({
         title: "Your details required",
@@ -229,7 +233,9 @@ export default function BuildProposal() {
     // here. Sending uses the authenticated send-proposal function.
     setSending(true);
     try {
-      const result = await sendProposalToClient(savedProposalId);
+      const result = await sendProposalToClient(savedProposalId, {
+        blackoutVerified: blackout.verified,
+      });
       toast({
         title: "Sent to client",
         description: `Review clock started. Expires ${new Date(result.expires_at || "").toLocaleString()}.`,
@@ -435,6 +441,12 @@ export default function BuildProposal() {
                         updateForm("weddingDate", e.target.value)
                       }
                     />
+                    {blackout.sendLocked && (
+                      <p className="text-xs text-amber-800 dark:text-amber-300">
+                        Send stays off until a manager confirms this date can
+                        be covered.
+                      </p>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -641,7 +653,7 @@ export default function BuildProposal() {
                       onClick={handleSend}
                       className="w-full"
                       size="lg"
-                      disabled={sending}
+                      disabled={sending || blackout.sendLocked}
                     >
                       {sending ? (
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -668,6 +680,14 @@ export default function BuildProposal() {
         coveragePending={false}
         onSent={() => {}}
         onReset={handleReset}
+        sendLocked={blackout.sendLocked}
+        blackoutVerified={blackout.verified}
+      />
+      <AreaBlackoutNotice
+        open={blackout.open}
+        date={blackout.day}
+        onCheck={blackout.dismiss}
+        onConfirm={blackout.confirm}
       />
 
       <PublicBuilderGateModal

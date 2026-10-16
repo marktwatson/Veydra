@@ -22,6 +22,8 @@ export interface CreateProposalModalsProps {
   onCoverageDone?: () => void;
   /** Route id (edit mode). */
   id?: string;
+  sendLocked?: boolean;
+  blackoutVerified?: boolean;
 }
 
 /**
@@ -112,6 +114,8 @@ export function CreateProposalModals({
   onSent,
   onCoverageDone,
   id,
+  sendLocked,
+  blackoutVerified,
 }: CreateProposalModalsProps) {
   return (
     <>
@@ -134,6 +138,8 @@ export function CreateProposalModals({
         clientPhone={savedProposal?.client_phone || formData?.clientPhone}
         coveragePending={coveragePending}
         onSent={onSent}
+        sendLocked={sendLocked}
+        blackoutVerified={blackoutVerified}
       />
     </>
   );

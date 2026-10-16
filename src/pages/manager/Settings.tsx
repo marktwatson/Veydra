@@ -84,6 +84,7 @@ import BartendingModuleToggle from "@/components/BartendingModuleToggle";
 import { BartendingContractTemplateCard } from "@/components/BartendingContractTemplateCard";
 import { useBartendingModule } from "@/hooks/use-bartending-module";
 import { currentTerritoryId } from "@/lib/current-territory";
+import { AreaBlackoutDatesCard } from "@/components/AreaBlackoutDatesCard";
 import { useAuth } from "@/contexts/AuthContext";
 
 const getPreviewHtml = (html: string) => {
@@ -3338,6 +3339,7 @@ export default function ManagerSettings() {
 
         <TabsContent value="general" className="space-y-6">
           <div className="grid gap-6 md:grid-cols-2">
+            <AreaBlackoutDatesCard />
             <Card>
               <CardHeader>
                 <CardTitle>Branding</CardTitle>

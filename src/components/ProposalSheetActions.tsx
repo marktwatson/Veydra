@@ -19,6 +19,11 @@ import { useCountdown } from "@/lib/proposal-countdown";
 import { isBooked } from "@/lib/proposal-tabs";
 import { useToast } from "@/hooks/use-toast";
 import {
+  dateHitsBlackout,
+  loadAreaBlackouts,
+} from "@/lib/area-blackout";
+import { AreaBlackoutNotice } from "@/components/AreaBlackoutNotice";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -51,6 +56,11 @@ export function ProposalSheetActions({
 }) {
   const [reviseOpen, setReviseOpen] = useState(false);
   const [sending, setSending] = useState(false);
+  const [blackoutOpen, setBlackoutOpen] = useState(false);
+  const [pendingSend, setPendingSend] = useState<{
+    resend?: boolean;
+    extend?: boolean;
+  } | null>(null);
   const { toast } = useToast();
 
   const sent = !!proposal?.sent_at;
@@ -75,11 +85,31 @@ export function ProposalSheetActions({
     proposal?.status !== "superseded" &&
     !expired;
 
-  const handleSend = async (opts: { resend?: boolean; extend?: boolean }) => {
+  const handleSend = async (
+    opts: { resend?: boolean; extend?: boolean },
+    blackoutVerified = false,
+  ) => {
     if (!proposal?.id) return;
+    const firstSend = !opts.resend && !opts.extend && !proposal.sent_at;
+    if (
+      firstSend &&
+      !blackoutVerified &&
+      !proposal.blackout_verified_at
+    ) {
+      const rows = await loadAreaBlackouts(proposal.territory_id);
+      if (dateHitsBlackout(proposal.wedding_date, rows)) {
+        setPendingSend(opts);
+        setBlackoutOpen(true);
+        return;
+      }
+    }
     setSending(true);
     try {
-      const result = await sendProposalToClient(proposal.id, opts);
+      const result = await sendProposalToClient(proposal.id, {
+        ...opts,
+        blackoutVerified:
+          blackoutVerified || !!proposal.blackout_verified_at,
+      });
       toast({
         title: opts.extend
           ? "Deadline extended"
@@ -220,6 +250,20 @@ export function ProposalSheetActions({
         open={reviseOpen}
         onOpenChange={setReviseOpen}
         onDone={() => onRefresh()}
+      />
+      <AreaBlackoutNotice
+        open={blackoutOpen}
+        date={String(proposal?.wedding_date || "").slice(0, 10)}
+        onCheck={() => {
+          setBlackoutOpen(false);
+          setPendingSend(null);
+        }}
+        onConfirm={() => {
+          const opts = pendingSend || {};
+          setBlackoutOpen(false);
+          setPendingSend(null);
+          void handleSend(opts, true);
+        }}
       />
     </>
   );

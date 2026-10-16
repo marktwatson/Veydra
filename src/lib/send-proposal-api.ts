@@ -58,7 +58,7 @@ export function describeSendResult(result: SendProposalResult): string {
  */
 export async function sendProposalToClient(
   proposalId: string,
-  opts?: { resend?: boolean; extend?: boolean },
+  opts?: { resend?: boolean; extend?: boolean; blackoutVerified?: boolean },
 ): Promise<SendProposalResult> {
   const {
     data: { session },
@@ -75,6 +75,7 @@ export async function sendProposalToClient(
       proposalId,
       resend: opts?.resend ?? false,
       extend: opts?.extend ?? false,
+      blackoutVerified: opts?.blackoutVerified ?? false,
     }),
   });
   const result = await response.json();

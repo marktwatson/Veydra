@@ -31,6 +31,9 @@ import {
   CreateProposalModals,
   CreateProposalFooter,
 } from "@/components/CreateProposalModals";
+import { currentTerritoryId } from "@/lib/current-territory";
+import { useAreaBlackoutGate } from "@/lib/area-blackout";
+import { AreaBlackoutNotice } from "@/components/AreaBlackoutNotice";
 
 // Fallbacks used while DB data loads or if DB is unreachable
 import {
@@ -80,6 +83,14 @@ export default function CreateProposal() {
       installments: [] as { date: string; amount: number }[],
     },
   });
+  const [areaId, setAreaId] = useState<string | null>(null);
+  const blackout = useAreaBlackoutGate(areaId, formData.weddingDate);
+
+  useEffect(() => {
+    currentTerritoryId()
+      .then((id) => setAreaId(id))
+      .catch(() => {});
+  }, []);
 
   const [customItems, setCustomItems] = useState<
     { id: string; name: string; price: number; description: string }[]
@@ -379,6 +390,12 @@ export default function CreateProposal() {
                     value={formData.weddingDate}
                     onChange={(e) => updateForm("weddingDate", e.target.value)}
                   />
+                  {blackout.sendLocked && (
+                    <p className="text-xs text-amber-800 dark:text-amber-300">
+                      Send stays off until a manager confirms this date can be
+                      covered.
+                    </p>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -989,6 +1006,14 @@ export default function CreateProposal() {
         onCoverageDone={() => {
           if (savedProposal?.id) loadCoverageState(savedProposal.id);
         }}
+        sendLocked={blackout.sendLocked}
+        blackoutVerified={blackout.verified}
+      />
+      <AreaBlackoutNotice
+        open={blackout.open}
+        date={blackout.day}
+        onCheck={blackout.dismiss}
+        onConfirm={blackout.confirm}
       />
     </div>
   );

@@ -40,6 +40,15 @@ ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS sent_count int DEFAULT 0;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_requested_at timestamptz;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS coverage_confirmed_at timestamptz;
 ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS territory_id UUID;
+ALTER TABLE public.proposals ADD COLUMN IF NOT EXISTS blackout_verified_at timestamptz;
+CREATE TABLE IF NOT EXISTS public.area_blackout_dates (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  territory_id uuid NOT NULL,
+  start_date date NOT NULL,
+  end_date date NOT NULL,
+  note text,
+  created_at timestamptz DEFAULT now()
+);
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS proposal_expiry_days integer DEFAULT 2;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS phone text;
 ALTER TABLE public.portal_settings ADD COLUMN IF NOT EXISTS hl_api_key text;
@@ -100,7 +109,7 @@ Deno.serve(async (req) => {
   const { data: proposal, error: propErr } = await db
     .from("proposals")
     .select(
-      "id, client_name, client_email, client_phone, wedding_date, total_amount, status, coverage_requested_at, coverage_confirmed_at, sent_at, expires_at, sent_count, wedding_id, territory_id",
+      "id, client_name, client_email, client_phone, wedding_date, total_amount, status, coverage_requested_at, coverage_confirmed_at, sent_at, expires_at, sent_count, wedding_id, territory_id, blackout_verified_at",
     )
     .eq("id", proposalId)
     .maybeSingle();
@@ -156,6 +165,39 @@ Deno.serve(async (req) => {
 
   if (!resolvedTerritoryId) {
     resolvedTerritoryId = HONEYSUCKLE_TERRITORY_ID;
+  }
+
+  // First send only. A resend or a deadline extension is left alone.
+  // If the blackout table is missing, skip the check so sending still works.
+  const firstSend = !resend && !extend && !proposal.sent_at;
+  if (firstSend && resolvedTerritoryId) {
+    const day = String(proposal.wedding_date || "").slice(0, 10);
+    const { data: blackouts, error: blackoutErr } = await db
+      .from("area_blackout_dates")
+      .select("start_date, end_date")
+      .eq("territory_id", resolvedTerritoryId);
+    if (!blackoutErr && day) {
+      const hit = (blackouts || []).some((row: any) => {
+        const start = String(row.start_date || "").slice(0, 10);
+        const end = String(row.end_date || row.start_date || "").slice(0, 10);
+        return !!start && day >= start && day <= end;
+      });
+      if (hit && !proposal.blackout_verified_at && !body.blackoutVerified) {
+        return jsonResp(
+          {
+            error:
+              "This date is a blackout. A manager has to confirm coverage before it can be sent.",
+          },
+          422,
+        );
+      }
+      if (hit && body.blackoutVerified && !proposal.blackout_verified_at) {
+        await db
+          .from("proposals")
+          .update({ blackout_verified_at: new Date().toISOString() })
+          .eq("id", proposal.id);
+      }
+    }
   }
 
   // Load portal settings for the resolved territory. Try the full column
