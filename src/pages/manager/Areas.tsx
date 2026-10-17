@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { setSuperAdminViewTerritory } from "@/lib/current-territory";
 import { HONEYSUCKLE_TERRITORY_ID } from "@/lib/territory";
+import { loadSharedEditorVideoPricing } from "@/lib/editor-video-pricing";
 import {
   Card,
   CardContent,
@@ -172,7 +173,8 @@ export default function Areas() {
       });
       if (terrError) throw terrError;
 
-      // Seed an empty portal_settings row for this territory.
+      // Seed portal settings for this territory, including the shared editor prices.
+      const sharedPricing = await loadSharedEditorVideoPricing();
       const { error: settingsError } = await supabase
         .from("portal_settings")
         .insert({
@@ -187,6 +189,9 @@ export default function Areas() {
           company_name: name,
           sales_pin: "",
           timezone: "",
+          editor_video_pricing: sharedPricing.length
+            ? JSON.stringify(sharedPricing)
+            : null,
         });
       if (settingsError) {
         // Non-fatal — the area still exists; owner can edit + save later.

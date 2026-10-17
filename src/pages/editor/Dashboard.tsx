@@ -9,6 +9,10 @@ import {
 } from "@/lib/editor-weddings";
 import { photoEditRate, presentEditorWedding, trackStatusUpdates } from "@/lib/edit-tracks";
 import {
+  loadSharedEditorVideoPricing,
+  pickEditorVideoPricing,
+} from "@/lib/editor-video-pricing";
+import {
   Card,
   CardContent,
   CardHeader,
@@ -280,6 +284,11 @@ export default function EditorDashboard() {
     queryFn: api.getPortalSettings,
   });
 
+  const { data: sharedEditorPricing } = useQuery({
+    queryKey: ["shared-editor-video-pricing"],
+    queryFn: loadSharedEditorVideoPricing,
+  });
+
   const { data: editorProfile } = useQuery({
     queryKey: ["editor-profile", user?.id],
     queryFn: async () => {
@@ -383,36 +392,10 @@ export default function EditorDashboard() {
       enabled: !!selectedWedding?.id && isRatingModalOpen,
     });
 
-  const videoPricing = useMemo(() => {
-    if (settings?.editor_video_pricing) {
-      try {
-        const parsed =
-          typeof settings.editor_video_pricing === "string"
-            ? JSON.parse(settings.editor_video_pricing)
-            : settings.editor_video_pricing;
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch (e) {}
-    }
-    return [
-      {
-        id: "highlight_9_10",
-        label: "Wedding Highlight (9-10 min)",
-        price: 190,
-      },
-      { id: "highlight_7_8", label: "Wedding Highlight (7-8 min)", price: 170 },
-      { id: "highlight_5_6", label: "Wedding Highlight (5-6 min)", price: 150 },
-      { id: "highlight_3_4", label: "Wedding Highlight (3-4 min)", price: 130 },
-      { id: "highlight_1_2", label: "Wedding Highlight (1-2 min)", price: 110 },
-      { id: "social_teaser", label: "Social Media Teaser (≤1min)", price: 80 },
-      { id: "ceremony_30", label: "Ceremony Reel (≤30 mins)", price: 70 },
-      { id: "ceremony_60", label: "Ceremony Reel (≤60 mins)", price: 110 },
-      { id: "speeches", label: "Speeches & Toasts Reel", price: 70 },
-      { id: "other_reel", label: "Other Wedding Reels (≤30 mins)", price: 50 },
-      { id: "long_highlight", label: "Long Highlight (11-15mins)", price: 230 },
-      { id: "doc_16_30", label: "Documentary (16-30mins)", price: 260 },
-      { id: "doc_31_60", label: "Documentary (31-60mins)", price: 290 },
-    ];
-  }, [settings]);
+  const videoPricing = useMemo(
+    () => pickEditorVideoPricing(settings?.editor_video_pricing, sharedEditorPricing),
+    [settings, sharedEditorPricing],
+  );
 
   const updateWeddingMutation = useMutation({
     mutationFn: ({

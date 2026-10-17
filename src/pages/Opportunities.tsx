@@ -28,8 +28,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { geocodeAddress, calculateDistanceMiles } from "@/lib/geocoding";
 import { formatDisplayDate } from "@/lib/utils";
 import { getContractorByEmail } from "@/lib/contractor-by-email";
-import { fetchOpenJobsForTerritory, fetchMyApplications } from "@/lib/api-territory-scoped";
 import { contractorCanSeeJob } from "@/lib/contractor-job-visibility";
+import { contractorWorkTerritoryIds } from "@/lib/contractor-area-applications";
+import { fetchOpenJobsForTerritories, fetchMyApplications } from "@/lib/api-territory-scoped";
 
 export default function Opportunities() {
   const { user } = useAuth();
@@ -43,10 +44,12 @@ export default function Opportunities() {
     enabled: !!user?.email,
   });
 
+  const workTerritoryIds = contractorWorkTerritoryIds(currentUser || null);
+
   const { data: jobs = [], isLoading: isLoadingJobs } = useQuery({
-    queryKey: ["contractor-open-jobs", currentUser?.territory_id],
-    queryFn: () => fetchOpenJobsForTerritory(currentUser!.territory_id!),
-    enabled: !!currentUser?.territory_id,
+    queryKey: ["contractor-open-jobs", workTerritoryIds.join(",")],
+    queryFn: () => fetchOpenJobsForTerritories(workTerritoryIds),
+    enabled: workTerritoryIds.length > 0,
   });
 
   const { data: eventByJob = {} } = useQuery({

@@ -1,9 +1,11 @@
 import { supabase } from "./supabase";
 import type { DbContractor } from "./api";
+import { loadMyAreaApplications, type AreaApplication } from "./contractor-area-applications";
 
 /** DbContractor plus the territory_id column (added after the interface). */
 export type ContractorWithEmail = DbContractor & {
   territory_id?: string | null;
+  area_applications?: AreaApplication[];
 };
 
 function parseRegionsArray(regions: any): string[] {
@@ -54,5 +56,6 @@ export async function getContractorByEmail(
         : data.region,
     tags:
       typeof data.tags === "string" ? parseRegionsArray(data.tags) : data.tags,
+    area_applications: await loadMyAreaApplications(),
   } as ContractorWithEmail;
 }

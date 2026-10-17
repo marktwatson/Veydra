@@ -37,7 +37,8 @@ import { supabase } from "@/lib/supabase";
 import { resolveHomeTerritoryId, currentTerritoryId } from "@/lib/current-territory";
 import { ownerPackageKey, ownerSetupClosedKey, setupComplete } from "@/lib/owner-setup";
 import { getContractorByEmail } from "@/lib/contractor-by-email";
-import { fetchOpenJobsForTerritory } from "@/lib/api-territory-scoped";
+import { fetchOpenJobsForTerritories } from "@/lib/api-territory-scoped";
+import { contractorWorkTerritoryIds } from "@/lib/contractor-area-applications";
 import { contractorCanSeeJob } from "@/lib/contractor-job-visibility";
 import { useEffect, useState } from "react";
 import { AreaAssistant } from "@/components/AreaAssistant";
@@ -354,10 +355,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
       if (!user || user.role !== "contractor") return 0;
 
       const currentUser = await getContractorByEmail(user.email || "");
-      if (!currentUser?.territory_id) return 0;
+      const territoryIds = contractorWorkTerritoryIds(currentUser);
+      if (territoryIds.length === 0) return 0;
 
       const [jobs, applications, assignments] = await Promise.all([
-        fetchOpenJobsForTerritory(currentUser.territory_id),
+        fetchOpenJobsForTerritories(territoryIds),
         api.getApplications(),
         api.getAssignments(),
       ]);
