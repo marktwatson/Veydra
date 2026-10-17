@@ -30,11 +30,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { resolveTerritoryBySlug } from "@/lib/territory";
-import {
-  getPortalSettingsForTerritory,
-  type ApplyPortalSettings,
-} from "@/lib/apply-territory-settings";
+import { loadPublicApply, submitPublicApplication } from "@/lib/public-apply";
 
 const isAccountExistsError = (msg: string) =>
   /already (exists|registered|been registered)|doesn't match|password/i.test(
@@ -54,26 +50,18 @@ export default function Apply() {
   // Resolve the territory from the route slug (case-insensitive). No slug →
   // found:false (we render an "Unknown location" page and never insert a
   // contractor). "honeysuckle" → the Honeysuckle pipeline.
-  const { data: territory, isLoading: isLoadingTerritory } = useQuery({
+  const { data: applyPage, isLoading: isLoadingTerritory } = useQuery({
     queryKey: ["apply-territory", slug ?? ""],
-    queryFn: () => resolveTerritoryBySlug(slug),
+    queryFn: () => loadPublicApply(slug),
   });
 
-  const territoryId = territory?.found ? territory.id : null;
-
-  // Load the territory-scoped portal_settings row (NOT .limit(1)). Falls back
-  // to null when no row exists for this territory — CRM tracking is skipped but
-  // the contractor is still saved.
-  const { data: portalSettings, isLoading: isLoadingSettings } = useQuery({
-    queryKey: ["apply-portal-settings", territoryId ?? ""],
-    queryFn: () =>
-      territoryId
-        ? getPortalSettingsForTerritory(territoryId)
-        : Promise.resolve<ApplyPortalSettings | null>(null),
-    enabled: !!territoryId,
-  });
-
-  const regions = portalSettings?.regions || ["Charlotte", "Raleigh"];
+  const territoryId = applyPage?.found ? applyPage.id : null;
+  const portalSettings = applyPage?.settings;
+  const regions = portalSettings?.regions?.length
+    ? portalSettings.regions
+    : applyPage?.legacy
+      ? ["Charlotte", "Raleigh"]
+      : [];
   const companyName = portalSettings?.company_name || "Veydra";
   const logoUrl = portalSettings?.logo_url;
 
@@ -129,7 +117,7 @@ export default function Apply() {
       const isRejected = leadWeddings < 3;
 
       // Check if email already exists (escaped ILIKE so underscores match literally)
-      const conflict = await checkEmailConflict(email);
+      const conflict = applyPage?.legacy ? await checkEmailConflict(email) : { exists: false };
       if (conflict.exists) {
         const msg = `An account with this email already exists in our system (${conflict.table}). If this is a mistake, contact support.`;
         setInlineError(msg);
@@ -143,24 +131,22 @@ export default function Apply() {
         `${firstName} ${lastName}`,
       );
 
-      const newContractor = {
-        id: authData.user?.id || crypto.randomUUID(),
-        first_name: firstName,
-        last_name: lastName,
+      const newContractor = await submitPublicApplication({
+        slug,
+        legacy: Boolean(applyPage?.legacy),
+        territoryId,
+        firstName,
+        lastName,
         email,
         phone,
-        status: isRejected ? "rejected" : "applied",
         specialty,
-        region: selectedRegions,
-        drone_approved: false,
-        // Bartenders skip Training Academy; still complete W-9.
-        training_completed: specialty?.toLowerCase().includes("bartender"),
-        portfolio_url: portfolioUrl,
-        gear_list: `Lead Weddings Shot: ${leadWeddings}\n\nGear:\n${gearList}`,
-        territory_id: territoryId,
-      };
-
-      await api.addContractor(newContractor);
+        regions: selectedRegions,
+        portfolioUrl,
+        gearList: `Lead Weddings Shot: ${leadWeddings}\n\nGear:\n${gearList}`,
+        leadWeddings,
+        trainingCompleted: specialty?.toLowerCase().includes("bartender"),
+        userId: authData.user?.id || crypto.randomUUID(),
+      });
 
       if (newContractor?.id) {
         try {
@@ -213,7 +199,7 @@ export default function Apply() {
     }
   };
 
-  if (isLoadingTerritory || isLoadingSettings) {
+  if (isLoadingTerritory) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-muted/30">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -223,7 +209,7 @@ export default function Apply() {
 
   // Unknown slug — render a simple "Unknown location" page. Do NOT insert a
   // contractor.
-  if (territory && !territory.found) {
+  if (applyPage && !applyPage.found) {
     return (
       <div className="min-h-screen bg-muted/30 py-12 px-4 sm:px-6 lg:px-8 flex flex-col items-center justify-center">
         <div className="w-full max-w-md text-center space-y-6">
@@ -408,7 +394,13 @@ export default function Apply() {
                   Regions You Cover <span className="text-destructive">*</span>
                 </Label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4 border rounded-xl bg-muted/10">
-                  {regions.map((r: string) => (
+                  {regions.length === 0 ? (
+                    <p className="col-span-full text-sm text-muted-foreground">
+                      This area has no regions yet. Add them in Settings, then
+                      refresh this page.
+                    </p>
+                  ) : (
+                    regions.map((r: string) => (
                     <div key={r} className="flex items-center space-x-2">
                       <Checkbox
                         id={`region-${r}`}
@@ -422,7 +414,8 @@ export default function Apply() {
                         {r}
                       </Label>
                     </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </div>
 
