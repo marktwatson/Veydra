@@ -33,7 +33,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { loadPublicApply, submitPublicApplication } from "@/lib/public-apply";
 
 const isAccountExistsError = (msg: string) =>
-  /already (exists|registered|been registered)|doesn't match|password/i.test(
+  /already (exists|registered|been registered|applied|have an application)|this company|doesn't match|password/i.test(
     msg,
   );
 

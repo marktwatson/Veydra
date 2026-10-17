@@ -19,9 +19,29 @@ export function contractorCanSeeJob(
 
   const jobTerritory = job.territory_id || null;
   const myTerritory = contractor.territory_id || null;
-  if (!jobTerritory || !myTerritory || jobTerritory !== myTerritory) {
+  const extra = Array.isArray(contractor.area_applications)
+    ? contractor.area_applications.find((app: any) => {
+        const status = String(app?.status || "").toLowerCase();
+        return (
+          app?.territory_id === jobTerritory &&
+          (status === "active" || status === "hired")
+        );
+      })
+    : null;
+  if (!jobTerritory || (!myTerritory && !extra) || (jobTerritory !== myTerritory && !extra)) {
     return false;
   }
+
+  const view =
+    extra && jobTerritory !== myTerritory
+      ? {
+          ...contractor,
+          territory_id: jobTerritory,
+          specialty: extra.specialty || contractor.specialty,
+          region: extra.region?.length ? extra.region : contractor.region,
+          drone_approved: extra.drone_approved,
+        }
+      : contractor;
 
   const booked = opts.bookedDates;
   if (booked && job.weddings?.date && booked.has(job.weddings.date)) {
@@ -29,7 +49,7 @@ export function contractorCanSeeJob(
   }
 
   const invited = Array.isArray(job.invited_contractors)
-    ? job.invited_contractors.includes(contractor.id)
+    ? job.invited_contractors.includes(view.id)
     : false;
   if (invited) return true;
 
@@ -39,17 +59,17 @@ export function contractorCanSeeJob(
   const requiresDrone =
     (job.drone_required === true || job.drone_required === "true") &&
     !isPhotoOnly;
-  if (requiresDrone && !contractor.drone_approved) return false;
+  if (requiresDrone && !view.drone_approved) return false;
 
   if (
-    contractor.specialty &&
-    !specialtyMatchesJob(contractor.specialty, job.role)
+    view.specialty &&
+    !specialtyMatchesJob(view.specialty, job.role)
   ) {
     return false;
   }
 
-  if (opts.filterRegion && contractor.region) {
-    const regions = parseRegions(contractor.region);
+  if (opts.filterRegion && view.region) {
+    const regions = parseRegions(view.region);
     if (regions.length > 0) {
       const isAllRegions = regions.some(
         (r) => r.toLowerCase() === "all regions",

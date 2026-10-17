@@ -80,7 +80,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase, supabaseUrl } from "@/lib/supabase";
 import { getContractorByEmail } from "@/lib/contractor-by-email";
-import { fetchOpenJobsForTerritory } from "@/lib/api-territory-scoped";
+import { fetchOpenJobsForTerritories } from "@/lib/api-territory-scoped";
+import { contractorWorkTerritoryIds } from "@/lib/contractor-area-applications";
 import { contractorCanSeeJob } from "@/lib/contractor-job-visibility";
 import confetti from "canvas-confetti";
 
@@ -522,11 +523,12 @@ export default function Dashboard() {
     queryFn: api.getJobs,
   });
 
+  const workTerritoryIds = contractorWorkTerritoryIds(contractor || null);
+
   const { data: areaOpenJobs = [], isLoading: loadingAreaJobs } = useQuery({
-    queryKey: ["contractor-open-jobs", contractor?.territory_id],
-    queryFn: () =>
-      fetchOpenJobsForTerritory(contractor!.territory_id as string),
-    enabled: !!contractor?.territory_id,
+    queryKey: ["contractor-open-jobs", workTerritoryIds.join(",")],
+    queryFn: () => fetchOpenJobsForTerritories(workTerritoryIds),
+    enabled: workTerritoryIds.length > 0,
   });
 
   const { data: settings } = useQuery({

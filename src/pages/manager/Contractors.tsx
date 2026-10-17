@@ -101,6 +101,7 @@ import { useToast } from "@/hooks/use-toast";
 import { toast as sonnerToast } from "sonner";
 import { ToastAction } from "@/components/ui/toast";
 import { api, callOvantaSend, DbContractor } from "@/lib/api";
+import { saveContractorOrArea, deleteContractorOrArea } from "@/lib/contractor-area-applications";
 import { addContractorWithTerritory } from "@/lib/contractor-territory";
 import { parseRegions } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -714,11 +715,20 @@ export default function ManagerContractors() {
           targetEvent?.start_time;
 
         if (eventTime) {
-          supabase
-            .from("contractors")
-            .update({ interview_date: eventTime })
-            .eq("id", contractor.id)
-            .then();
+          if (contractor.area_application_id) {
+            supabase
+              .rpc("update_contractor_area_application", {
+                p_id: contractor.area_application_id,
+                p_updates: { interview_date: eventTime },
+              })
+              .then();
+          } else {
+            supabase
+              .from("contractors")
+              .update({ interview_date: eventTime })
+              .eq("id", contractor.id)
+              .then();
+          }
           setFetchedInterviews((prev) => ({
             ...prev,
             [contractor.id]: eventTime,
@@ -802,7 +812,7 @@ export default function ManagerContractors() {
     mutationFn: async ({ ids, status }: { ids: string[]; status: string }) => {
       const settings = await api.getPortalSettings();
       const promises = ids.map(async (id) => {
-        const contractor = contractors.find((c: any) => c.id === id);
+        const contractor = contractors.find((c: any) => c.id === id) as any;
         const updates: any = { status };
 
         if (
@@ -958,6 +968,9 @@ export default function ManagerContractors() {
               });
           }
         }
+        if (contractor?.area_application_id) {
+          return saveContractorOrArea(contractor, updates);
+        }
         return api.updateContractor(id, updates);
       });
       await Promise.all(promises);
@@ -980,6 +993,10 @@ export default function ManagerContractors() {
   });
   const terminateMutation = useMutation({
     mutationFn: async (id: string) => {
+      const contractor = contractors.find((c: any) => c.id === id) as any;
+      if (contractor?.area_application_id) {
+        return saveContractorOrArea(contractor, { status: "terminated" });
+      }
       return api.updateContractor(id, { status: "terminated" });
     },
     onSuccess: () => {
@@ -1029,8 +1046,12 @@ export default function ManagerContractors() {
       : ["Charlotte", "Raleigh"];
 
   const updateMutation = useMutation({
-    mutationFn: (data: { id: string; updates: Partial<DbContractor> }) =>
-      api.updateContractor(data.id, data.updates),
+    mutationFn: (data: { id: string; updates: Partial<DbContractor> }) => {
+      const contractor = contractors.find((c: any) => c.id === data.id) || {
+        id: data.id,
+      };
+      return saveContractorOrArea(contractor, data.updates);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["contractors"] });
       setEditingContractor(null);
@@ -1049,19 +1070,19 @@ export default function ManagerContractors() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.deleteContractor(id),
-    onSuccess: (_, id) => {
+    mutationFn: (contractor: any) => deleteContractorOrArea(contractor),
+    onSuccess: (_, contractor) => {
       queryClient.invalidateQueries({ queryKey: ["contractors"] });
       setPendingDeletions((prev) => {
         const newSet = new Set(prev);
-        newSet.delete(id);
+        newSet.delete(contractor.id);
         return newSet;
       });
     },
-    onError: (error: any, id) => {
+    onError: (error: any, contractor) => {
       setPendingDeletions((prev) => {
         const newSet = new Set(prev);
-        newSet.delete(id);
+        newSet.delete(contractor.id);
         return newSet;
       });
       toast({
@@ -1076,13 +1097,15 @@ export default function ManagerContractors() {
     const id = contractor.id;
     setPendingDeletions((prev) => new Set(prev).add(id));
     deleteTimeouts.current[id] = setTimeout(() => {
-      deleteMutation.mutate(id);
+      deleteMutation.mutate(contractor);
       delete deleteTimeouts.current[id];
     }, 5000);
 
     toast({
       title: "Contractor deleted",
-      description: `${contractor.first_name} ${contractor.last_name} has been removed.`,
+      description: contractor.area_application_id
+        ? `${contractor.first_name} was removed from this area only.`
+        : `${contractor.first_name} ${contractor.last_name} has been removed.`,
       action: (
         <ToastAction
           altText="Undo deletion"

@@ -116,6 +116,12 @@ export async function fetchMyApplicationForJob(
 }
 
 export async function fetchOpenJobsForTerritory(territoryId: string) {
+  return fetchOpenJobsForTerritories([territoryId]);
+}
+
+export async function fetchOpenJobsForTerritories(territoryIds: string[]) {
+  const ids = Array.from(new Set(territoryIds.filter(Boolean)));
+  if (ids.length === 0) return [];
   const { data, error } = await supabase
     .from("jobs")
     .select(
@@ -125,7 +131,7 @@ export async function fetchOpenJobsForTerritory(territoryId: string) {
     `,
     )
     .eq("status", "open")
-    .eq("territory_id", territoryId)
+    .in("territory_id", ids)
     .order("created_at", { ascending: false })
     .limit(2000);
   if (error) throw error;

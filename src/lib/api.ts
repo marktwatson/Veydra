@@ -2603,12 +2603,28 @@ export const api = {
     if (territoryId) q = q.eq("territory_id", territoryId);
     const { data, error } = await q;
     if (error) throw error;
-    return (data || []).map((c) => ({
+    const home = (data || []).map((c) => ({
       ...c,
       region:
         typeof c.region === "string" ? parseRegionsArray(c.region) : c.region,
       tags: typeof c.tags === "string" ? parseRegionsArray(c.tags) : c.tags,
     })) as DbContractor[];
+    if (!territoryId) return home;
+
+    const { data: extra, error: extraError } = await supabase.rpc(
+      "list_contractor_area_applications",
+      { p_territory: territoryId },
+    );
+    if (extraError || !Array.isArray(extra)) return home;
+    const homeIds = new Set(home.map((c) => c.id));
+    const added = extra
+      .filter((row: any) => row?.id && row.area_application_id && !homeIds.has(row.id))
+      .map((row: any) => ({
+        ...row,
+        region: Array.isArray(row.region) ? row.region : parseRegionsArray(row.region),
+        tags: Array.isArray(row.tags) ? row.tags : parseRegionsArray(row.tags),
+      }));
+    return [...home, ...added] as DbContractor[];
   },
 
   async addContractor(contractor: Omit<DbContractor, "created_at">) {
