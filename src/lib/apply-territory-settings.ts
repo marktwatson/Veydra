@@ -7,6 +7,16 @@ export interface ApplyPortalSettings {
   hl_api_key?: string | null;
   hl_location_id?: string | null;
   regions?: string[];
+  email_pipeline_rejected_enabled?: boolean | null;
+  email_pipeline_rejected_subject?: string | null;
+  email_pipeline_rejected_template?: string | null;
+  sms_pipeline_rejected_enabled?: boolean | null;
+  sms_pipeline_rejected_template?: string | null;
+  email_applicant_welcome_enabled?: boolean | null;
+  email_applicant_welcome_subject?: string | null;
+  email_applicant_welcome_template?: string | null;
+  sms_applicant_welcome_enabled?: boolean | null;
+  sms_applicant_welcome_template?: string | null;
 }
 
 function parseRegions(regions: any): string[] {
