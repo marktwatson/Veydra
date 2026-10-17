@@ -84,6 +84,12 @@ import BartendingModuleToggle from "@/components/BartendingModuleToggle";
 import { BartendingContractTemplateCard } from "@/components/BartendingContractTemplateCard";
 import { useBartendingModule } from "@/hooks/use-bartending-module";
 import { currentTerritoryId } from "@/lib/current-territory";
+import {
+  copyEditorPricingToEmptyRows,
+  loadSharedEditorVideoPricing,
+  parseEditorVideoPricing,
+  saveEditorPricingForEveryArea,
+} from "@/lib/editor-video-pricing";
 import { AreaBlackoutDatesCard } from "@/components/AreaBlackoutDatesCard";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -2006,14 +2012,15 @@ export default function ManagerSettings() {
           if (settings.photo_bid_max) setPhotoBidMax(settings.photo_bid_max);
           if (settings.video_bid_min) setVideoBidMin(settings.video_bid_min);
           if (settings.video_bid_max) setVideoBidMax(settings.video_bid_max);
-          if (settings.editor_video_pricing) {
-            try {
-              setEditorVideoPricing(
-                typeof settings.editor_video_pricing === "string"
-                  ? JSON.parse(settings.editor_video_pricing)
-                  : settings.editor_video_pricing,
-              );
-            } catch (e) {}
+          const ownPricing = parseEditorVideoPricing(settings.editor_video_pricing);
+          if (ownPricing.length) {
+            setEditorVideoPricing(ownPricing);
+          } else {
+            loadSharedEditorVideoPricing()
+              .then((shared) => {
+                if (shared.length) setEditorVideoPricing(shared);
+              })
+              .catch(() => {});
           }
           if (settings.regions) setRegions(settings.regions);
 
@@ -2054,6 +2061,20 @@ export default function ManagerSettings() {
       setRegions(["Charlotte", "Raleigh"]);
     }
   }, []);
+
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    let active = true;
+    loadSharedEditorVideoPricing()
+      .then((shared) => {
+        if (!active || !shared.length) return;
+        return copyEditorPricingToEmptyRows(shared);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [isSuperAdmin]);
 
   // Load pricing packages & addons
   const loadPricing = async () => {
@@ -2755,7 +2776,6 @@ export default function ManagerSettings() {
         photo_bid_max: photoBidMax === "" ? null : Number(photoBidMax),
         video_bid_min: videoBidMin === "" ? null : Number(videoBidMin),
         video_bid_max: videoBidMax === "" ? null : Number(videoBidMax),
-        editor_video_pricing: JSON.stringify(editorVideoPricing),
       });
       toast({
         title: "Pay Rates Saved",
@@ -2766,6 +2786,26 @@ export default function ManagerSettings() {
         variant: "destructive",
         title: "Error saving pay rates",
         description: error.message || "Could not save the pay rates.",
+      });
+    } finally {
+      setIsSavingRates(false);
+    }
+  };
+
+  const handleSaveEditorPricing = async () => {
+    if (!isSuperAdmin) return;
+    setIsSavingRates(true);
+    try {
+      const count = await saveEditorPricingForEveryArea(editorVideoPricing);
+      toast({
+        title: "Editor pricing saved",
+        description: `The same list is now on ${count} area${count === 1 ? "" : "s"}. Invoices already sent keep their old amount.`,
+      });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error saving editor pricing",
+        description: error.message || "Could not save the editor prices.",
       });
     } finally {
       setIsSavingRates(false);
@@ -3905,7 +3945,9 @@ export default function ManagerSettings() {
               <CardHeader>
                 <CardTitle>Editor Pricing Tiers</CardTitle>
                 <CardDescription>
-                  Configure the video deliverables and prices for your editors.
+                  {isSuperAdmin
+                    ? "One list for every area. Saving writes it to all of them. Invoices already sent keep the amount on the invoice."
+                    : "The same editor prices are used in every area. Only a platform admin can change them."}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -3927,6 +3969,7 @@ export default function ManagerSettings() {
                           }
                           placeholder="e.g. Wedding Highlight (9-10 min)"
                           className="h-8 text-sm"
+                          disabled={!isSuperAdmin}
                         />
                       </div>
                       <div className="w-24 relative">
@@ -3944,31 +3987,44 @@ export default function ManagerSettings() {
                             )
                           }
                           className="h-8 pl-6 text-sm"
+                          disabled={!isSuperAdmin}
                         />
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive"
-                        onClick={() => handleRemoveEditorPricing(index)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      {isSuperAdmin && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive"
+                          onClick={() => handleRemoveEditorPricing(index)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                   ))}
+                  {editorVideoPricing.length === 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      No editor prices yet.
+                    </p>
+                  )}
                 </div>
-                <div className="flex justify-between items-center pt-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleAddEditorPricing}
-                  >
-                    <Plus className="mr-2 h-4 w-4" /> Add Item
-                  </Button>
-                  <Button onClick={handleSaveRates} disabled={isSavingRates}>
-                    {isSavingRates ? "Saving..." : "Save Pricing"}
-                  </Button>
-                </div>
+                {isSuperAdmin && (
+                  <div className="flex justify-between items-center pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleAddEditorPricing}
+                    >
+                      <Plus className="mr-2 h-4 w-4" /> Add Item
+                    </Button>
+                    <Button
+                      onClick={handleSaveEditorPricing}
+                      disabled={isSavingRates}
+                    >
+                      {isSavingRates ? "Saving..." : "Save for every area"}
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
